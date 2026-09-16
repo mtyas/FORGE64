@@ -33,6 +33,7 @@ if(FORGE64_SCRIPTING)
   file(GLOB F64_LUA_SOURCES ${lua_SOURCE_DIR}/*.c)
   list(FILTER F64_LUA_SOURCES EXCLUDE REGEX ".*/(lua|luac|onelua)\\.c$")
   add_library(lua54 STATIC ${F64_LUA_SOURCES})
+  set_target_properties(lua54 PROPERTIES POSITION_INDEPENDENT_CODE ON)
   target_include_directories(lua54 PUBLIC ${lua_SOURCE_DIR})
   if(UNIX AND NOT APPLE)
     target_compile_definitions(lua54 PUBLIC LUA_USE_LINUX)
@@ -74,7 +75,8 @@ target_sources(Forge64 PRIVATE
 
 target_compile_definitions(Forge64 PRIVATE
   JUCE_WEB_BROWSER=0
-  JUCE_USE_CURL=0)
+  JUCE_USE_CURL=0
+  JUCE_IGNORE_VST3_MISMATCHED_PARAMETER_ID_WARNING=1)
 
 target_link_libraries(Forge64 PRIVATE
   juce::juce_audio_utils
