@@ -27,7 +27,6 @@ public:
 
 private:
     class Content;
-    class ScriptDocListener;
 
     ModRingKnob* makeKnob(const char* base, const char* label);
     ModRingKnob* makeChip(const char* destId, const char* label);
@@ -53,9 +52,7 @@ private:
     juce::ToggleButton* scriptOnBtn = nullptr;
     juce::ComboBox *fxCombo = nullptr, *chokeCombo = nullptr, *busCombo = nullptr,
                    *modeCombo = nullptr, *chanCombo = nullptr, *noteCombo = nullptr;
-    juce::CodeEditorComponent* scriptEditor = nullptr;
-    std::unique_ptr<juce::CodeDocument> scriptDoc;
-    std::unique_ptr<ScriptDocListener> docListener;
+    juce::TextEditor* scriptEditor = nullptr;
     ConnectionList* connList = nullptr;
     std::unique_ptr<juce::FileChooser> chooser;
 

@@ -23,7 +23,7 @@ public:
 
         amount.setSliderStyle(juce::Slider::LinearHorizontal);
         amount.setTextBoxStyle(juce::Slider::NoTextBox, true, 0, 0);
-        amount.setRange(juce::NormalisableRange<double>(-1.0, 1.0, 0.001));
+        amount.setRange(-1.0, 1.0, 0.001);
         amount.setValue((double) conn.getProperty("amount", 0.5), juce::dontSendNotification);
         amount.onValueChange = [this] { tree.setProperty("amount", amount.getValue(), nullptr); };
         amount.setColour(juce::Slider::backgroundColourId, ui::panelHi());
@@ -89,7 +89,7 @@ public:
         g.fillAll(row % 2 ? ui::panel() : ui::panel().brighter(0.05f));
     }
 
-    juce::Component* refreshComponentForListBoxItem(int row, bool, juce::Component* existing) override
+    juce::Component* refreshComponentForRow(int row, bool, juce::Component* existing) override
     {
         std::unique_ptr<juce::Component> toDelete(existing);
         if (row >= 0 && row < (int) owner.items.size())
@@ -285,7 +285,7 @@ public:
         }
     }
 
-    juce::Component* refreshComponentForListBoxItem(int row, bool, juce::Component* existing) override
+    juce::Component* refreshComponentForRow(int row, bool, juce::Component* existing) override
     {
         std::unique_ptr<juce::Component> toDelete(existing);
         if (row >= 0 && row < (int) rows.size() && ! rows[(size_t) row].header)
@@ -319,7 +319,7 @@ public:
             auto* seq = dynamic_cast<SeqSource*>(matrix.sourceAt(slot));
             if (seq == nullptr)
                 return;
-            const int N = juce::limit(seq->numSteps.load(), 4, 32);
+            const int N = clampRange(seq->numSteps.load(), 4, 32);
             const float w = (float) getWidth() / (float) N;
             const float h = (float) getHeight();
 
@@ -344,8 +344,8 @@ public:
             auto* seq = dynamic_cast<SeqSource*>(matrix.sourceAt(slot));
             if (seq == nullptr)
                 return;
-            const int N = juce::limit(seq->numSteps.load(), 4, 32);
-            const int idx = juce::limit((int) ((float) e.x / (float) juce::jmax(1, getWidth()) * (float) N), 0, N - 1);
+            const int N = clampRange(seq->numSteps.load(), 4, 32);
+            const int idx = clampRange((int) ((float) e.x / (float) juce::jmax(1, getWidth()) * (float) N), 0, N - 1);
             const float v = 1.f - (float) e.y / (float) juce::jmax(1, getHeight());
             matrix.setSeqStep(slot, idx, v);
             repaint();
@@ -450,7 +450,7 @@ private:
         auto* s = new juce::Slider();
         s->setSliderStyle(juce::Slider::LinearHorizontal);
         s->setTextBoxStyle(juce::Slider::TextBoxRight, false, 52, 18);
-        s->setRange(juce::NormalisableRange<double>(min, max, interval, skew));
+        s->setNormalisableRange(juce::NormalisableRange<double>(min, max, interval, skew));
         s->setValue((double) st.getProperty(key, min), juce::dontSendNotification);
         s->setColour(juce::Slider::backgroundColourId, ui::panelHi());
         s->setColour(juce::Slider::trackColourId, ui::line());
@@ -516,7 +516,6 @@ private:
     {
         auto* tb = new juce::ToggleButton(text);
         ui::styleToggle(*tb);
-        tb->setFont(uiFont(11.f));
         tb->setToggleState(bool(st.getProperty(key, false)), juce::dontSendNotification);
         tb->onClick = [this, key, tb] { matrix.setSourceParam(slot, key, tb->getToggleState()); };
         addRow(nullptr, tb, 24);
@@ -553,7 +552,6 @@ ModPanel::ModPanel(ModMatrix& m, juce::ValueTree, juce::ValueTree matTree)
     srcModel = std::make_unique<SourceListModel>(*this);
     sourceList.setModel(srcModel.get());
     sourceList.setRowHeight(26);
-    sourceList.setHeaderHeight(0);
     ui::styleListBox(sourceList);
     addAndMakeVisible(sourceList);
 
@@ -592,14 +590,15 @@ void ModPanel::openSourceEditor(int slot, juce::Component* near)
 
     popup.reset();
     auto* content = new SourceEditorContent(matrixRef, slot);
-    const int ch = content->layoutHeight();
+    const int contentH = content->layoutHeight();
 
     auto dw = std::make_unique<juce::DialogWindow>(slotName(slot), ui::panelHi(), true);
     dw->setContentOwned(content, false);
     dw->setResizable(false, false);
     dw->setUsingNativeTitleBar(false);
-    dw->centreAroundComponent(near, 330, ch + 28);
+    dw->centreAroundComponent(near, 330, contentH + 30);
     dw->setAlwaysOnTop(true);
+    dw->enterModalState(false); // non-blocking: plugin-safe
     dw->setVisible(true);
     popup = std::move(dw);
 }

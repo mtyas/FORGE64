@@ -29,6 +29,7 @@ private:
     juce::ValueTree tree;
     juce::String prefix;
     juce::ListBox list;
+    std::unique_ptr<Model> model;
     std::vector<juce::ValueTree> items;
 };
 

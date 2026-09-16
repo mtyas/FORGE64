@@ -1,5 +1,6 @@
 #pragma once
 #include <JuceHeader.h>
+#include "../Engine/PadDefs.h"
 
 namespace f64::ui {
 

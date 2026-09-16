@@ -64,7 +64,7 @@ private:
     struct RawMidiEv { int pos = 0; float vel = 0.f; int note = 0; int chan = 1; bool off = false; };
 
     static BusesProperties makeBuses();
-    static juce::AudioProcessorParameters makeParams();
+    static juce::AudioProcessorValueTreeState::ParameterLayout makeParams();
     void fillPadParams(int pad, PadParams& out);
     void onPresetLoaded();
 

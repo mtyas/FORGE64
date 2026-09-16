@@ -60,7 +60,7 @@ void LFOSource::render(float* out, int n)
         return;
     }
 
-    const int   sh = juce::limit(shape.load(), 0, 5);
+    const int   sh = clampRange(shape.load(), 0, 5);
     const bool  un = uni.load();
     const float gl = glide.load();
     const float po = phaseOff.load();
@@ -148,7 +148,7 @@ void RandomSource::render(float* out, int n)
         return;
     }
 
-    const int   k = juce::limit(kind.load(), 0, 4);
+    const int   k = clampRange(kind.load(), 0, 4);
     const bool  un = uni.load();
     const float a = juce::jlimit(0.001f, 1.f, p1.load());
     auto randBi = [this] { return rnd.nextFloat() * 2.f - 1.f; };
@@ -166,7 +166,7 @@ void RandomSource::render(float* out, int n)
             lx += dx * dt; ly += dy * dt; lz += dz * dt;
             if (! std::isfinite(lx) || ! std::isfinite(ly) || ! std::isfinite(lz))
             { lx = 0.1; ly = 0.0; lz = 0.0; }
-            out[i] = toOut(juce::limitRange((float) (lx / 20.0), -1.f, 1.f));
+            out[i] = toOut(clampRange((float) (lx / 20.0), -1.f, 1.f));
         }
         return;
     }
@@ -187,7 +187,7 @@ void RandomSource::render(float* out, int n)
             {
                 case 0: held = randBi(); break;                                        // S&H
                 case 1: prevHeld = held; held = randBi(); break;                       // smooth
-                case 2: held = juce::limitRange(held + randBi() * a, -1.f, 1.f); break; // drunk walk
+                case 2: held = clampRange(held + randBi() * a, -1.f, 1.f); break; // drunk walk
                 case 3: if (rnd.nextFloat() < a) held = randBi(); break;               // probabilistic
                 default: break;
             }
@@ -313,7 +313,7 @@ void EnvSource::render(float* out, int n)
 
 void EnvSource::renderInstance(int i, int n)
 {
-    advance(inst[(size_t) juce::limit(i, 0, kEnvInstances - 1)], nullptr, n);
+    advance(inst[(size_t) clampRange(i, 0, kEnvInstances - 1)], nullptr, n);
 }
 
 // ---------------------------------------------------------------------------
@@ -388,14 +388,14 @@ void SeqSource::render(float* out, int n)
         return;
     }
 
-    const int    N = juce::limit(numSteps.load(), 4, 32);
+    const int    N = clampRange(numSteps.load(), 4, 32);
     const double hz = rateHz(rate.load(), sync.load(), div.load());
     const double stepDur = 1.0 / hz;
     const float  g  = juce::jlimit(0.05f, 1.f, gate.load());
     const float  sl = juce::jlimit(0.f, 1.f, slew.load());
     const float  sw = juce::jlimit(0.f, 0.6f, swing.load());
     const bool   un = uni.load();
-    const int    d  = juce::limit(dir.load(), 0, 3);
+    const int    d  = clampRange(dir.load(), 0, 3);
     const float  coef = sl < 0.001f ? 1.f
         : 1.f - std::exp(-1.f / (juce::jmax(0.0005f, sl * 0.05f) * (float) sampleRate));
     const float inv = 1.f / (float) sampleRate;
@@ -406,7 +406,7 @@ void SeqSource::render(float* out, int n)
         if (stepLen < 0.0)
         {
             stepLen = stepDur;
-            cur = steps[(size_t) juce::limit(curStep, 0, 31)].load();
+            cur = steps[(size_t) clampRange(curStep, 0, 31)].load();
         }
         while (t >= stepStart + stepLen)
         {
@@ -422,7 +422,7 @@ void SeqSource::render(float* out, int n)
                 case 3: curStep = rnd.nextInt(N); break;
                 default: curStep = (curStep + 1) % N; break;
             }
-            cur = steps[(size_t) juce::limit(curStep, 0, 31)].load();
+            cur = steps[(size_t) clampRange(curStep, 0, 31)].load();
             stepLen = stepDur * ((curStep & 1) ? (1.0 + sw) : (1.0 - sw));
             if (stepLen <= 1e-9)
                 stepLen = stepDur;

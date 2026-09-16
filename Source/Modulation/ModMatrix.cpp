@@ -151,7 +151,7 @@ void ModMatrix::computeOffsets()
     {
         if (c.muted)
             continue;
-        float v = srcAvg[(size_t) juce::limit(c.slot, 0, kNumSlots - 1)].load();
+        float v = srcAvg[(size_t) clampRange(c.slot, 0, kNumSlots - 1)].load();
         v = shapeCurve(v, c.curve);
         if (c.invert)
             v = -v;
@@ -235,7 +235,7 @@ void ModMatrix::rebuildCache()
         const auto child = matTree.getChild(i);
         Connection conn;
         conn.id     = (int) child.getProperty("id", 0);
-        conn.slot   = juce::limit((int) child.getProperty("slot", 0), 0, kNumSlots - 1);
+        conn.slot   = clampRange((int) child.getProperty("slot", 0), 0, kNumSlots - 1);
         conn.dest   = child.getProperty("dest", "").toString().toStdString();
         conn.amount = (float) (double) child.getProperty("amount", 0.5);
         conn.invert = bool(child.getProperty("invert", false));
@@ -274,7 +274,7 @@ int ModMatrix::addConnection(int slot, juce::StringRef dest, float amount)
 
     juce::ValueTree c("conn");
     c.setProperty("id", maxId + 1, nullptr);
-    c.setProperty("slot", juce::limit(slot, 0, kNumSlots - 1), nullptr);
+    c.setProperty("slot", clampRange(slot, 0, kNumSlots - 1), nullptr);
     c.setProperty("dest", juce::String(dest), nullptr);
     c.setProperty("amount", (double) amount, nullptr);
     c.setProperty("invert", false, nullptr);
@@ -314,7 +314,7 @@ void ModMatrix::setSourceParam(int slot, juce::StringRef key, juce::var value)
         return;
     auto st = sources[(size_t) slot]->state;
     if (st.isValid())
-        st.setProperty(key, value, nullptr); // listener syncs the source
+        st.setProperty(juce::Identifier(juce::String(key)), value, nullptr); // listener syncs the source
 }
 
 void ModMatrix::setSeqStep(int slot, int step, float v)
@@ -343,7 +343,7 @@ std::vector<ModMatrix::Ring> ModMatrix::ringsFor(juce::StringRef dest) const
     if (! c)
         return out;
 
-    const std::string d = dest.toStdString();
+    const std::string d = juce::String(dest).toStdString();
     for (const auto& conn : c->conns)
     {
         if (conn.muted || conn.dest != d)

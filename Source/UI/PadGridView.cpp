@@ -22,7 +22,7 @@ public:
         const auto st = grid.padState(pad);
 
         auto rc = getLocalBounds().reduced(3).toFloat();
-        const juce::Colour base((juce::uint32) (int) st.getProperty("colour", 0xFF3A6EA5));
+        const juce::Colour base((juce::uint32) (int) st.getProperty("colour", (int) 0xFF3A6EA5));
 
         g.setGradientFill(juce::ColourGradient(base.darker(0.62f), rc.getX(), rc.getY(),
                                                base.darker(0.18f), rc.getX(), rc.getBottom(), false));
@@ -146,8 +146,8 @@ private:
         menu.addItem(2, "Clear Sample");
         menu.addItem(3, "Clear Pad (keeps params)");
         menu.addSeparator();
-        static const int cols[8] = { 0xFF3A6EA5, 0xFF3E8E5A, 0xFFC2703A, 0xFF8E5BC7,
-                                     0xFFC74B5B, 0xFF4BB8C7, 0xFFB8A63A, 0xFF7A7F8A };
+        static const int cols[8] = { (int) 0xFF3A6EA5, (int) 0xFF3E8E5A, (int) 0xFFC2703A, (int) 0xFF8E5BC7,
+                                     (int) 0xFFC74B5B, (int) 0xFF4BB8C7, (int) 0xFFB8A63A, (int) 0xFF7A7F8A };
         for (int i = 0; i < 8; ++i)
             menu.addItem(10 + i, "Colour " + juce::String(i + 1));
 
@@ -204,7 +204,7 @@ PadGridView::~PadGridView() = default;
 
 void PadGridView::setBank(int b)
 {
-    bank = juce::limit(b, 0, kNumBanks - 1);
+    bank = clampRange(b, 0, kNumBanks - 1);
     for (int i = 0; i < kPadsPerBank; ++i)
         cells[(size_t) i]->setGlobalPad(bank * kPadsPerBank + i);
     setSelected(-1);

@@ -5,6 +5,13 @@
 
 namespace f64 {
 
+// juce::jlimit with (value, lo, hi) argument order.
+template <typename T>
+inline T clampRange(T value, T minVal, T maxVal)
+{
+    return juce::jlimit(minVal, maxVal, value);
+}
+
 constexpr int kNumBanks     = 4;
 constexpr int kPadsPerBank  = 16;
 constexpr int kNumPads      = kNumBanks * kPadsPerBank;
@@ -47,7 +54,7 @@ inline juce::String slotName(int slot)
         case SC_MIDI:
         {
             static const char* names[kNumMidiSrc] = { "Velocity", "ModWheel", "PitchBend", "ChanAT", "PolyAT" };
-            return names[juce::limit(slot - slotMidi(0), 0, kNumMidiSrc - 1)];
+            return names[clampRange(slot - slotMidi(0), 0, kNumMidiSrc - 1)];
         }
         default: return "MACRO " + juce::String(slot - slotMacro(0) + 1);
     }
@@ -123,7 +130,7 @@ inline juce::String padParamId(int pad, juce::StringRef base)
     return "p" + juce::String(pad) + "_" + base;
 }
 
-inline juce::String destDisplayName(juce::StringRef id)
+inline juce::String destDisplayName(const juce::String& id)
 {
     if (id == kDestVoiceAmp)   return "VOICE Amp";
     if (id == kDestVoicePitch) return "VOICE Pitch";
@@ -158,8 +165,9 @@ inline juce::String destDisplayName(juce::StringRef id)
 
 inline juce::Font uiFont(float size, bool bold = false)
 {
-    juce::Font f(juce::FontOptions(size));
-    f.setBold(bold);
+    juce::Font f{ juce::FontOptions(size) };
+    if (bold)
+        f.setBold(true);
     return f;
 }
 

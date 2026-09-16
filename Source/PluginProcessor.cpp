@@ -13,31 +13,29 @@ static_assert(kNumPadParams == 28, "PadParams field mapping below must match kPa
 juce::AudioProcessor::BusesProperties Forge64Processor::makeBuses()
 {
     BusesProperties b;
-    b.withOutput("Main", juce::AudioChannelSet::stereo(), true);
+    b = b.withOutput("Main", juce::AudioChannelSet::stereo(), true);
     for (int i = 1; i < kNumBuses; ++i)
-        b.withOutput("Out " + juce::String(i + 1), juce::AudioChannelSet::stereo(), false);
+        b = b.withOutput("Out " + juce::String(i + 1), juce::AudioChannelSet::stereo(), false);
     return b;
 }
 
 // ---------------------------------------------------------------------------
 // Parameters: globals + 28 per pad x 64 pads.
 // ---------------------------------------------------------------------------
-juce::AudioProcessorParameters Forge64Processor::makeParams()
+juce::AudioProcessorValueTreeState::ParameterLayout Forge64Processor::makeParams()
 {
-    juce::AudioProcessorParameters params;
+    std::vector<std::unique_ptr<juce::RangedAudioParameter>> params;
 
     auto addF = [&params](juce::StringRef id, juce::StringRef name,
                           juce::NormalisableRange<float> range, float def)
     {
         params.push_back(std::make_unique<juce::AudioParameterFloat>(
-            juce::AudioParameterFloat::Attributes { juce::ParameterID { id, 1 } }.withName(name),
-            range, def));
+            juce::ParameterID { id, 1 }, juce::String(name), range, def));
     };
     auto addI = [&params](juce::StringRef id, juce::StringRef name, int mn, int mx, int def)
     {
         params.push_back(std::make_unique<juce::AudioParameterInt>(
-            juce::AudioParameterInt::Attributes { juce::ParameterID { id, 1 } }.withName(name),
-            mn, mx, def));
+            juce::ParameterID { id, 1 }, juce::String(name), mn, mx, def));
     };
 
     addF("master",  "Master Level",    { 0.f, 1.f, 0.001f },              0.8f);
@@ -83,7 +81,7 @@ juce::AudioProcessorParameters Forge64Processor::makeParams()
         addI(id("src"),  n + "Source",    0, 1, 0);
     }
 
-    return params;
+    return { params.begin(), params.end() };
 }
 
 // ---------------------------------------------------------------------------
@@ -155,10 +153,10 @@ void Forge64Processor::prepareToPlay(double sr, int maxBlock)
     busOffset.fill(0);
     busActive.fill(false);
     int off = 0;
-    const auto& lay = getActiveLayout();
     for (int b = 0; b < kNumBuses; ++b)
     {
-        const int ch = lay.getNumChannelsForBus(false, b);
+        const auto set = getChannelLayoutOfBus(false, b);
+        const int ch = set.isDisabled() ? 0 : set.size();
         busActive[(size_t) b] = ch > 0;
         busOffset[(size_t) b] = off;
         off += ch;
@@ -177,7 +175,7 @@ float Forge64Processor::globalEff(int idx) const
         return 0.f;
     static const std::string ids[GI_Count] = { "master", "revsize", "revdamp", "dlytime", "dlyfb" };
     const float v = par->getValue() + modPtr->offsetFor(ids[(size_t) idx]);
-    return par->convertFrom0to1(juce::limitRange(v, 0.f, 1.f));
+    return par->convertFrom0to1(clampRange(v, 0.f, 1.f));
 }
 
 void Forge64Processor::fillPadParams(int pad, PadParams& out)
@@ -191,7 +189,7 @@ void Forge64Processor::fillPadParams(int pad, PadParams& out)
         if (par == nullptr)
             return 0.f;
         const float v = par->getValue() + modPtr->offsetFor(ids[(size_t) k]);
-        return par->convertFrom0to1(juce::limitRange(v, 0.f, 1.f));
+        return par->convertFrom0to1(clampRange(v, 0.f, 1.f));
     };
     auto getI = [&](int k) -> int { return (int) std::lround((double) getF(k)); };
 
@@ -227,8 +225,9 @@ void Forge64Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::Midi
     if (auto* ph = getPlayHead())
         if (auto pos = ph->getPosition())
         {
-            if (auto t = pos->getTempo())     bpm = *t;
-            if (auto p = pos->getIsPlaying()) playing = *p;
+            if (auto t = pos->getBpm())
+                bpm = *t;
+            playing = pos->getIsPlaying();
         }
     modPtr->setTempo(bpm, playing);
 
@@ -259,7 +258,7 @@ void Forge64Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::Midi
         if (m.isNoteOn() || m.isNoteOff())
         {
             RawMidiEv e;
-            e.pos = juce::limitRange(meta.samplePosition, 0, n - 1);
+            e.pos = clampRange(meta.samplePosition, 0, n - 1);
             e.vel = m.getFloatVelocity();
             e.note = m.getNoteNumber();
             e.chan = m.getChannel();
@@ -284,7 +283,7 @@ void Forge64Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::Midi
     {
         const auto& e = eff[(size_t) p];
         if (e.mode == 0)
-            noteMap[(size_t) juce::limitRange(e.mnote, 0, 127)].push_back(p);
+            noteMap[(size_t) clampRange(e.mnote, 0, 127)].push_back(p);
         else if (e.mchan > 0)
             chromMap[(size_t) e.mchan] = p;
     }
@@ -296,14 +295,14 @@ void Forge64Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::Midi
     {
         if (! re.off)
         {
-            const int cp = chromMap[(size_t) juce::limitRange(re.chan, 0, 16)];
+            const int cp = chromMap[(size_t) clampRange(re.chan, 0, 16)];
             if (cp >= 0)
             {
                 padEvents[(size_t) cp].push_back({ re.pos, { cp, re.vel, re.note, re.chan, false } });
             }
             else
             {
-                for (int p : noteMap[(size_t) juce::limitRange(re.note, 0, 127)])
+                for (int p : noteMap[(size_t) clampRange(re.note, 0, 127)])
                     if (eff[(size_t) p].mchan == 0 || eff[(size_t) p].mchan == re.chan)
                         padEvents[(size_t) p].push_back({ re.pos, { p, re.vel, re.note, re.chan, false } });
             }
@@ -348,7 +347,7 @@ void Forge64Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::Midi
         chains[(size_t) p].process(scratchL.data(), scratchR.data(), n, pp);
 
         const float lvl = pp.level * master * gt;
-        const int bus = juce::limitRange(pp.outBus, 1, kNumBuses) - 1;
+        const int bus = clampRange(pp.outBus, 1, kNumBuses) - 1;
         float* bL = busScratch.getWritePointer(bus * 2);
         float* bR = busScratch.getWritePointer(bus * 2 + 1);
         float* aL = auxA.getWritePointer(0);
@@ -426,7 +425,7 @@ void Forge64Processor::onPresetLoaded()
 
 void Forge64Processor::getStateInformation(juce::MemoryBlock& destData)
 {
-    if (auto xml = juce::createXmlFromValueTree(kitRoot))
+    if (auto xml = kitRoot.createXml())
     {
         juce::MemoryOutputStream os(destData, false);
         xml->writeTo(os, {});
@@ -439,7 +438,7 @@ void Forge64Processor::setStateInformation(const void* data, int sizeInBytes)
     if (! xml || xml->getTagName() != kitRoot.getType().toString())
         return;
 
-    auto incoming = juce::parseXmlRecursively(*xml);
+    auto incoming = juce::ValueTree::fromXml(*xml);
     if (! incoming.isValid())
         return;
 

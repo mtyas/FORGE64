@@ -34,7 +34,7 @@ int lf_inL(lua_State* Ls)
 {
     auto* e = (LuaEngine*) lua_touserdata(Ls, lua_upvalueindex(1));
     auto* ctx = e->activeCtxGet();
-    const lua_Integer i = lua_getinteger(Ls, 1);
+    const lua_Integer i = lua_tointeger(Ls, 1);
     if (ctx != nullptr && ctx->inL != nullptr && i >= 0 && i < ctx->n)
         lua_pushnumber(Ls, ctx->inL[i]);
     else
@@ -46,7 +46,7 @@ int lf_inR(lua_State* Ls)
 {
     auto* e = (LuaEngine*) lua_touserdata(Ls, lua_upvalueindex(1));
     auto* ctx = e->activeCtxGet();
-    const lua_Integer i = lua_getinteger(Ls, 1);
+    const lua_Integer i = lua_tointeger(Ls, 1);
     if (ctx != nullptr && ctx->inR != nullptr && i >= 0 && i < ctx->n)
         lua_pushnumber(Ls, ctx->inR[i]);
     else
@@ -58,7 +58,7 @@ int lf_outL(lua_State* Ls)
 {
     auto* e = (LuaEngine*) lua_touserdata(Ls, lua_upvalueindex(1));
     auto* ctx = e->activeCtxGet();
-    const lua_Integer i = lua_getinteger(Ls, 1);
+    const lua_Integer i = lua_tointeger(Ls, 1);
     if (ctx != nullptr && ctx->outL != nullptr && i >= 0 && i < ctx->n)
         ctx->outL[i] = (float) lua_tonumber(Ls, 2);
     return 0;
@@ -68,7 +68,7 @@ int lf_outR(lua_State* Ls)
 {
     auto* e = (LuaEngine*) lua_touserdata(Ls, lua_upvalueindex(1));
     auto* ctx = e->activeCtxGet();
-    const lua_Integer i = lua_getinteger(Ls, 1);
+    const lua_Integer i = lua_tointeger(Ls, 1);
     if (ctx != nullptr && ctx->outR != nullptr && i >= 0 && i < ctx->n)
         ctx->outR[i] = (float) lua_tonumber(Ls, 2);
     return 0;
@@ -85,7 +85,7 @@ int lf_param(lua_State* Ls)
         if (name != nullptr)
         {
             const auto& p = *ctx->params;
-            const juce::StringRef s(name);
+            const juce::String s(name);
             if      (s == "level")  v = p.level;
             else if (s == "pan")    v = p.pan;
             else if (s == "tune")   v = p.tune;

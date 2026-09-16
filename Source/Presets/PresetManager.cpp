@@ -20,7 +20,7 @@ void PresetManager::copyTreeInPlace(juce::ValueTree dst, const juce::ValueTree& 
     }
 }
 
-int PresetManager::padIndexOfParamId(juce::StringRef id)
+int PresetManager::padIndexOfParamId(const juce::String& id)
 {
     if (! id.startsWithChar('p') || ! id.contains("_"))
         return -1;
@@ -33,7 +33,7 @@ int PresetManager::padIndexOfParamId(juce::StringRef id)
 // ---------------------------------------------------------------------------
 bool PresetManager::saveKit(const juce::File& f)
 {
-    auto xml = juce::createXmlFromValueTree(kit);
+    auto xml = kit.createXml();
     if (! xml)
     {
         err = "serialization failed";
@@ -58,7 +58,7 @@ bool PresetManager::loadKit(const juce::File& f)
         err = "not a FORGE64 kit file";
         return false;
     }
-    auto incoming = juce::parseXmlRecursively(*xml);
+    auto incoming = juce::ValueTree::fromXml(*xml);
     if (! incoming.isValid())
     {
         err = "corrupt kit file";
@@ -99,11 +99,11 @@ bool PresetManager::saveParamSubset(const juce::File& f, const char* tag,
     {
         auto padTree = pads.getChild(firstPad + i);
         if (padTree.isValid())
-            if (auto* x = juce::createXmlFromValueTree(padTree).release())
+            if (auto* x = padTree.createXml().release())
                 root.addChildElement(x);
     }
 
-    if (auto fullParams = juce::createXmlFromValueTree(apvts.state))
+    if (auto fullParams = apvts.state.createXml())
     {
         auto* paramsEl = new juce::XmlElement("PARAMS");
         for (auto* child : fullParams->getChildIterator())
@@ -141,7 +141,7 @@ bool PresetManager::loadParamSubset(const juce::File& f, const char* tag,
     {
         if (child->hasTagName("pad") && i < padCount)
         {
-            auto incoming = juce::parseXmlRecursively(*child);
+            auto incoming = juce::ValueTree::fromXml(*child);
             auto dst = pads.getChild(destFirstPad + i);
             if (incoming.isValid() && dst.isValid())
                 copyTreeInPlace(dst, incoming);

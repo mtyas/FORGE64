@@ -4,8 +4,8 @@
 
 namespace f64 {
 
-static const int kPadColours[8] = { 0xFF3A6EA5, 0xFF3E8E5A, 0xFFC2703A, 0xFF8E5BC7,
-                                    0xFFC74B5B, 0xFF4BB8C7, 0xFFB8A63A, 0xFF7A7F8A };
+static const int kPadColours[8] = { (int) 0xFF3A6EA5, (int) 0xFF3E8E5A, (int) 0xFFC2703A, (int) 0xFF8E5BC7,
+                                    (int) 0xFFC74B5B, (int) 0xFF4BB8C7, (int) 0xFFB8A63A, (int) 0xFF7A7F8A };
 
 static const char* kDefaultScript =
     "-- FORGE64 pad script: process() runs once per audio block\n"
@@ -31,17 +31,6 @@ public:
     explicit Content(PadEditor& o) : owner(o) {}
     void resized() override;
     void paint(juce::Graphics& g) override { g.fillAll(ui::panel().darker(0.2f)); }
-
-private:
-    PadEditor& owner;
-};
-
-class PadEditor::ScriptDocListener : public juce::CodeDocument::Listener
-{
-public:
-    explicit ScriptDocListener(PadEditor& o) : owner(o) {}
-    void codeDocumentTextInserted(const juce::String&, int, int) override { owner.startTimer(600); }
-    void codeDocumentTextDeleted(int, int) override { owner.startTimer(600); }
 
 private:
     PadEditor& owner;
@@ -87,7 +76,7 @@ PadEditor::PadEditor(Forge64Processor& p, ModRingKnob::Services& s, int globalPa
     colourBtn = new juce::TextButton();
     colourBtn->setTooltip("Pad colour");
     colourBtn->setColour(juce::TextButton::buttonColourId,
-                         juce::Colour((juce::uint32) (int) st.getProperty("colour", 0xFF3A6EA5)));
+                         juce::Colour((juce::uint32) (int) st.getProperty("colour", (int) 0xFF3A6EA5)));
     colourBtn->onClick = [this]
     {
         juce::PopupMenu menu;
@@ -196,23 +185,24 @@ PadEditor::PadEditor(Forge64Processor& p, ModRingKnob::Services& s, int globalPa
     scriptErrLabel = ui::makeLabel("", 10.f, ui::dim()).release();
     content->addAndMakeVisible(scriptErrLabel);
 
-    scriptDoc = std::make_unique<juce::CodeDocument>();
     auto scriptText = st.getProperty("script", "").toString();
     if (scriptText.trim().isEmpty())
         scriptText = kDefaultScript;
-    scriptDoc->replaceAllContent(scriptText);
 
-    scriptEditor = new juce::CodeEditorComponent(*scriptDoc, nullptr);
-    scriptEditor->setColour(juce::CodeEditorComponent::backgroundColourId, juce::Colour(0xFF101216));
-    scriptEditor->setColour(juce::CodeEditorComponent::defaultTextColourId, ui::txt());
-    scriptEditor->setColour(juce::CodeEditorComponent::highlightColourId, ui::accent().withAlpha(0.25f));
-    scriptEditor->setColour(juce::CodeEditorComponent::lineNumberBackgroundId, juce::Colour(0xFF14161B));
-    scriptEditor->setColour(juce::CodeEditorComponent::lineNumberTextId, ui::dim());
-    scriptEditor->setFont(uiFont(12.f));
+    scriptEditor = new juce::TextEditor();
+    scriptEditor->setMultiLine(true);
+    scriptEditor->setReturnKeyStartsNewLine(true);
+    scriptEditor->setScrollbarsShown(true);
+    scriptEditor->setFont(uiFont(12.5f));
+    scriptEditor->setColour(juce::TextEditor::backgroundColourId, juce::Colour(0xFF101216));
+    scriptEditor->setColour(juce::TextEditor::textColourId, ui::txt());
+    scriptEditor->setColour(juce::TextEditor::highlightColourId, ui::accent().withAlpha(0.25f));
+    scriptEditor->setColour(juce::TextEditor::outlineColourId, ui::line());
+    scriptEditor->setColour(juce::TextEditor::focusedOutlineColourId, ui::accent().darker(0.3f));
+    scriptEditor->setText(scriptText, juce::dontSendNotification);
+    scriptEditor->setCaretPosition(0);
+    scriptEditor->onTextChange = [this] { startTimer(600); };
     content->addAndMakeVisible(scriptEditor);
-
-    docListener = std::make_unique<ScriptDocListener>(*this);
-    scriptDoc->addListener(docListener.get());
 
     // ---- local modulations ----------------------------------------------
     makeCaption("PAD MODULATIONS");
@@ -227,8 +217,6 @@ PadEditor::PadEditor(Forge64Processor& p, ModRingKnob::Services& s, int globalPa
 PadEditor::~PadEditor()
 {
     stopTimer();
-    if (scriptDoc != nullptr && docListener != nullptr)
-        scriptDoc->removeListener(docListener.get());
 }
 
 ModRingKnob* PadEditor::makeKnob(const char* base, const char* labelText)
@@ -236,12 +224,7 @@ ModRingKnob* PadEditor::makeKnob(const char* base, const char* labelText)
     auto* k = new ModRingKnob(padParamId(pad, base), labelText, svcs);
     if (auto* par = dynamic_cast<juce::RangedAudioParameter*>(
             proc.getAPVTS().getParameter(k->dest)))
-    {
-        const auto r = par->getNormalisableRange();
-        k->setRange(juce::NormalisableRange<double>((double) r.start, (double) r.end,
-                    (double) (r.interval > 0.f ? r.interval : 0.001f), (double) r.getSkew()));
         sliderAtt.push_back(std::make_unique<juce::SliderParameterAttachment>(*par, *k, nullptr));
-    }
     content->addAndMakeVisible(k);
     return k;
 }
@@ -278,7 +261,7 @@ juce::Label* PadEditor::makeCaption(const char* text)
 
 void PadEditor::recompileScript()
 {
-    proc.lua().setScript(pad, scriptDoc->getAllText(), scriptOnBtn->getToggleState());
+    proc.lua().setScript(pad, scriptEditor->getText(), scriptOnBtn->getToggleState());
     const auto e = proc.lua().errorFor(pad);
     scriptErrLabel->setText(e.isEmpty() ? "ready" : e, juce::dontSendNotification);
     scriptErrLabel->setColour(juce::Label::textColourId,
@@ -317,7 +300,7 @@ void PadEditor::chooseSample()
 void PadEditor::timerCallback()
 {
     stopTimer();
-    proc.grid().padState(pad).setProperty("script", scriptDoc->getAllText(), nullptr);
+    proc.grid().padState(pad).setProperty("script", scriptEditor->getText(), nullptr);
     recompileScript();
 }
 

@@ -24,7 +24,6 @@ void PadChain::prepare(double sr, int maxBlock)
     flR.assign(flLen, 0.f);
     flWrite = 0;
     coeffsDirty = true;
-    fxParamsDirty = true;
 }
 
 void PadChain::process(float* L, float* R, int n, const PadParams& p)
@@ -49,15 +48,18 @@ void PadChain::process(float* L, float* R, int n, const PadParams& p)
     if (moved)
     {
         coeffsDirty = false;
-        *eqL[0].state = *juce::dsp::IIR::Coefficients<float>::makeFirstOrderLowShelf(
-            sampleRate, (double) juce::jlimit(20.f, 18000.f, smEq[0]), (double) juce::jlimit(-24.f, 24.f, smEq[1]));
-        *eqR[0].state = *eqL[0].state;
-        *eqL[1].state = *juce::dsp::IIR::Coefficients<float>::makePeak(
-            sampleRate, (double) juce::jlimit(40.f, 18000.f, smEq[2]), 1.0, (double) juce::jlimit(-24.f, 24.f, smEq[3]));
-        *eqR[1].state = *eqL[1].state;
-        *eqL[2].state = *juce::dsp::IIR::Coefficients<float>::makeFirstOrderHighShelf(
-            sampleRate, (double) juce::jlimit(100.f, 19000.f, smEq[4]), (double) juce::jlimit(-24.f, 24.f, smEq[5]));
-        *eqR[2].state = *eqL[2].state;
+        const float gLo = std::pow(10.f, juce::jlimit(-24.f, 24.f, smEq[1]) / 20.f);
+        const float gMd = std::pow(10.f, juce::jlimit(-24.f, 24.f, smEq[3]) / 20.f);
+        const float gHi = std::pow(10.f, juce::jlimit(-24.f, 24.f, smEq[5]) / 20.f);
+        *eqL[0].coefficients = *juce::dsp::IIR::Coefficients<float>::makeLowShelf(
+            sampleRate, juce::jlimit(20.f, 18000.f, smEq[0]), 0.707f, gLo);
+        *eqR[0].coefficients = *eqL[0].coefficients;
+        *eqL[1].coefficients = *juce::dsp::IIR::Coefficients<float>::makePeakFilter(
+            sampleRate, juce::jlimit(40.f, 18000.f, smEq[2]), 1.0f, gMd);
+        *eqR[1].coefficients = *eqL[1].coefficients;
+        *eqL[2].coefficients = *juce::dsp::IIR::Coefficients<float>::makeHighShelf(
+            sampleRate, juce::jlimit(100.f, 19000.f, smEq[4]), 0.707f, gHi);
+        *eqR[2].coefficients = *eqL[2].coefficients;
     }
 
     // ---------------- compressor coefficients
@@ -84,36 +86,23 @@ void PadChain::process(float* L, float* R, int n, const PadParams& p)
         crushAcc = 0.f;
         chorus.reset();
         phaser.reset();
-        fxParamsDirty = true;
     }
 
-    const float fxp[4] = { p.fx1, p.fx2, p.fx3, p.fx4 };
-    if (fx == 2 || fx == 4)
+    if (fx == 2)
     {
-        for (int i = 0; i < 4; ++i)
-            if (std::abs(fxp[i] - lastFxP[i]) > 0.0005f)
-            {
-                lastFxP[i] = fxp[i];
-                fxParamsDirty = true;
-            }
-        if (fxParamsDirty)
-        {
-            fxParamsDirty = false;
-            if (fx == 2)
-            {
-                chorus.parameters.rate.setValueNotifyingHost(juce::jmax(0.01f, fxp[0] * 4.f));
-                chorus.parameters.depth.setValueNotifyingHost(fxp[1] * 0.8f);
-                chorus.parameters.feedback.setValueNotifyingHost(fxp[3] * 0.6f);
-                chorus.parameters.mix.setValueNotifyingHost(0.3f + fxp[2] * 0.5f);
-            }
-            else
-            {
-                phaser.parameters.rate.setValueNotifyingHost(juce::jmax(0.01f, fxp[0] * 5.f));
-                phaser.parameters.depth.setValueNotifyingHost(fxp[1] * 0.9f);
-                phaser.parameters.centreFrequency.setValueNotifyingHost(200.f + fxp[2] * 6000.f);
-                phaser.parameters.feedback.setValueNotifyingHost(fxp[3] * 0.7f);
-            }
-        }
+        chorus.setRate(juce::jmax(0.01f, p.fx1 * 4.f));
+        chorus.setDepth(p.fx2 * 0.8f);
+        chorus.setCentreDelay(7.f);
+        chorus.setFeedback(p.fx4 * 0.6f);
+        chorus.setMix(0.3f + p.fx3 * 0.5f);
+    }
+    else if (fx == 4)
+    {
+        phaser.setRate(juce::jmax(0.01f, p.fx1 * 5.f));
+        phaser.setDepth(p.fx2 * 0.9f);
+        phaser.setCentreFrequency(200.f + p.fx3 * 6000.f);
+        phaser.setFeedback(p.fx4 * 0.7f);
+        phaser.setMix(0.5f);
     }
 
     const float flRate = 0.05f + p.fx1 * 5.f;
@@ -130,12 +119,12 @@ void PadChain::process(float* L, float* R, int n, const PadParams& p)
         float x = L[i], y = R[i];
 
         // EQ
-        x = eqL[0].processSample(0, x);
-        x = eqL[1].processSample(0, x);
-        x = eqL[2].processSample(0, x);
-        y = eqR[0].processSample(1, y);
-        y = eqR[1].processSample(1, y);
-        y = eqR[2].processSample(1, y);
+        x = eqL[0].processSample(x);
+        x = eqL[1].processSample(x);
+        x = eqL[2].processSample(x);
+        y = eqR[0].processSample(y);
+        y = eqR[1].processSample(y);
+        y = eqR[2].processSample(y);
 
         // Compressor (stereo-linked detector)
         if (compOn)
@@ -194,10 +183,6 @@ void PadChain::process(float* L, float* R, int n, const PadParams& p)
                 y += dr * flMix;
                 break;
             }
-            case 2: // Chorus
-                x = chorus.processSample(0, x);
-                y = chorus.processSample(1, y);
-                break;
             case 3: // Bitcrusher
             {
                 crushAcc += 1.f;
@@ -211,16 +196,23 @@ void PadChain::process(float* L, float* R, int n, const PadParams& p)
                 y += (holdR - y) * crushMix;
                 break;
             }
-            case 4: // Phaser
-                x = phaser.processSample(0, x);
-                y = phaser.processSample(1, y);
-                break;
             default:
                 break;
         }
 
         L[i] = x;
         R[i] = y;
+    }
+
+    // Chorus/Phaser are block-based in JUCE 8: wrap L/R in a non-owning buffer.
+    if (fx == 2 || fx == 4)
+    {
+        float* chans[2] = { L, R };
+        juce::AudioBuffer<float> wrap(chans, 2, n);
+        juce::dsp::AudioBlock<float> block(wrap);
+        juce::dsp::ProcessContextReplacing<float> ctx(block);
+        if (fx == 2) chorus.process(ctx);
+        else         phaser.process(ctx);
     }
 }
 

@@ -5,7 +5,7 @@ namespace f64 {
 juce::ValueTree PadGrid::makeDefaultTree()
 {
     juce::ValueTree t("PADS");
-    static const int bankCols[kNumBanks] = { 0xFF3A6EA5, 0xFF3E8E5A, 0xFFC2703A, 0xFF8E5BC7 };
+    static const int bankCols[kNumBanks] = { (int) 0xFF3A6EA5, (int) 0xFF3E8E5A, (int) 0xFFC2703A, (int) 0xFF8E5BC7 };
 
     for (int i = 0; i < kNumPads; ++i)
     {

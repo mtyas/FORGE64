@@ -26,7 +26,7 @@ public:
     const juce::String& lastError() const { return err; }
 
     static void copyTreeInPlace(juce::ValueTree dst, const juce::ValueTree& src);
-    static int padIndexOfParamId(juce::StringRef id);
+    static int padIndexOfParamId(const juce::String& id);
 
 private:
     bool saveParamSubset(const juce::File& f, const char* tag, int firstPad, int padCount, int bankOrPad);

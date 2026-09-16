@@ -72,7 +72,7 @@ void ModRingKnob::paint(juce::Graphics& g)
             totalOff += sweep;
 
             const float a0 = ang(v01);
-            const float a1 = ang(juce::limitRange(v01 + sweep, 0.f, 1.f));
+            const float a1 = ang(clampRange(v01 + sweep, 0.f, 1.f));
             if (std::abs(a1 - a0) > 0.0005f)
             {
                 juce::Path p;
@@ -86,7 +86,7 @@ void ModRingKnob::paint(juce::Graphics& g)
 
         if (! rings.empty())
         {
-            const float ae = ang(juce::limitRange(v01 + totalOff, 0.f, 1.f));
+            const float ae = ang(clampRange(v01 + totalOff, 0.f, 1.f));
             const float pr = radius - 6.f;
             g.setColour(txt());
             g.fillEllipse(centre.x + std::cos(ae) * pr - 2.f,

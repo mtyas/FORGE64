@@ -153,9 +153,9 @@ void VoicePool::renderSegment(Voice& v, float* L, float* R, int from, int to,
     const double pitchSt = (double) pp.tune
         + (double) vm.pitch * 24.0
         + (pp.mode == 1 ? (double) (v.note - pp.mnote) : 0.0);
-    const double rate = v.baseRate * std::pow(2.0, juce::limitRange(pitchSt, -60.0, 60.0) / 12.0);
+    const double rate = v.baseRate * std::pow(2.0, clampRange(pitchSt, -60.0, 60.0) / 12.0);
 
-    const float panLim = juce::limitRange(pp.pan + vm.pan, -1.f, 1.f);
+    const float panLim = clampRange(pp.pan + vm.pan, -1.f, 1.f);
     const float gainL = std::cos((panLim + 1.f) * 0.25f * juce::MathConstants<float>::pi);
     const float gainR = std::sin((panLim + 1.f) * 0.25f * juce::MathConstants<float>::pi);
 

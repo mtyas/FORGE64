@@ -37,7 +37,7 @@ protected:
     {
         if (sync)
         {
-            const double beats = kSyncDivBeats[juce::limit(div, 0, kNumSyncDivs - 1)];
+            const double beats = kSyncDivBeats[clampRange(div, 0, kNumSyncDivs - 1)];
             const double sec = beats * 60.0 / juce::jmax(20.0, tempoBpm);
             return sec > 0.0 ? 1.0 / sec : 1.0;
         }

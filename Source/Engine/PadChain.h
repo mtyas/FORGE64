@@ -33,8 +33,6 @@ private:
     juce::dsp::Chorus<float> chorus;
     juce::dsp::Phaser<float> phaser;
     int lastFx = -1;
-    float lastFxP[4] = { -1.f, -1.f, -1.f, -1.f };
-    bool fxParamsDirty = true;
 };
 
 } // namespace f64

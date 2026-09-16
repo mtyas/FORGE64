@@ -78,8 +78,8 @@ target_compile_definitions(Forge64 PRIVATE
 
 target_link_libraries(Forge64 PRIVATE
   juce::juce_audio_utils
+  juce::juce_data_structures
   juce::juce_dsp
-  juce::juce_codeeditor
   juce::juce_recommended_config_flags)
 
 if(FORGE64_SCRIPTING)
@@ -92,9 +92,13 @@ if(FORGE64_BUILD_CLAP)
   FetchContent_Declare(clap-juce-extensions
     GIT_REPOSITORY https://github.com/free-audio/clap-juce-extensions.git
     GIT_TAG        main)
+  set(CLAP_JUCE_EXTENSIONS_BUILD_EXAMPLES OFF CACHE INTERNAL "")
   FetchContent_MakeAvailable(clap-juce-extensions)
+  # Functions defined in the subdirectory are not visible in this scope;
+  # the helpers file is pure function definitions, so include it here too.
+  include(${clap-juce-extensions_SOURCE_DIR}/cmake/ClapTargetHelpers.cmake)
 
-  clap_juce_extensions(JUCE_TARGET Forge64
+  clap_juce_extensions_plugin(TARGET Forge64
     CLAP_ID          "com.forgeaudio.forge64"
     CLAP_FEATURES    instrument "drum machine" synthesizer
     CLAP_DESCRIPTION "FORGE64 - modular 64-pad drum engine"

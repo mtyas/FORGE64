@@ -133,7 +133,7 @@ void Forge64Editor::timerCallback()
 
 void Forge64Editor::setBank(int b)
 {
-    currentBank = juce::limit(b, 0, kNumBanks - 1);
+    currentBank = clampRange(b, 0, kNumBanks - 1);
     processor.uiBank().store(currentBank);
     if (grid)
         grid->setBank(currentBank);
