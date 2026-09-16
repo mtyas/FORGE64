@@ -1,0 +1,7 @@
+build/
+Builds/
+*.kit
+*.bnk
+*.pad
+.DS_Store
+.cache/
