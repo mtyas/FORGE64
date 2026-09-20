@@ -1,0 +1,234 @@
+name: Release FORGE64
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Release tag (e.g. v0.77-beta)'
+        required: false
+        default: 'v0.77-beta'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build (${{ matrix.platform }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: windows
+            artifact-name: FORGE64-Windows
+            archive-name: FORGE64-Windows.zip
+          - os: macos-latest
+            platform: macos
+            artifact-name: FORGE64-macOS
+            archive-name: FORGE64-macOS.zip
+          - os: ubuntu-latest
+            platform: linux
+            artifact-name: FORGE64-Linux
+            archive-name: FORGE64-Linux.tar.gz
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up MSVC environment (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Install Linux Dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            pkg-config \
+            ninja-build \
+            xvfb \
+            libasound2-dev \
+            libjack-jackd2-dev \
+            lv2-dev \
+            libgl1-mesa-dev \
+            libx11-dev \
+            libxinerama-dev \
+            libxext-dev \
+            libxcursor-dev \
+            libxrandr-dev \
+            libfreetype6-dev \
+            libfontconfig1-dev \
+            libcurl4-openssl-dev
+          sudo ln -sf /usr/include/freetype2/ft2build.h /usr/include/ft2build.h
+          sudo ln -sf /usr/include/freetype2/freetype /usr/include/freetype
+          echo "CPATH=/usr/include/freetype2:$CPATH" >> $GITHUB_ENV
+
+      - name: Configure CMake (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: Install macOS Dependencies
+        if: runner.os == 'macOS'
+        run: |
+          which ninja || brew install ninja
+
+      - name: Configure CMake (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
+
+      - name: Configure CMake (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build Targets
+        run: |
+          cmake --build build --config Release --parallel
+
+      - name: Run Audio Tests (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $testExe = Get-ChildItem -Path build -Recurse -Filter "test_audio.exe" | Select-Object -First 1
+          if ($testExe) {
+            Write-Host "Running $($testExe.FullName)..."
+            & $testExe.FullName
+          } else {
+            Write-Host "test_audio.exe not found, skipping."
+          }
+
+      - name: Run Audio Tests (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          TEST_BIN=$(find build -name "test_audio" -type f | head -n 1)
+          if [ -n "$TEST_BIN" ] && [ -x "$TEST_BIN" ]; then
+            echo "Running $TEST_BIN..."
+            "$TEST_BIN"
+          else
+            echo "test_audio not found, skipping."
+          fi
+
+      - name: Run Audio Tests (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          TEST_BIN=$(find build -name "test_audio" -type f | head -n 1)
+          if [ -n "$TEST_BIN" ] && [ -x "$TEST_BIN" ]; then
+            echo "Running xvfb-run -a $TEST_BIN..."
+            xvfb-run -a "$TEST_BIN"
+          else
+            echo "test_audio not found, skipping."
+          fi
+
+      - name: Package Binaries (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path staging/FORGE64 -Force
+          Get-ChildItem -Path build/Forge64_artefacts -Recurse -Filter "FORGE64.vst3" | Select-Object -First 1 | ForEach-Object { Copy-Item -Path $_.FullName -Destination staging/FORGE64/ -Recurse }
+          Get-ChildItem -Path build/Forge64_artefacts -Recurse -Filter "FORGE64.clap" | Select-Object -First 1 | ForEach-Object { Copy-Item -Path $_.FullName -Destination staging/FORGE64/ }
+          Get-ChildItem -Path build/Forge64_artefacts -Recurse -Filter "FORGE64.exe" | Select-Object -First 1 | ForEach-Object { Copy-Item -Path $_.FullName -Destination staging/FORGE64/ }
+          Copy-Item -Path README.md, LICENSE -Destination staging/FORGE64/
+          New-Item -ItemType Directory -Path staging/FORGE64/docs -Force
+          Copy-Item -Path docs/MANUAL.md -Destination staging/FORGE64/docs/
+          Copy-Item -Path docs/images -Destination staging/FORGE64/docs/ -Recurse
+          Compress-Archive -Path staging/FORGE64 -DestinationPath FORGE64-Windows.zip
+
+      - name: Package Binaries (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p staging/FORGE64/docs
+          find build/Forge64_artefacts -name "FORGE64.vst3" -exec cp -R {} staging/FORGE64/ \; || true
+          find build/Forge64_artefacts -name "FORGE64.clap" -exec cp -R {} staging/FORGE64/ \; || true
+          find build/Forge64_artefacts -name "FORGE64.app" -exec cp -R {} staging/FORGE64/ \; || true
+          cp README.md LICENSE staging/FORGE64/
+          cp docs/MANUAL.md staging/FORGE64/docs/
+          cp -R docs/images staging/FORGE64/docs/
+          cd staging
+          zip -r -y ../FORGE64-macOS.zip FORGE64
+          cd ..
+
+      - name: Package Binaries (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          mkdir -p staging/FORGE64/docs
+          find build/Forge64_artefacts -type d -name "FORGE64.vst3" -exec cp -R {} staging/FORGE64/ \; || true
+          find build/Forge64_artefacts -type f -name "FORGE64.clap" -exec cp {} staging/FORGE64/ \; || true
+          find build/Forge64_artefacts -type f -name "FORGE64" -exec cp {} staging/FORGE64/ \; || true
+          chmod +x staging/FORGE64/FORGE64 2>/dev/null || true
+          cp README.md LICENSE staging/FORGE64/
+          cp docs/MANUAL.md staging/FORGE64/docs/
+          cp -R docs/images staging/FORGE64/docs/
+          tar -czvf FORGE64-Linux.tar.gz -C staging FORGE64
+
+      - name: Upload Package Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact-name }}
+          path: ${{ matrix.archive-name }}
+          if-no-files-found: error
+
+  release:
+    name: Publish Release Packages
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release_assets
+          merge-multiple: true
+
+      - name: List Downloaded Release Assets
+        run: ls -lh release_assets/
+
+      - name: Determine Release Tag
+        id: tag_info
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ github.event.inputs.release_tag }}"
+          else
+            TAG="${{ github.ref_name }}"
+          fi
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+
+      - name: Update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag_info.outputs.tag }}
+          name: "FORGE64 ${{ steps.tag_info.outputs.tag }} - Modular Drum Sampler & Lua DSP Synthesizer"
+          draft: false
+          prerelease: true
+          files: |
+            release_assets/FORGE64-Windows.zip
+            release_assets/FORGE64-macOS.zip
+            release_assets/FORGE64-Linux.tar.gz
+          body: |
+            # FORGE64 ${{ steps.tag_info.outputs.tag }}
+
+            **64-Pad Modular Drum Sampler & Lua DSP Synthesizer Workstation** (VST3, CLAP, Standalone) created by **Matthew Tyas (mtyas)**.
+
+            ### Downloads & Packages
+            - 🪟 **Windows (x64)**: [`FORGE64-Windows.zip`](https://github.com/mtyas/FORGE64/releases/download/${{ steps.tag_info.outputs.tag }}/FORGE64-Windows.zip)
+            - 🍏 **macOS (Universal arm64 + x86_64)**: [`FORGE64-macOS.zip`](https://github.com/mtyas/FORGE64/releases/download/${{ steps.tag_info.outputs.tag }}/FORGE64-macOS.zip)
+            - 🐧 **Linux (x64)**: [`FORGE64-Linux.tar.gz`](https://github.com/mtyas/FORGE64/releases/download/${{ steps.tag_info.outputs.tag }}/FORGE64-Linux.tar.gz)
+
+            ### Highlights
+            - **64 Independent Drum Cells**: 4 banks (A, B, C, D) with 64 distinct default sounds and module parameter maps.
+            - **31 Curated Factory Lua DSP Modules**: 100% real-time mathematical sound generation (analog circuits, physical modal plates, inharmonic FM clusters, Poisson-distribution snares, Karplus-Strong waveguide plucks).
+            - **5 Dynamic Macro Knobs per Module (`P1`–`P5`)**: Seamless sound design tailored to each algorithm.
+            - **Per-Pad Processing Chain**: Multimode Resonant VCF (LP/HP/BP/Notch), 3-band Parametric EQ, VCA Compressor with knee transfer curve, Tanh Drive, and Dedicated Insert Multi-FX (Chorus, Flanger, Bitcrusher, Phaser).
+            - **8-Track Polyrhythmic Sequencer**: Two-row header, per-track lengths (1 to 64 steps), swing engine (50% to 75%), velocity drag, ratchets, probability, microtiming, and Parameter Locks (P-Locks).
+            - **Studio Console & Multi-Bus Routing**: 16 stereo output buses, 4 Aux return processors (Studio Reverb, Stereo Delay, Analog Tape Saturation, Modulation Ensemble), and Master Bus Console (VCA Glue Compressor, 4-Band Harmonic EQ, Tape Drive).
+            - **53-Source Modulation Matrix**: 10 LFOs, 2 Lorenz chaos generators, 10 DAHDSR envelopes, 10 mod sequencers, 8 macros, and drag-and-drop animated colored rings.
+            - **Performance Mode**: Dual interactive XY expression pads and 16 stutter roll buttons.
+            - **Complete Documentation**: Full visual [README](README.md) and 12-chapter [User Manual](docs/MANUAL.md).
