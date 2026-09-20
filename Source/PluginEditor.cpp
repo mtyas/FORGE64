@@ -3,18 +3,135 @@
 
 namespace f64 {
 
+class ToolIconButton : public juce::Button
+{
+public:
+    enum IconType { Undo, Redo, MidiLearn };
+
+    ToolIconButton(IconType t, const juce::String& name)
+        : juce::Button(name), type(t)
+    {
+    }
+
+    void paintButton(juce::Graphics& g, bool isOver, bool isDown) override
+    {
+        auto b = getLocalBounds().toFloat().reduced(1.f);
+        const bool active = (type == MidiLearn && getToggleState());
+
+        juce::Colour bgCol = active ? juce::Colour(0xFF5A2208)
+                           : (isDown ? ui::panelHover().brighter(0.12f)
+                           : (isOver ? ui::panelHover() : ui::panelHi()));
+
+        g.setColour(bgCol);
+        g.fillRoundedRectangle(b, 4.f);
+
+        if (active)
+        {
+            g.setColour(ui::accent());
+            g.drawRoundedRectangle(b, 4.f, 1.5f);
+        }
+        else
+        {
+            g.setColour(isOver ? ui::line().brighter(0.2f) : ui::line());
+            g.drawRoundedRectangle(b, 4.f, 1.f);
+        }
+
+        juce::Colour iconCol = active ? ui::accentHot()
+                             : (isOver ? ui::accent() : ui::txt());
+
+        const float cx = b.getCentreX();
+        const float cy = b.getCentreY();
+
+        if (type == Undo)
+        {
+            // Counter-clockwise curved undo arrow
+            juce::Path arrow;
+            arrow.startNewSubPath(cx - 2.0f, cy - 6.0f);
+            arrow.lineTo(cx - 7.0f, cy - 2.5f);
+            arrow.lineTo(cx - 2.0f, cy + 1.0f);
+
+            arrow.startNewSubPath(cx - 6.0f, cy - 2.5f);
+            arrow.quadraticTo(cx + 6.0f, cy - 5.5f, cx + 5.5f, cy + 5.0f);
+
+            g.setColour(iconCol);
+            g.strokePath(arrow, juce::PathStrokeType(2.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        }
+        else if (type == Redo)
+        {
+            // Clockwise curved redo arrow (horizontally mirrored)
+            juce::Path arrow;
+            arrow.startNewSubPath(cx + 2.0f, cy - 6.0f);
+            arrow.lineTo(cx + 7.0f, cy - 2.5f);
+            arrow.lineTo(cx + 2.0f, cy + 1.0f);
+
+            arrow.startNewSubPath(cx + 6.0f, cy - 2.5f);
+            arrow.quadraticTo(cx - 6.0f, cy - 5.5f, cx - 5.5f, cy + 5.0f);
+
+            g.setColour(iconCol);
+            g.strokePath(arrow, juce::PathStrokeType(2.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        }
+        else if (type == MidiLearn)
+        {
+            // 5-pin DIN connector icon on left + text "LEARN" on right + glowing status LED
+            const float dinX = b.getX() + 13.0f;
+            const float dinY = cy;
+            const float dinR = 6.5f;
+
+            // Outer DIN circle
+            g.setColour(iconCol.withAlpha(0.85f));
+            g.drawEllipse(dinX - dinR, dinY - dinR, dinR * 2.0f, dinR * 2.0f, 1.2f);
+
+            // 5 pins in classic DIN arc
+            static const float pinAngles[5] = { -2.356f, -1.571f, -0.785f, -0.2f, -2.94f };
+            g.setColour(iconCol);
+            for (float ang : pinAngles)
+            {
+                float px = dinX + std::cos(ang) * (dinR * 0.58f);
+                float py = dinY + std::sin(ang) * (dinR * 0.58f);
+                g.fillEllipse(px - 0.9f, py - 0.9f, 1.8f, 1.8f);
+            }
+
+            // Text "LEARN"
+            g.setFont(uiFont(9.0f, true));
+            g.drawText("LEARN", (int) (dinX + dinR + 3.0f), (int) (cy - 7.0f),
+                       (int) (b.getRight() - dinX - dinR - 8.0f), 14,
+                       juce::Justification::centredLeft);
+
+            // LED indicator dot at top-right
+            const float ledX = b.getRight() - 6.0f;
+            const float ledY = b.getY() + 7.0f;
+            if (active)
+            {
+                g.setColour(juce::Colour(0xFFFF6600).withAlpha(0.35f));
+                g.fillEllipse(ledX - 4.5f, ledY - 4.5f, 9.0f, 9.0f);
+                g.setColour(juce::Colour(0xFFFFD166));
+                g.fillEllipse(ledX - 2.5f, ledY - 2.5f, 5.0f, 5.0f);
+            }
+            else
+            {
+                g.setColour(juce::Colour(0xFF35201A));
+                g.fillEllipse(ledX - 2.0f, ledY - 2.0f, 4.0f, 4.0f);
+                g.setColour(ui::line());
+                g.drawEllipse(ledX - 2.0f, ledY - 2.0f, 4.0f, 4.0f, 0.8f);
+            }
+        }
+    }
+
+private:
+    IconType type;
+};
+
 Forge64Editor::Forge64Editor(Forge64Processor& p)
     : AudioProcessorEditor(p), processor(p)
 {
-    setResizable(true, false);
-    setResizeLimits(1000, 620, 2400, 1500);
-    setSize(1180, 720);
+    setResizable(true, true);
+    setResizeLimits(980, 640, 2560, 1600);
 
-    logo = ui::makeLabel("FORGE64", 21.f, ui::accent());
-    logo->setFont(uiFont(21.f, true));
+    logo = ui::makeLabel("FORGE64", 22.f, ui::accentHot());
+    logo->setFont(uiFont(22.f, true));
     addAndMakeVisible(logo.get());
 
-    tagline = ui::makeLabel("modular drum engine", 9.5f, ui::dim());
+    tagline = ui::makeLabel("A CREATION OF MTYAS", 8.0f, ui::dim().brighter(0.2f));
     addAndMakeVisible(tagline.get());
 
     static const char* bankNames[kNumBanks] = { "A", "B", "C", "D" };
@@ -30,6 +147,40 @@ Forge64Editor::Forge64Editor(Forge64Processor& p)
         addAndMakeVisible(b.get());
         bankBtns[(size_t) i] = std::move(b);
     }
+
+    auto makeNav = [&](std::unique_ptr<juce::TextButton>& btn, const char* name, ActivePage pg)
+    {
+        btn = std::make_unique<juce::TextButton>(name);
+        ui::styleButton(*btn);
+        btn->setClickingTogglesState(true);
+        btn->onClick = [this, pg] { setPage(pg); };
+        addAndMakeVisible(btn.get());
+    };
+
+    makeNav(gridNavBtn,   "PAD GRID",  Page_Grid);
+    makeNav(editNavBtn,   "PAD EDIT",  Page_PadEdit);
+    makeNav(mixerNavBtn,  "MIX & FX",   Page_MixerFX);
+    makeNav(seqNavBtn,    "SEQUENCER", Page_Sequencer);
+    makeNav(performNavBtn,"PERFORM",   Page_Performance);
+
+    undoBtn = std::make_unique<ToolIconButton>(ToolIconButton::Undo, "UNDO");
+    undoBtn->setTooltip("Undo parameter gesture (Ctrl+Z)");
+    undoBtn->onClick = [this] { processor.getUndoManager().undo(); };
+    addAndMakeVisible(undoBtn.get());
+
+    redoBtn = std::make_unique<ToolIconButton>(ToolIconButton::Redo, "REDO");
+    redoBtn->setTooltip("Redo parameter gesture (Ctrl+Y)");
+    redoBtn->onClick = [this] { processor.getUndoManager().redo(); };
+    addAndMakeVisible(redoBtn.get());
+
+    midiLearnBtn = std::make_unique<ToolIconButton>(ToolIconButton::MidiLearn, "MIDI LEARN");
+    midiLearnBtn->setClickingTogglesState(true);
+    midiLearnBtn->setTooltip("Global MIDI CC Learn - toggle ON and touch any knob then move your hardware controller");
+    midiLearnBtn->onClick = [this]
+    {
+        processor.getMidiLearn().setLearnActive(midiLearnBtn->getToggleState());
+    };
+    addAndMakeVisible(midiLearnBtn.get());
 
     masterKnob = std::make_unique<ModRingKnob>("master", "MASTER", *this);
     addAndMakeVisible(masterKnob.get());
@@ -53,22 +204,53 @@ Forge64Editor::Forge64Editor(Forge64Processor& p)
     padMenuBtn->setTooltip("Pad presets (.pad) - single pad");
 
     grid = std::make_unique<PadGridView>(processor, *this);
-    addAndMakeVisible(grid.get());
+    addChildComponent(grid.get());
+
+    mixerPage = std::make_unique<MixerFXPage>(processor, *this);
+    addChildComponent(mixerPage.get());
+
+    seqPage = std::make_unique<SequencerPage>(processor);
+    addChildComponent(seqPage.get());
+
+    performPage = std::make_unique<PerformancePage>(processor, *this);
+    addChildComponent(performPage.get());
+
+    sequencerDrawer = std::make_unique<SequencerDrawer>(processor);
+    sequencerDrawer->getActivePad = [this]
+    {
+        if (currentPage == Page_PadEdit && padEdit != nullptr)
+            return padEdit->padIndex();
+        return activePad();
+    };
+    sequencerDrawer->onFoldStateChanged = [this](bool) { layoutCenter(); };
+    sequencerDrawer->onStepClicked = [this](int trackIdx, int stepIdx, int padIdx)
+    {
+        selectedPad = padIdx;
+        setPage(Page_PadEdit);
+        if (padEdit)
+            padEdit->enterPLockMode(trackIdx, stepIdx);
+    };
+    addAndMakeVisible(sequencerDrawer.get());
 
     modPanel = std::make_unique<ModPanel>(processor.mods(),
                                           processor.getKit().getChildWithName("MODSRC"),
-                                          processor.getKit().getChildWithName("MODMAT"));
+                                          processor.getKit().getChildWithName("MODMAT"),
+                                          &processor);
     addAndMakeVisible(modPanel.get());
 
+    setSize(1024, 740);
     setBank(0);
+    setPage(Page_Grid);
     startTimerHz(30);
 }
 
 Forge64Editor::~Forge64Editor()
 {
     stopTimer();
-    // Destroy knob-owning components while knobList is still alive (they
-    // unregister themselves in their destructors).
+    sequencerDrawer.reset();
+    performPage.reset();
+    seqPage.reset();
+    mixerPage.reset();
     padEdit.reset();
     grid.reset();
     modPanel.reset();
@@ -79,8 +261,31 @@ Forge64Editor::~Forge64Editor()
 void Forge64Editor::paint(juce::Graphics& g)
 {
     g.fillAll(ui::bg());
+
+    const float bannerH = 54.f;
+    // Forged steel top banner with subtle furnace ambient gradient
+    g.setGradientFill(juce::ColourGradient(juce::Colour(0xFF1E1715), 0.f, 0.f,
+                                           juce::Colour(0xFF130E0D), 0.f, bannerH, false));
+    g.fillRect(0.f, 0.f, (float) getWidth(), bannerH);
+
+    // Warm ember line along the very top
+    g.setColour(juce::Colour(0xFFFF6600).withAlpha(0.12f));
+    g.drawHorizontalLine(0, 0.f, (float) getWidth());
+
+    // Vertical divider separating page navigation tabs from utility tool buttons
+    if (navDividerX > 0.f)
+    {
+        g.setColour(juce::Colour(0xFF0A0706));
+        g.drawVerticalLine((int) navDividerX, 12.f, 42.f);
+        g.setColour(ui::line().brighter(0.2f));
+        g.drawVerticalLine((int) navDividerX + 1, 12.f, 42.f);
+    }
+
+    // Seam line separating top bar: Smoldering molten divider
     g.setColour(ui::line());
-    g.drawHorizontalLine(54, 0.f, (float) getWidth());
+    g.drawHorizontalLine((int) bannerH, 0.f, (float) getWidth());
+    g.setColour(ui::accent().withAlpha(0.18f));
+    g.drawHorizontalLine((int) bannerH - 1, 0.f, (float) getWidth());
 }
 
 void Forge64Editor::resized()
@@ -88,19 +293,55 @@ void Forge64Editor::resized()
     const int w = getWidth();
     const int h = getHeight();
 
-    logo->setBounds(12, 6, 170, 30);
-    tagline->setBounds(14, 34, 170, 14);
+    if (logo) logo->setBounds(12, 6, 120, 26);
+    if (tagline) tagline->setBounds(14, 33, 130, 14);
 
     for (int i = 0; i < kNumBanks; ++i)
-        bankBtns[(size_t) i]->setBounds(200 + i * 46, 12, 42, 30);
+        if (bankBtns[(size_t) i])
+            bankBtns[(size_t) i]->setBounds(138 + i * 29, 12, 26, 30);
 
-    kitBtn->setBounds(w - 360, 12, 88, 30);
-    bankMenuBtn->setBounds(w - 266, 12, 84, 30);
-    padMenuBtn->setBounds(w - 176, 12, 76, 30);
-    masterKnob->setBounds(w - 92, 0, 86, 56);
+    int nx = 258;
+    if (gridNavBtn)    { gridNavBtn->setBounds(nx, 12, 60, 30); nx += 64; }
+    if (editNavBtn)    { editNavBtn->setBounds(nx, 12, 60, 30); nx += 64; }
+    if (mixerNavBtn)   { mixerNavBtn->setBounds(nx, 12, 62, 30); nx += 66; }
+    if (seqNavBtn)     { seqNavBtn->setBounds(nx, 12, 70, 30); nx += 74; }
+    if (performNavBtn) { performNavBtn->setBounds(nx, 12, 66, 30); nx += 70; }
 
-    modPanel->setBounds(w - 350, 54, 350, h - 54);
+    navDividerX = (float) nx + 4.0f;
+    nx += 10;
+
+    if (undoBtn)       { undoBtn->setBounds(nx, 12, 26, 30); nx += 30; }
+    if (redoBtn)       { redoBtn->setBounds(nx, 12, 26, 30); nx += 30; }
+    if (midiLearnBtn)  { midiLearnBtn->setBounds(nx, 12, 54, 30); nx += 58; }
+
+    if (kitBtn) kitBtn->setBounds(w - 290, 12, 58, 30);
+    if (bankMenuBtn) bankMenuBtn->setBounds(w - 228, 12, 62, 30);
+    if (padMenuBtn) padMenuBtn->setBounds(w - 162, 12, 58, 30);
+    if (masterKnob) masterKnob->setBounds(w - 82, 4, 74, 46);
+
+    if (modPanel) modPanel->setBounds(w - 350, 54, 350, h - 54);
     layoutCenter();
+}
+
+bool Forge64Editor::keyPressed(const juce::KeyPress& key)
+{
+    if (key.getModifiers().isCommandDown())
+    {
+        if (key.getKeyCode() == 'Z' || key.getKeyCode() == 'z')
+        {
+            if (key.getModifiers().isShiftDown())
+                processor.getUndoManager().redo();
+            else
+                processor.getUndoManager().undo();
+            return true;
+        }
+        if (key.getKeyCode() == 'Y' || key.getKeyCode() == 'y')
+        {
+            processor.getUndoManager().redo();
+            return true;
+        }
+    }
+    return false;
 }
 
 juce::Rectangle<int> Forge64Editor::centerBounds() const
@@ -110,17 +351,93 @@ juce::Rectangle<int> Forge64Editor::centerBounds() const
 
 void Forge64Editor::layoutCenter()
 {
-    const auto r = centerBounds();
-    if (grid)
+    auto r = centerBounds();
+    if (sequencerDrawer)
+    {
+        const int dH = sequencerDrawer->getDesiredHeight();
+        sequencerDrawer->setBounds(r.removeFromBottom(dH));
+        sequencerDrawer->setVisible(currentPage != Page_Sequencer);
+        sequencerDrawer->toFront(false);
+    }
+    if (grid && currentPage == Page_Grid)
         grid->setBounds(r);
-    if (padEdit)
+    if (padEdit && currentPage == Page_PadEdit)
         padEdit->setBounds(r);
+    if (mixerPage && currentPage == Page_MixerFX)
+        mixerPage->setBounds(r);
+    if (seqPage && currentPage == Page_Sequencer)
+        seqPage->setBounds(r);
+    if (performPage && currentPage == Page_Performance)
+        performPage->setBounds(r);
+}
+
+void Forge64Editor::setPage(ActivePage p)
+{
+    currentPage = p;
+
+    if (gridNavBtn)    gridNavBtn->setToggleState(p == Page_Grid, juce::dontSendNotification);
+    if (editNavBtn)    editNavBtn->setToggleState(p == Page_PadEdit, juce::dontSendNotification);
+    if (mixerNavBtn)   mixerNavBtn->setToggleState(p == Page_MixerFX, juce::dontSendNotification);
+    if (seqNavBtn)     seqNavBtn->setToggleState(p == Page_Sequencer, juce::dontSendNotification);
+    if (performNavBtn) performNavBtn->setToggleState(p == Page_Performance, juce::dontSendNotification);
+
+    if (p == Page_PadEdit)
+    {
+        const int targetPad = activePad();
+        if (padEdit == nullptr || padEdit->padIndex() != targetPad)
+        {
+            zoomedPad = targetPad;
+            rebuildPadEditor();
+        }
+        else
+        {
+            padEdit->setVisible(true);
+        }
+    }
+    else
+    {
+        zoomedPad = -1;
+        if (padEdit)
+        {
+            if (padEdit->isPLockMode())
+                padEdit->exitPLockMode();
+            padEdit->setVisible(false);
+        }
+    }
+
+    if (grid)
+    {
+        grid->setVisible(p == Page_Grid);
+        if (p == Page_Grid)
+            grid->refreshPads();
+    }
+
+    if (mixerPage)
+        mixerPage->setVisible(p == Page_MixerFX);
+
+    if (seqPage)
+        seqPage->setVisible(p == Page_Sequencer);
+
+    if (performPage)
+        performPage->setVisible(p == Page_Performance);
+
+    layoutCenter();
 }
 
 void Forge64Editor::timerCallback()
 {
-    if (grid)
+    if (grid && currentPage == Page_Grid)
         grid->tick();
+
+    if (midiLearnBtn)
+    {
+        const bool learning = processor.getMidiLearn().isLearning();
+        if (midiLearnBtn->getToggleState() != learning)
+        {
+            midiLearnBtn->setToggleState(learning, juce::dontSendNotification);
+            midiLearnBtn->repaint();
+        }
+    }
 
     const int mb = processor.uiBank().load();
     if (mb != currentBank)
@@ -145,32 +462,35 @@ void Forge64Editor::setBank(int b)
 void Forge64Editor::padClicked(int globalPad)
 {
     selectedPad = globalPad;
-    zoomedPad = globalPad;
-    rebuildPadEditor();
+    setPage(Page_PadEdit);
 }
 
 void Forge64Editor::rebuildPadEditor()
 {
     padEdit = std::make_unique<PadEditor>(processor, *this, zoomedPad,
                                           [this] { showGrid(); });
+    padEdit->onPadChanged = [this](int newPad)
+    {
+        selectedPad = newPad;
+        zoomedPad = newPad;
+        const int targetBank = newPad / kPadsPerBank;
+        if (targetBank != currentBank)
+            setBank(targetBank);
+        rebuildPadEditor();
+    };
     addAndMakeVisible(padEdit.get());
     if (grid)
         grid->setVisible(false);
-    padEdit->setBounds(centerBounds());
+    layoutCenter();
+    if (sequencerDrawer)
+        sequencerDrawer->toFront(false);
     padEdit->setAlpha(0.f);
     animator.fadeIn(padEdit.get(), 140);
 }
 
 void Forge64Editor::showGrid()
 {
-    zoomedPad = -1;
-    padEdit.reset();
-    if (grid)
-    {
-        grid->setVisible(true);
-        grid->refreshPads();
-    }
-    layoutCenter();
+    setPage(Page_Grid);
 }
 
 void Forge64Editor::connectFromDrag(int slot, const juce::String& dest)
@@ -187,7 +507,7 @@ void Forge64Editor::afterPresetOp(bool ok)
 {
     if (! ok)
         juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
-                                               "FORGE64", processor.presets().lastError());
+                                               "FORGE64 by mtyas", processor.presets().lastError());
     if (grid)
         grid->refreshPads();
     if (zoomedPad >= 0)

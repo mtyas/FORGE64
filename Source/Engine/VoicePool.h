@@ -6,10 +6,12 @@
 #include "../Modulation/ModMatrix.h"
 #include <vector>
 
+#include "DrumSynth.h"
+
 namespace f64 {
 
-// Polyphonic sample-playback voices with choke groups, per-voice modulation,
-// one-shot and chromatic (sustained/looping) behaviour.
+// Polyphonic sample-playback and synthesized drum voices with choke groups,
+// per-voice modulation, one-shot and chromatic (sustained/looping) behaviour.
 class VoicePool
 {
 public:
@@ -34,10 +36,16 @@ private:
     {
         bool active = false;
         int voiceId = 0, pad = -1, choke = 0, note = 60, chan = 1;
+        int srcType = 0;
+        DrumSynth::VoiceState synth;
         SampleManager::Ptr sample;
         double pos = 0.0, baseRate = 1.0;
+        double startPos = 0.0, endPos = 0.0, loopStart = 0.0, loopEnd = 0.0;
+        bool isReverse = false, isLooping = false;
         float vel = 0.f, env = 0.f, fade = 1.f, fadeStep = 0.f;
-        bool inAttack = true, choked = false, sustain = false;
+        float holdTimer = 0.f, ageSec = 0.f;
+        int stage = 0;
+        bool inAttack = true, inHold = false, inRelease = false, choked = false, sustain = false;
         uint64_t tick = 0;
     };
 

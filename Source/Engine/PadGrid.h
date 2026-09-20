@@ -14,8 +14,68 @@ struct PadRuntime
     SampleManager::Ptr sample;
     std::atomic<int64_t> lastHitStamp { 0 };
     std::atomic<float>   lastVel { 0.f };
+    std::atomic<int>     lastNote { 60 };
     std::atomic<bool>    scriptOn { false };
     std::atomic<float>   gainTrim { 1.f };
+    std::atomic<bool>    isMuted  { false };
+    std::atomic<bool>    isSolo   { false };
+
+    // Sampler boundaries & playback modes
+    std::atomic<float>   sampleStart { 0.f };
+    std::atomic<float>   sampleEnd   { 1.f };
+    std::atomic<float>   loopStart   { 0.f };
+    std::atomic<float>   loopEnd     { 1.f };
+    std::atomic<bool>    loopOn      { false };
+    std::atomic<bool>    reverseOn   { false };
+
+    // Latched Parameter Locks (P-Locks from StepSequencer / MIDI)
+    std::atomic<bool>    hasLocks     { false };
+    std::atomic<float>   latchedTune  { 0.f };
+    std::atomic<float>   latchedDecay { 1.f };
+    std::atomic<float>   latchedTone  { 0.5f };
+    std::atomic<float>   latchedDrive { 0.f };
+    std::atomic<float>   latchedSendA { 0.f };
+    std::atomic<float>   latchedSendB { 0.f };
+    std::atomic<float>   latchedLevel { 1.f };
+    std::atomic<float>   latchedPan   { 0.f };
+    std::atomic<float>   latchedP2    { 0.5f };
+    std::atomic<float>   latchedP3    { 0.5f };
+    std::atomic<float>   latchedP4    { 0.5f };
+    std::atomic<float>   latchedP5    { 0.5f };
+    std::atomic<float>   latchedModAmt { 1.0f };
+
+    // Latched VCF Filter
+    std::atomic<int>     latchedVcfType { 0 };
+    std::atomic<float>   latchedVcfCut  { 20000.f };
+    std::atomic<float>   latchedVcfRes  { 0.707f };
+    std::atomic<float>   latchedVcfEnv  { 0.f };
+
+    // Latched 3-Band Parametric EQ
+    std::atomic<float>   latchedEqLF { 200.f };
+    std::atomic<float>   latchedEqLG { 0.f };
+    std::atomic<float>   latchedEqMF { 1000.f };
+    std::atomic<float>   latchedEqMG { 0.f };
+    std::atomic<float>   latchedEqHF { 8000.f };
+    std::atomic<float>   latchedEqHG { 0.f };
+
+    // Latched Dynamics Compressor
+    std::atomic<float>   latchedCThr { 0.f };
+    std::atomic<float>   latchedCRat { 1.f };
+    std::atomic<float>   latchedCAtk { 5.f };
+    std::atomic<float>   latchedCRel { 100.f };
+
+    // Latched Dedicated Insert Multi-FX
+    std::atomic<int>     latchedIfxType { 0 };
+    std::atomic<float>   latchedIfx1 { 0.5f };
+    std::atomic<float>   latchedIfx2 { 0.5f };
+    std::atomic<float>   latchedIfx3 { 0.5f };
+    std::atomic<float>   latchedIfx4 { 0.5f };
+
+    // Latched Aux Sends C and D
+    std::atomic<float>   latchedSendC { 0.f };
+    std::atomic<float>   latchedSendD { 0.f };
+
+    std::atomic<bool>    isNewTrigger { false };
 };
 
 class PadGrid : private juce::ValueTree::Listener

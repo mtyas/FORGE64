@@ -18,6 +18,7 @@ public:
     {
         virtual ~Host() = default;
         virtual void padClicked(int globalPad) = 0;
+        virtual void padSelected(int /*globalPad*/) {}
     };
 
     PadGridView(Forge64Processor& p, Host& h);

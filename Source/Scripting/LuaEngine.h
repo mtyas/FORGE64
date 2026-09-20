@@ -36,7 +36,7 @@ public:
 
     // Audio thread: runs the pad's process() in-place over the pad buffer.
     void process(int pad, float* L, float* R, int n, double sr,
-                 float vel, double age, const PadParams& p);
+                 float vel, double age, const PadParams& p, bool trig = false, int note = 60);
 
     struct Ctx
     {
@@ -48,6 +48,8 @@ public:
         double sr = 48000.0;
         float vel = 1.f;
         double age = 0.0;
+        bool trig = false;
+        int note = 60;
         const PadParams* params = nullptr;
     };
 

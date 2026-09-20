@@ -1,5 +1,6 @@
 #include "ModPanel.h"
 #include "ModRingKnob.h"
+#include "../PluginProcessor.h"
 
 namespace f64 {
 
@@ -22,14 +23,34 @@ public:
         addAndMakeVisible(label);
 
         amount.setSliderStyle(juce::Slider::LinearHorizontal);
-        amount.setTextBoxStyle(juce::Slider::NoTextBox, true, 0, 0);
-        amount.setRange(-1.0, 1.0, 0.001);
+        amount.setTextBoxStyle(juce::Slider::TextBoxRight, false, 44, 18);
+        amount.setRange(-1.0, 1.0, 0.005);
+        amount.setDoubleClickReturnValue(true, 0.0);
         amount.setValue((double) conn.getProperty("amount", 0.5), juce::dontSendNotification);
-        amount.onValueChange = [this] { tree.setProperty("amount", amount.getValue(), nullptr); };
+        amount.textFromValueFunction = [](double v)
+        {
+            if (std::abs(v) < 0.01) return juce::String("0%");
+            return (v > 0 ? "+" : "") + juce::String((int) std::round(v * 100.0)) + "%";
+        };
+        amount.valueFromTextFunction = [](const juce::String& text)
+        {
+            auto t = text.trim().dropLastCharacters(text.endsWith("%") ? 1 : 0);
+            return juce::jlimit(-1.0, 1.0, t.getDoubleValue() * 0.01);
+        };
+        amount.onValueChange = [this]
+        {
+            double v = amount.getValue();
+            if (std::abs(v) < 0.02)
+                v = 0.0;
+            tree.setProperty("amount", v, nullptr);
+        };
         amount.setColour(juce::Slider::backgroundColourId, ui::panelHi());
         amount.setColour(juce::Slider::trackColourId, ui::line());
         amount.setColour(juce::Slider::thumbColourId, slotColour(slot));
-        amount.setTooltip("Modulation amount (bipolar)");
+        amount.setColour(juce::Slider::textBoxTextColourId, ui::txt());
+        amount.setColour(juce::Slider::textBoxBackgroundColourId, ui::panelHi());
+        amount.setColour(juce::Slider::textBoxOutlineColourId, ui::line());
+        amount.setTooltip("Modulation depth (double-click to reset to 0%)");
         addAndMakeVisible(amount);
 
         inv.setButtonText("INV");
@@ -56,9 +77,9 @@ public:
     {
         auto r = getLocalBounds().reduced(2, 3);
         del.setBounds(r.removeFromRight(20));
-        mute.setBounds(r.removeFromRight(26));
-        inv.setBounds(r.removeFromRight(36));
-        amount.setBounds(r.removeFromRight(86));
+        mute.setBounds(r.removeFromRight(24));
+        inv.setBounds(r.removeFromRight(34));
+        amount.setBounds(r.removeFromRight(108));
         r.removeFromLeft(12);
         label.setBounds(r);
     }
@@ -173,7 +194,18 @@ public:
         void mouseDrag(const juce::MouseEvent&) override
         {
             if (auto* c = juce::DragAndDropContainer::findParentDragContainerFor(this))
-                c->startDragging("f64mod:" + juce::String(slot), this);
+            {
+                juce::Image snap(juce::Image::ARGB, 28, 28, true);
+                {
+                    juce::Graphics g(snap);
+                    g.setColour(slotColour(slot));
+                    g.fillEllipse(2.f, 2.f, 24.f, 24.f);
+                    g.setColour(juce::Colours::black.withAlpha(0.85f));
+                    g.setFont(uiFont(9.f, true));
+                    g.drawText(slotShortName(slot), 2, 2, 24, 24, juce::Justification::centred);
+                }
+                c->startDragging("f64mod:" + juce::String(slot), this, juce::ScaledImage(snap), false, nullptr);
+            }
         }
         void mouseDown(const juce::MouseEvent&) override {}
         void mouseUp(const juce::MouseEvent&) override {}
@@ -287,13 +319,18 @@ public:
 
     juce::Component* refreshComponentForRow(int row, bool, juce::Component* existing) override
     {
-        std::unique_ptr<juce::Component> toDelete(existing);
         if (row >= 0 && row < (int) rows.size() && ! rows[(size_t) row].header)
         {
-            auto* sr = new SourceRow(owner);
+            auto* sr = dynamic_cast<SourceRow*>(existing);
+            if (sr == nullptr)
+            {
+                delete existing;
+                sr = new SourceRow(owner);
+            }
             sr->setSlot(rows[(size_t) row].slot);
             return sr;
         }
+        delete existing;
         return nullptr;
     }
 
@@ -301,6 +338,215 @@ private:
     struct RowInfo { bool header; int slot; juce::String title; };
     std::vector<RowInfo> rows;
     ModPanel& owner;
+};
+
+// ---------------------------------------------------------------------------
+// ModPanel - Visual Waveform Displays
+// ---------------------------------------------------------------------------
+class LFOResponseView : public juce::Component, private juce::Timer
+{
+public:
+    LFOResponseView(ModMatrix& m, int s, juce::ValueTree tree)
+        : matrix(m), slot(s), st(tree)
+    {
+        startTimerHz(30);
+    }
+    ~LFOResponseView() override { stopTimer(); }
+
+    void paint(juce::Graphics& g) override
+    {
+        auto bounds = getLocalBounds().toFloat().reduced(2.f);
+        g.setColour(ui::panelHi());
+        g.fillRoundedRectangle(bounds, 4.f);
+        g.setColour(ui::line());
+        g.drawRoundedRectangle(bounds, 4.f, 1.f);
+
+        const int shape = (int) st.getProperty("shape", 0);
+        const bool uni = bool(st.getProperty("uni", false));
+        const float phaseOffset = (float) (double) st.getProperty("phase", 0.0);
+        const auto col = slotColour(slot);
+
+        const float w = bounds.getWidth();
+        const float h = bounds.getHeight();
+        const float midY = bounds.getY() + h * 0.5f;
+
+        if (! uni)
+        {
+            g.setColour(ui::line().withAlpha(0.4f));
+            g.drawHorizontalLine((int) midY, bounds.getX() + 4.f, bounds.getRight() - 4.f);
+        }
+
+        juce::Path p;
+        const int numPts = (int) w;
+        for (int i = 0; i < numPts; ++i)
+        {
+            float t = (float) i / (float) numPts + phaseOffset;
+            t = t - std::floor(t);
+            float v = 0.f;
+            switch (shape)
+            {
+                case 0: v = std::sin(t * juce::MathConstants<float>::twoPi); break;
+                case 1: v = 1.0f - 4.0f * std::abs(std::round(t - 0.25f) - (t - 0.25f)); break;
+                case 2: v = 1.0f - 2.0f * t; break;
+                case 3: v = t < 0.5f ? 1.0f : -1.0f; break;
+                case 4:
+                {
+                    int step = (int) (t * 8.0f);
+                    static const float shVals[8] = { 0.8f, -0.4f, 0.6f, -0.9f, 0.2f, 0.7f, -0.5f, 0.1f };
+                    v = shVals[step % 8];
+                    break;
+                }
+                case 5:
+                {
+                    float pos = t * 8.0f;
+                    int s0 = (int) pos;
+                    int s1 = (s0 + 1) % 8;
+                    float frac = pos - (float) s0;
+                    static const float shVals[8] = { 0.8f, -0.4f, 0.6f, -0.9f, 0.2f, 0.7f, -0.5f, 0.1f };
+                    v = shVals[s0 % 8] * (1.f - frac) + shVals[s1] * frac;
+                    break;
+                }
+                default: v = std::sin(t * juce::MathConstants<float>::twoPi); break;
+            }
+
+            float py = uni ? (bounds.getBottom() - 6.f - juce::jlimit(0.f, 1.f, 0.5f + 0.5f * v) * (h - 12.f))
+                           : (midY - v * (h * 0.42f));
+            float px = bounds.getX() + (float) i;
+            if (i == 0) p.startNewSubPath(px, py);
+            else        p.lineTo(px, py);
+        }
+
+        juce::Path fillP = p;
+        fillP.lineTo(bounds.getRight(), uni ? bounds.getBottom() - 6.f : midY);
+        fillP.lineTo(bounds.getX(), uni ? bounds.getBottom() - 6.f : midY);
+        fillP.closeSubPath();
+        g.setColour(col.withAlpha(0.18f));
+        g.fillPath(fillP);
+
+        g.setColour(col);
+        g.strokePath(p, juce::PathStrokeType(2.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+
+        float liveVal = matrix.sourceAverage(slot);
+        float beadY = uni ? (bounds.getBottom() - 6.f - liveVal * (h - 12.f))
+                          : (midY - liveVal * (h * 0.42f));
+        float beadX = bounds.getX() + bounds.getWidth() * 0.5f;
+        g.setColour(juce::Colours::white);
+        g.fillEllipse(beadX - 4.f, beadY - 4.f, 8.f, 8.f);
+        g.setColour(col.withAlpha(0.6f));
+        g.drawEllipse(beadX - 6.f, beadY - 6.f, 12.f, 12.f, 1.5f);
+
+        g.setColour(ui::dim());
+        g.setFont(uiFont(9.5f, true));
+        static const char* shapeNames[] = { "SINE", "TRIANGLE", "SAW", "SQUARE", "S+H", "S+H GLIDE" };
+        juce::String shapeStr = (shape >= 0 && shape < 6) ? shapeNames[shape] : "LFO";
+        g.drawText(shapeStr + (uni ? " [0..1]" : " [-1..+1]"), (int) bounds.getX() + 6, (int) bounds.getY() + 4, 160, 12, juce::Justification::left);
+    }
+
+private:
+    void timerCallback() override { repaint(); }
+    ModMatrix& matrix;
+    int slot;
+    juce::ValueTree st;
+};
+
+class EnvResponseView : public juce::Component, private juce::Timer
+{
+public:
+    EnvResponseView(ModMatrix& m, int s, juce::ValueTree tree)
+        : matrix(m), slot(s), st(tree)
+    {
+        startTimerHz(30);
+    }
+    ~EnvResponseView() override { stopTimer(); }
+
+    void paint(juce::Graphics& g) override
+    {
+        auto bounds = getLocalBounds().toFloat().reduced(2.f);
+        g.setColour(ui::panelHi());
+        g.fillRoundedRectangle(bounds, 4.f);
+        g.setColour(ui::line());
+        g.drawRoundedRectangle(bounds, 4.f, 1.f);
+
+        const float dly  = (float) (double) st.getProperty("dly", 0.0);
+        const float atk  = (float) (double) st.getProperty("atk", 0.01);
+        const float hold = (float) (double) st.getProperty("hold", 0.0);
+        const float dec  = (float) (double) st.getProperty("dec", 0.3);
+        const float sus  = (float) (double) st.getProperty("sus", 0.5);
+        const float rel  = (float) (double) st.getProperty("rel", 0.1);
+        const auto col   = slotColour(slot);
+
+        const float totalTime = juce::jmax(0.01f, dly + atk + hold + dec + 0.2f + rel);
+        const float w = bounds.getWidth();
+        const float h = bounds.getHeight();
+        const float bX = bounds.getX();
+        const float bY = bounds.getY();
+        const float baseline = bY + h - 8.f;
+        const float peakY = bY + 12.f;
+        const float susY = baseline - sus * (baseline - peakY);
+
+        const float xDly = bX + (dly / totalTime) * w;
+        const float xAtk = xDly + (atk / totalTime) * w;
+        const float xHld = xAtk + (hold / totalTime) * w;
+        const float xDec = xHld + (dec / totalTime) * w;
+        const float xSus = xDec + (0.2f / totalTime) * w;
+        const float xRel = juce::jmin(bX + w, xSus + (rel / totalTime) * w);
+
+        juce::Path p;
+        p.startNewSubPath(bX, baseline);
+        p.lineTo(xDly, baseline);
+        p.lineTo(xAtk, peakY);
+        p.lineTo(xHld, peakY);
+        p.lineTo(xDec, susY);
+        p.lineTo(xSus, susY);
+        p.lineTo(xRel, baseline);
+        if (xRel < bX + w)
+            p.lineTo(bX + w, baseline);
+
+        juce::Path fillP = p;
+        fillP.lineTo(bX + w, baseline);
+        fillP.lineTo(bX, baseline);
+        fillP.closeSubPath();
+        g.setColour(col.withAlpha(0.2f));
+        g.fillPath(fillP);
+
+        g.setColour(col);
+        g.strokePath(p, juce::PathStrokeType(2.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+
+        g.setFont(uiFont(8.5f, true));
+        auto drawStage = [&](float x, const char* label)
+        {
+            g.setColour(ui::dim().withAlpha(0.5f));
+            g.drawVerticalLine((int) x, peakY, baseline);
+            g.setColour(ui::txt().withAlpha(0.7f));
+            g.drawText(label, (int) x - 8, (int) baseline + 1, 16, 8, juce::Justification::centred);
+        };
+        if (dly > 0.001f) drawStage(xDly, "D");
+        drawStage(xAtk, "A");
+        if (hold > 0.001f) drawStage(xHld, "H");
+        drawStage(xDec, "D");
+        drawStage(xSus, "S");
+        drawStage(xRel, "R");
+
+        float liveVal = matrix.sourceAverage(slot);
+        if (liveVal > 0.001f)
+        {
+            float curY = baseline - liveVal * (baseline - peakY);
+            g.setColour(juce::Colours::white);
+            g.fillEllipse(bX + w * 0.5f - 4.f, curY - 4.f, 8.f, 8.f);
+            g.setColour(col.withAlpha(0.7f));
+            g.drawEllipse(bX + w * 0.5f - 6.f, curY - 6.f, 12.f, 12.f, 1.5f);
+        }
+
+        g.setColour(ui::dim());
+        g.setFont(uiFont(9.5f, true));
+        g.drawText("DAHDSR ENVELOPE CURVE", (int) bX + 6, (int) bY + 4, 180, 12, juce::Justification::left);
+    }
+
+private:
+    void timerCallback() override { repaint(); }
+    ModMatrix& matrix;
+    int slot;
+    juce::ValueTree st;
 };
 
 // ---------------------------------------------------------------------------
@@ -354,13 +600,14 @@ public:
         int slot;
     };
 
-    SourceEditorContent(ModMatrix& m, int slot_)
+    SourceEditorContent(ModMatrix& m, int slot_, Forge64Processor* proc)
         : matrix(m), slot(slot_), st(m.sourceState(slot_))
     {
         const int cls = slotClassOf(slot);
 
         if (cls == SC_LFO)
         {
+            addRow(nullptr, new LFOResponseView(matrix, slot, st), 76);
             addCombo("shape", "Shape", { "Sine", "Triangle", "Saw", "Square", "S+H", "S+H Glide" });
             addSlider("rate", "Rate Hz", 0.01, 40.0, 0.01, 0.4);
             addToggle("sync", "Tempo Sync");
@@ -381,6 +628,8 @@ public:
         }
         else if (cls == SC_ENV)
         {
+            addRow(nullptr, new EnvResponseView(matrix, slot, st), 84);
+            addEnvTriggerRow(proc);
             addSlider("dly", "Delay", 0.0, 10.0, 0.001, 0.35);
             addSlider("atk", "Attack", 0.0005, 10.0, 0.001, 0.3);
             addSlider("hold", "Hold", 0.0, 10.0, 0.001, 0.35);
@@ -529,6 +778,115 @@ private:
         addRow(nullptr, b, 28);
     }
 
+    void addEnvTriggerRow(Forge64Processor* proc)
+    {
+        auto* l = new juce::Label();
+        l->setText("Trigger Src", juce::dontSendNotification);
+        l->setFont(uiFont(11.f));
+        l->setColour(juce::Label::textColourId, ui::dim());
+
+        class PadLearner : public juce::Component, private juce::Timer
+        {
+        public:
+            PadLearner(Forge64Processor* p, ModMatrix& m, int sl, juce::ValueTree& tree)
+                : proc(p), matrix(m), slot(sl), st(tree)
+            {
+                ui::styleCombo(combo);
+                combo.addItem("All Pads (Omni)", 1);
+                for (int i = 0; i < kNumPads; ++i)
+                {
+                    const int b = i / kPadsPerBank;
+                    const char bc = (char) ('A' + b);
+                    const juce::String name = "Pad " + juce::String::charToString(bc)
+                                            + juce::String::formatted("%02d", (i % kPadsPerBank) + 1);
+                    combo.addItem(name, i + 2);
+                }
+                combo.addItem("MIDI Note Omni", kNumPads + 2);
+
+                int curPad = (int) st.getProperty("trigPad", -1);
+                if (curPad >= 0 && curPad < kNumPads)
+                    combo.setSelectedId(curPad + 2, juce::dontSendNotification);
+                else if (curPad == -2)
+                    combo.setSelectedId(kNumPads + 2, juce::dontSendNotification);
+                else
+                    combo.setSelectedId(1, juce::dontSendNotification);
+
+                combo.onChange = [this]
+                {
+                    int id = combo.getSelectedId();
+                    int pVal = -1;
+                    if (id == 1) pVal = -1;
+                    else if (id == kNumPads + 2) pVal = -2;
+                    else pVal = id - 2;
+                    matrix.setSourceParam(slot, "trigPad", pVal);
+                };
+                addAndMakeVisible(combo);
+
+                learnBtn.setButtonText("LEARN");
+                ui::styleButton(learnBtn);
+                learnBtn.setTooltip("Touch or hit a pad to assign as envelope trigger");
+                learnBtn.onClick = [this]
+                {
+                    learning = ! learning;
+                    if (learning)
+                    {
+                        learnBtn.setButtonText("HIT PAD...");
+                        learnBtn.setColour(juce::TextButton::buttonColourId, juce::Colour(0xFFFF6600));
+                        if (proc) lastPad = proc->getLastTriggeredPad();
+                        startTimerHz(30);
+                    }
+                    else
+                    {
+                        stopLearning();
+                    }
+                };
+                addAndMakeVisible(learnBtn);
+            }
+
+            ~PadLearner() override { stopTimer(); }
+
+            void stopLearning()
+            {
+                learning = false;
+                stopTimer();
+                learnBtn.setButtonText("LEARN");
+                learnBtn.setColour(juce::TextButton::buttonColourId, ui::panelHi());
+            }
+
+            void timerCallback() override
+            {
+                if (! learning || ! proc) return;
+                int current = proc->getLastTriggeredPad();
+                if (current >= 0 && current < kNumPads && current != lastPad)
+                {
+                    combo.setSelectedId(current + 2, juce::sendNotificationSync);
+                    stopLearning();
+                }
+            }
+
+            void resized() override
+            {
+                auto r = getLocalBounds();
+                learnBtn.setBounds(r.removeFromRight(64));
+                r.removeFromRight(4);
+                combo.setBounds(r);
+            }
+
+        private:
+            Forge64Processor* proc;
+            ModMatrix& matrix;
+            int slot;
+            juce::ValueTree& st;
+            juce::ComboBox combo;
+            juce::TextButton learnBtn;
+            bool learning = false;
+            int lastPad = -1;
+        };
+
+        auto* learner = new PadLearner(proc, matrix, slot, st);
+        addRow(l, learner, 28);
+    }
+
     struct RowSpec { juce::Label* l; juce::Component* c; int h; };
 
     ModMatrix& matrix;
@@ -539,10 +897,115 @@ private:
 };
 
 // ---------------------------------------------------------------------------
+// ModPanel - In-window Source Inspector Overlay
+// ---------------------------------------------------------------------------
+class ModPanel::SourceInspectorOverlay : public juce::Component
+{
+public:
+    SourceInspectorOverlay(ModPanel& o, ModMatrix& m, int slot_, Forge64Processor* proc)
+        : owner(o), matrix(m), slot(slot_)
+    {
+        setWantsKeyboardFocus(true);
+
+        backBtn.setButtonText("< BACK");
+        backBtn.setTooltip("Close inspector");
+        ui::styleButton(backBtn);
+        backBtn.onClick = [this] { owner.closeInspector(); };
+        addAndMakeVisible(backBtn);
+
+        badge.setSlot(slot);
+        addAndMakeVisible(badge);
+
+        title.setText(slotName(slot), juce::dontSendNotification);
+        title.setFont(uiFont(13.f, true));
+        title.setColour(juce::Label::textColourId, ui::txt());
+        addAndMakeVisible(title);
+
+        const auto st = matrix.sourceState(slot);
+        if (st.isValid())
+        {
+            ui::styleToggle(enableToggle);
+            enableToggle.setButtonText("ON");
+            enableToggle.setToggleState(bool(st.getProperty("enabled", false)), juce::dontSendNotification);
+            enableToggle.onClick = [this]
+            {
+                matrix.setSourceParam(slot, "enabled", enableToggle.getToggleState());
+            };
+            addAndMakeVisible(enableToggle);
+        }
+
+        closeBtn.setButtonText(juce::String::charToString(0x00D7)); // ×
+        ui::styleButton(closeBtn);
+        closeBtn.onClick = [this] { owner.closeInspector(); };
+        addAndMakeVisible(closeBtn);
+
+        content = std::make_unique<SourceEditorContent>(matrix, slot, proc);
+        viewport = std::make_unique<juce::Viewport>();
+        viewport->setViewedComponent(content.get(), false);
+        viewport->setScrollBarsShown(true, false);
+        addAndMakeVisible(viewport.get());
+    }
+
+    ~SourceInspectorOverlay() override = default;
+
+    void resized() override
+    {
+        auto r = getLocalBounds();
+        auto topBar = r.removeFromTop(36).reduced(6, 4);
+        backBtn.setBounds(topBar.removeFromLeft(64));
+        topBar.removeFromLeft(6);
+        badge.setBounds(topBar.removeFromLeft(22));
+        topBar.removeFromLeft(6);
+        closeBtn.setBounds(topBar.removeFromRight(26));
+        topBar.removeFromRight(6);
+        enableToggle.setBounds(topBar.removeFromRight(48));
+        title.setBounds(topBar);
+
+        r.removeFromTop(2);
+        viewport->setBounds(r.reduced(4, 2));
+        if (content != nullptr)
+            content->setSize(viewport->getMaximumVisibleWidth(), content->layoutHeight());
+    }
+
+    void paint(juce::Graphics& g) override
+    {
+        g.fillAll(ui::panel().darker(0.18f));
+        g.setColour(ui::panelHi());
+        g.fillRect(0, 0, getWidth(), 36);
+        g.setColour(slotColour(slot));
+        g.fillRect(0, 34, getWidth(), 2);
+        g.setColour(ui::line());
+        g.drawRect(getLocalBounds(), 1);
+    }
+
+    bool keyPressed(const juce::KeyPress& key) override
+    {
+        if (key == juce::KeyPress::escapeKey)
+        {
+            owner.closeInspector();
+            return true;
+        }
+        return false;
+    }
+
+private:
+    ModPanel& owner;
+    ModMatrix& matrix;
+    int slot = 0;
+    juce::TextButton backBtn;
+    SourceRow::Badge badge;
+    juce::Label title;
+    juce::ToggleButton enableToggle;
+    juce::TextButton closeBtn;
+    std::unique_ptr<SourceEditorContent> content;
+    std::unique_ptr<juce::Viewport> viewport;
+};
+
+// ---------------------------------------------------------------------------
 // ModPanel
 // ---------------------------------------------------------------------------
-ModPanel::ModPanel(ModMatrix& m, juce::ValueTree, juce::ValueTree matTree)
-    : matrixRef(m)
+ModPanel::ModPanel(ModMatrix& m, juce::ValueTree, juce::ValueTree matTree, Forge64Processor* proc)
+    : matrixRef(m), procPtr(proc)
 {
     titleA = ui::makeLabel("MODULATION SOURCES  -  drag badges onto any knob", 10.5f, ui::dim());
     titleB = ui::makeLabel("MODULATION MATRIX", 10.5f, ui::dim());
@@ -561,6 +1024,7 @@ ModPanel::ModPanel(ModMatrix& m, juce::ValueTree, juce::ValueTree matTree)
 
 ModPanel::~ModPanel()
 {
+    inspector.reset();
     sourceList.setModel(nullptr);
 }
 
@@ -574,6 +1038,9 @@ void ModPanel::resized()
     titleB->setBounds(r.removeFromTop(18));
     r.removeFromTop(2);
     conns->setBounds(r);
+
+    if (inspector != nullptr)
+        inspector->setBounds(getLocalBounds());
 }
 
 void ModPanel::paint(juce::Graphics& g)
@@ -583,24 +1050,21 @@ void ModPanel::paint(juce::Graphics& g)
     g.drawVerticalLine(getWidth() - 1, 0.f, (float) getHeight());
 }
 
-void ModPanel::openSourceEditor(int slot, juce::Component* near)
+void ModPanel::openSourceEditor(int slot, juce::Component* /*near*/)
 {
     if (! matrixRef.sourceState(slot).isValid())
         return;
 
-    popup.reset();
-    auto* content = new SourceEditorContent(matrixRef, slot);
-    const int contentH = content->layoutHeight();
+    inspector = std::make_unique<SourceInspectorOverlay>(*this, matrixRef, slot, procPtr);
+    addAndMakeVisible(inspector.get());
+    inspector->setBounds(getLocalBounds());
+    inspector->toFront(true);
+    inspector->grabKeyboardFocus();
+}
 
-    auto dw = std::make_unique<juce::DialogWindow>(slotName(slot), ui::panelHi(), true);
-    dw->setContentOwned(content, false);
-    dw->setResizable(false, false);
-    dw->setUsingNativeTitleBar(false);
-    dw->centreAroundComponent(near, 330, contentH + 30);
-    dw->setAlwaysOnTop(true);
-    dw->enterModalState(false); // non-blocking: plugin-safe
-    dw->setVisible(true);
-    popup = std::move(dw);
+void ModPanel::closeInspector()
+{
+    inspector.reset();
 }
 
 } // namespace f64

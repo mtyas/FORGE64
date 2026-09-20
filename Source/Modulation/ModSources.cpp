@@ -87,11 +87,11 @@ void LFOSource::render(float* out, int n)
                 const float tau = juce::jmax(0.002f, gl * 0.2f);
                 const float coef = 1.f - std::exp(-1.f / (tau * (float) sampleRate));
                 glideMem += (held - glideMem) * coef;
-                v = glideMem;
+                v = un ? juce::jlimit(0.f, 1.f, glideMem) : glideMem;
             }
             else
             {
-                v = held;
+                v = un ? juce::jlimit(0.f, 1.f, held) : held;
             }
         }
         else
@@ -106,9 +106,9 @@ void LFOSource::render(float* out, int n)
                 default: v = ph < 0.5f ? 1.f : -1.f; break;
             }
             if (un)
-                v = v * 0.5f + 0.5f;
+                v = juce::jlimit(0.f, 1.f, v * 0.5f + 0.5f);
         }
-        out[i] = v;
+        out[i] = un ? juce::jlimit(0.f, 1.f, v) : v;
     }
 }
 
@@ -218,6 +218,8 @@ juce::ValueTree EnvSource::makeDefault()
     t.setProperty("rel", 0.1, nullptr);
     t.setProperty("curve", 0.0, nullptr);
     t.setProperty("loop", false, nullptr);
+    t.setProperty("trigPad", -1, nullptr);
+    t.setProperty("trigNote", -1, nullptr);
     return t;
 }
 
@@ -233,6 +235,8 @@ void EnvSource::syncFromState()
     rel   = (float) (double) state.getProperty("rel", 0.1);
     curve = (float) (double) state.getProperty("curve", 0.0);
     loop  = bool(state.getProperty("loop", false));
+    triggerPad  = (int) state.getProperty("trigPad", -1);
+    triggerNote = (int) state.getProperty("trigNote", -1);
 }
 
 void EnvSource::advance(Instance& in, float* out, int n)

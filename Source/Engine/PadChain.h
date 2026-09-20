@@ -17,6 +17,12 @@ public:
 private:
     double sampleRate = 48000.0;
 
+    // Resonant VCF (State Variable TPT Filter: Lowpass, Highpass, Bandpass, Notch)
+    juce::dsp::StateVariableTPTFilter<float> vcfL, vcfR;
+    float smVcfCut = 20000.f;
+    float smVcfRes = 0.707f;
+    int lastVcfType = -1;
+
     juce::dsp::IIR::Filter<float> eqL[3], eqR[3];
     float smEq[6] = { 200.f, 0.f, 1000.f, 0.f, 8000.f, 0.f };
     bool coeffsDirty = true;
@@ -33,6 +39,34 @@ private:
     juce::dsp::Chorus<float> chorus;
     juce::dsp::Phaser<float> phaser;
     int lastFx = -1;
+
+    // Additional Multi-FX States
+    // 5: Warm Overdrive & 6: Fuzz
+    float odToneL = 0.f, odToneR = 0.f;
+    float fuzzHpL = 0.f, fuzzHpR = 0.f;
+
+    // 7: Tape Delay
+    std::vector<float> tapeL, tapeR;
+    int tapeWrite = 0;
+    float tapeDampL = 0.f, tapeDampR = 0.f;
+
+    // 8: Plate Reverb (4-channel FDN)
+    std::vector<float> plateBuf[4];
+    int plateWrite[4] = { 0, 0, 0, 0 };
+    float plateDamp[4] = { 0.f, 0.f, 0.f, 0.f };
+
+    // 9: Pitch Shifter (Dual crossfaded delay grains)
+    std::vector<float> pitchBufL, pitchBufR;
+    int pitchWrite = 0;
+    float pitchPhase = 0.f;
+    float pitchFbL = 0.f, pitchFbR = 0.f;
+
+    // 10: Formant Filter (Dual parallel resonant bandpasses)
+    juce::dsp::IIR::Filter<float> formantF1_L, formantF1_R, formantF2_L, formantF2_R;
+    float lastVowelPos = -1.f, lastReso = -1.f;
+
+    // 11: Ring Modulator
+    float ringPhase = 0.f;
 };
 
 } // namespace f64

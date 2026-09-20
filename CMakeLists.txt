@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(FORGE64 VERSION 0.1.0 LANGUAGES C CXX)
+project(FORGE64 VERSION 0.77.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -43,7 +43,8 @@ endif()
 
 # ---------------------------------------------------------------- Plugin
 juce_add_plugin(Forge64
-  COMPANY_NAME               "Forge Audio"
+  COMPANY_NAME               "mtyas"
+  VERSION                    "0.77.0"
   IS_SYNTH                   TRUE
   NEEDS_MIDI_INPUT           TRUE
   PRODUCES_MIDI_OUTPUT       FALSE
@@ -64,14 +65,27 @@ target_sources(Forge64 PRIVATE
   Source/Engine/PadGrid.cpp
   Source/Engine/VoicePool.cpp
   Source/Engine/PadChain.cpp
+  Source/Engine/AuxBusManager.cpp
+  Source/Engine/StepSequencer.cpp
   Source/Modulation/ModSources.cpp
   Source/Modulation/ModMatrix.cpp
   Source/Scripting/LuaEngine.cpp
+  Source/Scripting/ScriptPresetManager.cpp
   Source/Presets/PresetManager.cpp
   Source/UI/ModRingKnob.cpp
   Source/UI/PadGridView.cpp
   Source/UI/PadEditor.cpp
-  Source/UI/ModPanel.cpp)
+  Source/UI/ModPanel.cpp
+  Source/UI/MixerFXPage.cpp
+  Source/UI/SequencerPage.cpp
+  Source/UI/WaveformDisplay.cpp
+  Source/UI/EQGraphView.cpp
+  Source/UI/CompGraphView.cpp
+  Source/UI/VCFGraphView.cpp
+  Source/Presets/ModulePresetManager.cpp
+  Source/UI/LuaScriptEditorWindow.cpp
+  Source/UI/SequencerDrawer.cpp
+  Source/UI/PerformancePage.cpp)
 
 target_compile_definitions(Forge64 PRIVATE
   JUCE_WEB_BROWSER=0
@@ -101,9 +115,40 @@ if(FORGE64_BUILD_CLAP)
   include(${clap-juce-extensions_SOURCE_DIR}/cmake/ClapTargetHelpers.cmake)
 
   clap_juce_extensions_plugin(TARGET Forge64
-    CLAP_ID          "com.forgeaudio.forge64"
+    CLAP_ID          "com.mtyas.forge64"
     CLAP_FEATURES    instrument "drum machine" synthesizer
-    CLAP_DESCRIPTION "FORGE64 - modular 64-pad drum engine"
+    CLAP_DESCRIPTION "FORGE64 - A creation of mtyas"
     CLAP_MANUAL_URL  "https://forge64.audio/manual"
     CLAP_SUPPORT_URL "https://forge64.audio/support")
 endif()
+
+# ---------------------------------------------------------------- Test Audio
+juce_add_console_app(test_audio
+  PRODUCT_NAME "test_audio")
+juce_generate_juce_header(test_audio)
+target_sources(test_audio PRIVATE Source/Tests/test_audio.cpp)
+target_link_libraries(test_audio PRIVATE
+  Forge64
+  juce::juce_audio_utils
+  juce::juce_dsp)
+if(FORGE64_SCRIPTING)
+  target_compile_definitions(test_audio PRIVATE FORGE64_SCRIPTING=1)
+  target_link_libraries(test_audio PRIVATE lua54)
+endif()
+
+# ---------------------------------------------------------------- Capture Screenshots
+juce_add_console_app(capture_screenshots
+  PRODUCT_NAME "capture_screenshots")
+juce_generate_juce_header(capture_screenshots)
+target_sources(capture_screenshots PRIVATE Source/Tests/capture_screenshots.cpp)
+target_link_libraries(capture_screenshots PRIVATE
+  Forge64
+  juce::juce_audio_utils
+  juce::juce_dsp)
+if(FORGE64_SCRIPTING)
+  target_compile_definitions(capture_screenshots PRIVATE FORGE64_SCRIPTING=1)
+  target_link_libraries(capture_screenshots PRIVATE lua54)
+endif()
+
+
+

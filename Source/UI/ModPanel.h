@@ -33,30 +33,36 @@ private:
     std::vector<juce::ValueTree> items;
 };
 
+class Forge64Processor;
+
 // Right-hand panel: the 53 modulation sources (draggable badges, enable,
 // per-source editors) plus the global modulation matrix table.
 class ModPanel : public juce::Component
 {
 public:
-    ModPanel(ModMatrix& m, juce::ValueTree srcTree, juce::ValueTree matTree);
+    ModPanel(ModMatrix& m, juce::ValueTree srcTree, juce::ValueTree matTree, Forge64Processor* proc = nullptr);
     ~ModPanel() override;
 
     void resized() override;
     void paint(juce::Graphics& g) override;
     void openSourceEditor(int slot, juce::Component* near);
+    void closeInspector();
     ModMatrix& matrix() { return matrixRef; }
+    Forge64Processor* getProcessor() const { return procPtr; }
 
 private:
     class SourceListModel;
     class SourceRow;
     class SourceEditorContent;
+    class SourceInspectorOverlay;
 
     ModMatrix& matrixRef;
+    Forge64Processor* procPtr = nullptr;
     juce::ListBox sourceList;
     std::unique_ptr<SourceListModel> srcModel;
     std::unique_ptr<ConnectionList> conns;
     std::unique_ptr<juce::Label> titleA, titleB;
-    std::unique_ptr<juce::DialogWindow> popup;
+    std::unique_ptr<SourceInspectorOverlay> inspector;
 };
 
 } // namespace f64

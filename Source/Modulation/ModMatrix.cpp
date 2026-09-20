@@ -149,7 +149,7 @@ void ModMatrix::computeOffsets()
 
     for (const auto& c : cacheLive->conns)
     {
-        if (c.muted)
+        if (c.muted || std::abs(c.amount) < 0.005f)
             continue;
         float v = srcAvg[(size_t) clampRange(c.slot, 0, kNumSlots - 1)].load();
         v = shapeCurve(v, c.curve);
@@ -268,14 +268,33 @@ void ModMatrix::rebuildCache()
 
 int ModMatrix::addConnection(int slot, juce::StringRef dest, float amount)
 {
+    // Auto-enable source when a connection is patched so modulation is active immediately
+    setSourceParam(slot, "enabled", true);
+
+    const int safeSlot = clampRange(slot, 0, kNumSlots - 1);
+    const juce::String destStr(dest);
+
+    // Prevent duplicate connection if this source is already patched to this destination
+    for (int i = 0; i < matTree.getNumChildren(); ++i)
+    {
+        auto child = matTree.getChild(i);
+        if ((int) child.getProperty("slot", -1) == safeSlot && child.getProperty("dest", "").toString() == destStr)
+        {
+            child.setProperty("muted", false, nullptr);
+            if (std::abs(amount - 0.5f) > 0.001f)
+                child.setProperty("amount", (double) amount, nullptr);
+            return (int) child.getProperty("id", 0);
+        }
+    }
+
     int maxId = 0;
     for (int i = 0; i < matTree.getNumChildren(); ++i)
         maxId = juce::jmax(maxId, (int) matTree.getChild(i).getProperty("id", 0));
 
     juce::ValueTree c("conn");
     c.setProperty("id", maxId + 1, nullptr);
-    c.setProperty("slot", clampRange(slot, 0, kNumSlots - 1), nullptr);
-    c.setProperty("dest", juce::String(dest), nullptr);
+    c.setProperty("slot", safeSlot, nullptr);
+    c.setProperty("dest", destStr, nullptr);
     c.setProperty("amount", (double) amount, nullptr);
     c.setProperty("invert", false, nullptr);
     c.setProperty("muted", false, nullptr);

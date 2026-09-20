@@ -57,6 +57,7 @@ public:
     void syncAllFromTrees();
     ModSource* sourceAt(int slot) { return sources[(size_t) slot].get(); }
     juce::ValueTree sourceState(int slot) const { return sources[(size_t) slot]->state; }
+    float sourceAverage(int slot) const { return (slot >= 0 && slot < kNumSlots) ? srcAvg[(size_t) slot].load() : 0.f; }
 
     struct Ring { int slot = 0; int id = 0; float amount = 0.f; float now = 0.f; float curve = 0.f; };
     std::vector<Ring> ringsFor(juce::StringRef dest) const;

@@ -109,6 +109,8 @@ public:
     std::atomic<float> dly { 0.f }, atk { 0.01f }, hold { 0.f }, dec { 0.3f };
     std::atomic<float> sus { 0.5f }, rel { 0.1f }, curve { 0.f };
     std::atomic<bool>  loop { false };
+    std::atomic<int>   triggerPad { -1 };  // -1 = all, 0..63 = specific pad
+    std::atomic<int>   triggerNote { -1 }; // -1 = any, 0..127 = specific note
 
 private:
     struct Instance

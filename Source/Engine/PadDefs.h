@@ -77,12 +77,12 @@ inline juce::Colour slotColour(int slot)
 {
     switch (slotClassOf(slot))
     {
-        case SC_LFO:   return juce::Colour(0xFF35C4F0); // cyan
-        case SC_RND:   return juce::Colour(0xFFE35BDB); // magenta
-        case SC_ENV:   return juce::Colour(0xFFF59E42); // orange
-        case SC_SEQ:   return juce::Colour(0xFF7BDC5A); // green
-        case SC_MIDI:  return juce::Colour(0xFFF0DE3C); // yellow
-        default:       return juce::Colour(0xFFE8E8E8); // white
+        case SC_LFO:   return juce::Colour(0xFF3898EC); // Tempered blued steel
+        case SC_RND:   return juce::Colour(0xFFE056FD); // Heat-tint violet
+        case SC_ENV:   return juce::Colour(0xFFFF7700); // Blaze forge flame
+        case SC_SEQ:   return juce::Colour(0xFF38B000); // Sulphur green flame
+        case SC_MIDI:  return juce::Colour(0xFFFFB703); // Crucible molten gold
+        default:       return juce::Colour(0xFFFFF0A0); // White-hot incandescent iron
     }
 }
 
@@ -90,6 +90,66 @@ inline juce::Colour slotColour(int slot)
 inline constexpr const char* kDestVoiceAmp   = "v_amp";
 inline constexpr const char* kDestVoicePitch = "v_pitch";
 inline constexpr const char* kDestVoicePan   = "v_pan";
+
+enum PadSourceType
+{
+    SRC_SAMPLE = 0,
+    SRC_KICK = 1,
+    SRC_SNARE = 2,
+    SRC_HAT_CLOSED = 3,
+    SRC_HAT_OPEN = 4,
+    SRC_CLAP = 5,
+    SRC_TOM = 6,
+    SRC_CRASH = 7,
+    SRC_RIDE = 8,
+    SRC_RIM = 9,
+    SRC_BELL = 10,
+    SRC_CONGA = 11,
+    SRC_LUA = 12,
+    SRC_COUNT
+};
+
+inline const char* padSourceTypeName(int srcType)
+{
+    switch (srcType)
+    {
+        case SRC_SAMPLE:     return "Sample Playback";
+        case SRC_KICK:       return "Kick 808";
+        case SRC_SNARE:      return "Snare 808";
+        case SRC_HAT_CLOSED: return "Closed Hat";
+        case SRC_HAT_OPEN:   return "Open Hat";
+        case SRC_CLAP:       return "Handclap";
+        case SRC_TOM:        return "Tom Drum";
+        case SRC_CRASH:      return "Crash Cymbal";
+        case SRC_RIDE:       return "Ride Cymbal";
+        case SRC_RIM:        return "Rimshot";
+        case SRC_BELL:       return "Cowbell / Bell";
+        case SRC_CONGA:      return "Conga / Bongo";
+        case SRC_LUA:        return "Lua DSP Script";
+        default:             return "Sample Playback";
+    }
+}
+
+inline const char* padCategoryName(int srcType)
+{
+    switch (srcType)
+    {
+        case SRC_SAMPLE:     return "SMPL";
+        case SRC_KICK:       return "KICK";
+        case SRC_SNARE:      return "SNAR";
+        case SRC_HAT_CLOSED: return "CHAT";
+        case SRC_HAT_OPEN:   return "OHAT";
+        case SRC_CLAP:       return "CLAP";
+        case SRC_TOM:        return "TOM";
+        case SRC_CRASH:      return "CRSH";
+        case SRC_RIDE:       return "RIDE";
+        case SRC_RIM:        return "RIM";
+        case SRC_BELL:       return "BELL";
+        case SRC_CONGA:      return "CONG";
+        case SRC_LUA:        return "LUA";
+        default:             return "PAD";
+    }
+}
 
 struct PadParamDef { const char* base; const char* label; };
 
@@ -105,24 +165,39 @@ inline constexpr PadParamDef kPadParams[] = {
     { "drv",   "Drive" },
     { "fx",    "FX Type" },   { "fx1",   "FX P1" },
     { "fx2",   "FX P2" },     { "fx3",   "FX P3" },
-    { "fx4",   "FX P4" },
+    { "fx4",   "FX P4" },     { "fx5",   "FX P5" },
     { "snda",  "Send A" },    { "sndb",  "Send B" },
+    { "sndc",  "Send C" },    { "sndd",  "Send D" },
     { "chok",  "Choke" },     { "obus",  "Out Bus" },
     { "pmode", "Mode" },      { "mchan", "MIDI Ch" },
     { "mnote", "MIDI Note" }, { "src",   "Source" },
+    { "satk",  "SMPL Atk" },  { "sdec",  "SMPL Dec" },
+    { "ssus",  "SMPL Sus" },  { "srel",  "SMPL Rel" },
+    { "ifx",   "Insert FX" }, { "ifx1",  "IFX P1" },
+    { "ifx2",  "IFX P2" },    { "ifx3",  "IFX P3" },
+    { "ifx4",  "IFX P4" },
+    { "vcft",  "VCF Type" },  { "vcfc",  "VCF Cut" },
+    { "vcfr",  "VCF Res" },   { "vcfe",  "VCF Env" }
 };
-constexpr int kNumPadParams = (int) (sizeof(kPadParams) / sizeof(kPadParams[0])); // 28
+constexpr int kNumPadParams = (int) (sizeof(kPadParams) / sizeof(kPadParams[0])); // 44
 
 struct PadParams
 {
-    float level = 0.8f, pan = 0.f, tune = 0.f, decay = 1.f;
+    float level = 0.55f, pan = 0.f, tune = 0.f, decay = 1.f;
     float eqLF = 200.f, eqLG = 0.f, eqMF = 1000.f, eqMG = 0.f, eqHF = 8000.f, eqHG = 0.f;
     float cThr = 0.f, cRat = 1.f, cAtk = 5.f, cRel = 100.f;
     float drive = 0.f;
     int   fxType = 0;
-    float fx1 = 0.5f, fx2 = 0.5f, fx3 = 0.5f, fx4 = 0.5f;
-    float sendA = 0.f, sendB = 0.f;
+    float fx1 = 0.5f, fx2 = 0.5f, fx3 = 0.5f, fx4 = 0.5f, fx5 = 0.5f;
+    float sendA = 0.f, sendB = 0.f, sendC = 0.f, sendD = 0.f;
     int   choke = 0, outBus = 1, mode = 0, mchan = 0, mnote = 36, srcType = 0;
+    float smplAtk = 0.001f, smplDec = 1.0f, smplSus = 1.0f, smplRel = 0.1f;
+    int   ifxType = 0;
+    float ifx1 = 0.5f, ifx2 = 0.5f, ifx3 = 0.5f, ifx4 = 0.5f;
+    int   vcfType = 0; // 0: Bypass, 1: LP, 2: HP, 3: BP, 4: Notch
+    float vcfCut = 20000.f;
+    float vcfRes = 0.707f;
+    float vcfEnv = 0.0f;
 };
 
 inline juce::String padParamId(int pad, juce::StringRef base)
