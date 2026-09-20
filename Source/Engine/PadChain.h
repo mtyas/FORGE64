@@ -11,6 +11,9 @@ namespace f64 {
 class PadChain
 {
 public:
+    PadChain();
+    ~PadChain();
+
     void prepare(double sr, int maxBlock);
     void process(float* L, float* R, int n, const PadParams& p);
 

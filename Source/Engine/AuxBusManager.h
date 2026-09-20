@@ -75,7 +75,7 @@ class AuxBusManager
 {
 public:
     AuxBusManager();
-    ~AuxBusManager() = default;
+    ~AuxBusManager();
 
     void prepare(double sr, int maxBlock);
     void reset();

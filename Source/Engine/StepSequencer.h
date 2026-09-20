@@ -146,6 +146,7 @@ public:
     };
 
     StepSequencer();
+    ~StepSequencer();
 
     void prepare(double sampleRate);
     void reset();

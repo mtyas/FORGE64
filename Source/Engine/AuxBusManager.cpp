@@ -14,6 +14,8 @@ AuxBusManager::AuxBusManager()
         auxMeters[i].store(0.f);
 }
 
+AuxBusManager::~AuxBusManager() = default;
+
 void AuxBusManager::prepare(double sr, int maxBlock)
 {
     sampleRate = sr;

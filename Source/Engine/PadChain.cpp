@@ -3,6 +3,9 @@
 
 namespace f64 {
 
+PadChain::PadChain() = default;
+PadChain::~PadChain() = default;
+
 void PadChain::prepare(double sr, int maxBlock)
 {
     sampleRate = sr;

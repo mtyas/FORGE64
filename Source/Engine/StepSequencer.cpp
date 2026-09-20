@@ -11,6 +11,8 @@ StepSequencer::StepSequencer()
     initDefaultPatterns();
 }
 
+StepSequencer::~StepSequencer() = default;
+
 void StepSequencer::prepare(double sr)
 {
     sampleRate = sr;
