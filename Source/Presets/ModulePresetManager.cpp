@@ -2084,10 +2084,11 @@ std::vector<SoundPreset> ModulePresetManager::getSoundPresetsForModule(const juc
     if (moduleId == "kick_808")
     {
         list.push_back({ "Default 808", moduleId, 0.f, 0.65f, 0.12f, 0.60f, 0.40f, 0.50f, 0.40f, 0.30f, 0, 20000.f, 0.707f, 0.f });
-        list.push_back({ "Deep Sub Boom", moduleId, -3.f, 1.10f, 0.06f, 0.40f, 0.25f, 0.90f, 0.70f, 0.50f, 1, 850.f, 1.2f, 0.25f });
-        list.push_back({ "Punchy Trap 808", moduleId, 2.f, 0.38f, 0.22f, 0.85f, 0.70f, 0.35f, 0.50f, 0.15f, 0, 20000.f, 0.707f, 0.f });
+        list.push_back({ "Deep Sub Boom", moduleId, -3.f, 1.15f, 0.08f, 0.40f, 0.25f, 0.90f, 0.70f, 0.50f, 1, 850.f, 1.2f, 0.25f });
+        list.push_back({ "Punchy Trap 808", moduleId, 2.f, 0.42f, 0.24f, 0.85f, 0.70f, 0.35f, 0.50f, 0.15f, 0, 20000.f, 0.707f, 0.f });
         list.push_back({ "Distorted Sag", moduleId, -1.f, 0.75f, 0.45f, 0.75f, 0.55f, 0.70f, 0.85f, 0.80f, 0, 20000.f, 0.707f, 0.f });
-        list.push_back({ "Laser Beater Sub", moduleId, 6.f, 0.22f, 0.14f, 0.95f, 0.85f, 0.20f, 0.30f, 0.10f, 0, 20000.f, 0.707f, 0.f });
+        list.push_back({ "Laser Beater Sub", moduleId, 6.f, 0.25f, 0.16f, 0.95f, 0.85f, 0.20f, 0.30f, 0.10f, 0, 20000.f, 0.707f, 0.f });
+        list.push_back({ "Miami Bass 808", moduleId, -2.f, 0.90f, 0.18f, 0.55f, 0.45f, 0.80f, 0.60f, 0.40f, 0, 20000.f, 0.707f, 0.f });
     }
     else if (moduleId == "kick_909")
     {
@@ -2095,30 +2096,35 @@ std::vector<SoundPreset> ModulePresetManager::getSoundPresetsForModule(const juc
         list.push_back({ "Tight Techno Thump", moduleId, 2.f, 0.24f, 0.25f, 0.80f, 0.80f, 0.35f, 0.65f, 0.60f, 0, 20000.f, 0.707f, 0.f });
         list.push_back({ "Heavy Overdrive", moduleId, -2.f, 0.48f, 0.50f, 0.50f, 0.75f, 0.70f, 0.40f, 0.85f, 1, 6500.f, 1.2f, 0.f });
         list.push_back({ "Short Club Thud", moduleId, 3.f, 0.18f, 0.10f, 0.90f, 0.90f, 0.25f, 0.70f, 0.30f, 0, 20000.f, 0.707f, 0.f });
+        list.push_back({ "Hardgroove Attack", moduleId, 1.f, 0.30f, 0.32f, 0.85f, 0.75f, 0.45f, 0.80f, 0.55f, 0, 20000.f, 0.707f, 0.f });
     }
     else if (moduleId == "kick_rock")
     {
         list.push_back({ "Default Acoustic Rock", moduleId, 0.f, 0.42f, 0.14f, 0.65f, 0.50f, 0.50f, 0.50f, 0.45f, 0, 20000.f, 0.707f, 0.f });
         list.push_back({ "Beater Crack Rock", moduleId, 1.f, 0.30f, 0.18f, 0.85f, 0.75f, 0.40f, 0.60f, 0.85f, 0, 20000.f, 0.707f, 0.f });
         list.push_back({ "Deep 24 Inch Bass", moduleId, -4.f, 0.58f, 0.15f, 0.45f, 0.35f, 0.75f, 0.70f, 0.40f, 1, 950.f, 1.0f, 0.f });
+        list.push_back({ "Punchy Studio Kick", moduleId, 0.f, 0.35f, 0.12f, 0.75f, 0.60f, 0.55f, 0.55f, 0.50f, 0, 20000.f, 0.707f, 0.f });
     }
     else if (moduleId == "kick_electro")
     {
         list.push_back({ "Default Electro", moduleId, 0.f, 0.35f, 0.22f, 0.70f, 0.50f, 0.50f, 0.40f, 0.30f, 0, 20000.f, 0.707f, 0.f });
         list.push_back({ "Cyber Bitcrush", moduleId, 3.f, 0.22f, 0.35f, 0.90f, 0.80f, 0.30f, 0.85f, 0.70f, 0, 20000.f, 0.707f, 0.f });
         list.push_back({ "Sub Sine Sweep", moduleId, -3.f, 0.55f, 0.10f, 0.50f, 0.10f, 0.90f, 0.10f, 0.20f, 0, 20000.f, 0.707f, 0.f });
+        list.push_back({ "Kraftwerk Zap Kick", moduleId, 5.f, 0.18f, 0.18f, 0.95f, 0.85f, 0.25f, 0.30f, 0.15f, 0, 20000.f, 0.707f, 0.f });
     }
     else if (moduleId == "kick_hardstyle")
     {
         list.push_back({ "Default Hardstyle", moduleId, 0.f, 0.48f, 0.35f, 0.85f, 0.65f, 0.60f, 0.60f, 0.50f, 0, 20000.f, 0.707f, 0.f });
         list.push_back({ "Brutal Folded Raw", moduleId, 1.f, 0.55f, 0.65f, 0.95f, 0.85f, 0.80f, 0.80f, 0.75f, 0, 20000.f, 0.707f, 0.f });
         list.push_back({ "Dark Sub Rumble", moduleId, -2.f, 0.65f, 0.30f, 0.70f, 0.45f, 0.40f, 0.50f, 0.95f, 1, 1200.f, 1.2f, 0.f });
+        list.push_back({ "Schranz Punch Kick", moduleId, 3.f, 0.28f, 0.55f, 0.90f, 0.90f, 0.35f, 0.75f, 0.65f, 0, 20000.f, 0.707f, 0.f });
     }
     else if (moduleId == "kick_sub_fm")
     {
         list.push_back({ "Default Sub FM", moduleId, 0.f, 0.60f, 0.12f, 0.50f, 0.50f, 0.60f, 0.40f, 0.40f, 0, 20000.f, 0.707f, 0.f });
         list.push_back({ "Dubstep Low Rattle", moduleId, -4.f, 0.80f, 0.28f, 0.75f, 0.70f, 0.80f, 0.60f, 0.55f, 1, 1400.f, 1.5f, 0.f });
         list.push_back({ "Clean Sub Harmonic", moduleId, 0.f, 0.95f, 0.05f, 0.20f, 0.20f, 0.30f, 0.15f, 0.20f, 0, 20000.f, 0.707f, 0.f });
+        list.push_back({ "Neurofunk Growl Sub", moduleId, -2.f, 0.70f, 0.35f, 0.85f, 0.80f, 0.65f, 0.70f, 0.60f, 0, 20000.f, 0.707f, 0.f });
     }
     else if (moduleId == "snare_808")
     {
@@ -2126,150 +2132,175 @@ std::vector<SoundPreset> ModulePresetManager::getSoundPresetsForModule(const juc
         list.push_back({ "Tight Rim Snap", moduleId, 3.f, 0.16f, 0.15f, 0.85f, 0.75f, 0.25f, 0.75f, 0.80f, 0, 20000.f, 0.707f, 0.f });
         list.push_back({ "Fat Lo-Fi Snare", moduleId, -3.f, 0.45f, 0.22f, 0.45f, 0.35f, 0.70f, 0.85f, 0.30f, 1, 4800.f, 1.0f, 0.f });
         list.push_back({ "Crisp Electro Snap", moduleId, 1.f, 0.20f, 0.12f, 0.90f, 0.80f, 0.30f, 0.40f, 0.75f, 0, 20000.f, 0.707f, 0.f });
+        list.push_back({ "Trap Whip Snare", moduleId, 4.f, 0.14f, 0.16f, 0.95f, 0.90f, 0.20f, 0.60f, 0.85f, 0, 20000.f, 0.707f, 0.f });
     }
     else if (moduleId == "snare_909")
     {
         list.push_back({ "Default 909 Snare", moduleId, 0.f, 0.25f, 0.10f, 0.65f, 0.60f, 0.50f, 0.50f, 0.55f, 0, 20000.f, 0.707f, 0.f });
         list.push_back({ "Crisp Techno Crack", moduleId, 2.f, 0.18f, 0.15f, 0.85f, 0.85f, 0.65f, 0.35f, 0.75f, 0, 20000.f, 0.707f, 0.f });
         list.push_back({ "Warm Deep Snare", moduleId, -2.f, 0.35f, 0.18f, 0.45f, 0.40f, 0.35f, 0.70f, 0.40f, 1, 5500.f, 1.1f, 0.f });
+        list.push_back({ "Hard Industrial Slam", moduleId, 1.f, 0.28f, 0.30f, 0.80f, 0.75f, 0.60f, 0.80f, 0.70f, 0, 20000.f, 0.707f, 0.f });
     }
     else if (moduleId == "snare_rock")
     {
         list.push_back({ "Default Rock Snare", moduleId, 0.f, 0.32f, 0.12f, 0.65f, 0.55f, 0.50f, 0.60f, 0.45f, 0, 20000.f, 0.707f, 0.f });
         list.push_back({ "Crack Rimshot Hit", moduleId, 2.f, 0.20f, 0.18f, 0.80f, 0.70f, 0.90f, 0.70f, 0.60f, 0, 20000.f, 0.707f, 0.f });
         list.push_back({ "Loose Snare Rattle", moduleId, -1.f, 0.45f, 0.08f, 0.40f, 0.45f, 0.30f, 0.50f, 0.80f, 0, 20000.f, 0.707f, 0.f });
+        list.push_back({ "Vintage 70s Dry Snare", moduleId, -2.f, 0.22f, 0.10f, 0.55f, 0.45f, 0.60f, 0.85f, 0.35f, 1, 6000.f, 0.9f, 0.f });
     }
     else if (moduleId == "snare_rimshot")
     {
         list.push_back({ "Default Maple Rim", moduleId, 0.f, 0.12f, 0.08f, 0.65f, 0.60f, 0.50f, 0.50f, 0.55f, 0, 20000.f, 0.707f, 0.f });
         list.push_back({ "Dry Cross Stick", moduleId, 2.f, 0.07f, 0.12f, 0.85f, 0.80f, 0.30f, 0.75f, 0.40f, 0, 20000.f, 0.707f, 0.f });
         list.push_back({ "Hollow Resonant Ping", moduleId, 5.f, 0.22f, 0.05f, 0.50f, 0.45f, 0.85f, 0.25f, 0.80f, 0, 20000.f, 0.707f, 0.f });
+        list.push_back({ "Bright Reggae Rim", moduleId, 4.f, 0.10f, 0.10f, 0.80f, 0.85f, 0.60f, 0.40f, 0.70f, 0, 20000.f, 0.707f, 0.f });
     }
     else if (moduleId == "hat_closed")
     {
         list.push_back({ "Default Tight Hat", moduleId, 0.f, 0.08f, 0.05f, 0.50f, 0.60f, 0.45f, 0.50f, 0.60f, 0, 20000.f, 0.707f, 0.f });
         list.push_back({ "Micro Tick", moduleId, 6.f, 0.035f, 0.02f, 0.80f, 0.85f, 0.80f, 0.75f, 0.80f, 2, 8000.f, 1.5f, 0.f });
         list.push_back({ "Dirty Detune Sizzle", moduleId, -2.f, 0.14f, 0.18f, 0.90f, 0.45f, 0.30f, 0.35f, 0.50f, 3, 6000.f, 3.5f, 0.f });
+        list.push_back({ "Trap Roll Click", moduleId, 4.f, 0.045f, 0.08f, 0.70f, 0.90f, 0.65f, 0.60f, 0.70f, 0, 20000.f, 0.707f, 0.f });
     }
     else if (moduleId == "hat_open")
     {
         list.push_back({ "Default Open Hat", moduleId, 0.f, 0.55f, 0.06f, 0.60f, 0.65f, 0.55f, 0.50f, 0.45f, 0, 20000.f, 0.707f, 0.f });
         list.push_back({ "Long Shimmering Sizzle", moduleId, 2.f, 0.85f, 0.12f, 0.80f, 0.75f, 0.60f, 0.85f, 0.60f, 2, 5500.f, 1.8f, 0.f });
         list.push_back({ "Choked Short Open", moduleId, -1.f, 0.22f, 0.05f, 0.40f, 0.50f, 0.40f, 0.30f, 0.40f, 0, 20000.f, 0.707f, 0.f });
+        list.push_back({ "90s House Ride Hat", moduleId, 1.f, 0.45f, 0.10f, 0.75f, 0.70f, 0.50f, 0.65f, 0.55f, 0, 20000.f, 0.707f, 0.f });
     }
     else if (moduleId == "hat_fm")
     {
         list.push_back({ "Default FM Hat", moduleId, 0.f, 0.10f, 0.05f, 0.65f, 0.55f, 0.60f, 0.45f, 0.55f, 0, 20000.f, 0.707f, 0.f });
         list.push_back({ "Cyber Bell Hat", moduleId, 4.f, 0.18f, 0.10f, 0.90f, 0.80f, 0.70f, 0.35f, 0.85f, 0, 20000.f, 0.707f, 0.f });
         list.push_back({ "Micro Metal Plink", moduleId, 8.f, 0.05f, 0.04f, 0.45f, 0.65f, 0.80f, 0.20f, 0.70f, 0, 20000.f, 0.707f, 0.f });
+        list.push_back({ "Digital Clock Pulse", moduleId, 2.f, 0.06f, 0.08f, 0.85f, 0.70f, 0.50f, 0.50f, 0.60f, 0, 20000.f, 0.707f, 0.f });
     }
     else if (moduleId == "hat_noise")
     {
         list.push_back({ "Default Sizzle Noise", moduleId, 0.f, 0.12f, 0.04f, 0.65f, 0.45f, 0.55f, 0.50f, 0.50f, 0, 20000.f, 0.707f, 0.f });
         list.push_back({ "Organic Shaker", moduleId, 2.f, 0.09f, 0.02f, 0.70f, 0.50f, 0.60f, 0.50f, 0.45f, 0, 20000.f, 0.707f, 0.f });
         list.push_back({ "Wide Resonant Whistle", moduleId, 5.f, 0.18f, 0.10f, 0.85f, 0.85f, 0.40f, 0.75f, 0.90f, 0, 20000.f, 0.707f, 0.f });
+        list.push_back({ "Crisp Tambourine Wash", moduleId, 3.f, 0.16f, 0.06f, 0.80f, 0.60f, 0.50f, 0.65f, 0.60f, 0, 20000.f, 0.707f, 0.f });
     }
     else if (moduleId == "clap_808")
     {
         list.push_back({ "Default 808 Clap", moduleId, 0.f, 0.35f, 0.06f, 0.55f, 0.50f, 0.50f, 0.50f, 0.60f, 0, 20000.f, 0.707f, 0.f });
         list.push_back({ "Tight Studio Snap", moduleId, 2.f, 0.18f, 0.12f, 0.35f, 0.70f, 0.65f, 0.25f, 0.40f, 0, 20000.f, 0.707f, 0.f });
         list.push_back({ "Big Hall Reverb Clap", moduleId, -2.f, 0.65f, 0.15f, 0.75f, 0.40f, 0.35f, 0.90f, 0.85f, 0, 20000.f, 0.707f, 0.f });
+        list.push_back({ "Multi-Hand Flam Clap", moduleId, 0.f, 0.40f, 0.08f, 0.80f, 0.75f, 0.55f, 0.45f, 0.65f, 0, 20000.f, 0.707f, 0.f });
     }
     else if (moduleId == "clap_room")
     {
         list.push_back({ "Default Room Clap", moduleId, 0.f, 0.45f, 0.08f, 0.60f, 0.70f, 0.55f, 0.50f, 0.55f, 0, 20000.f, 0.707f, 0.f });
         list.push_back({ "Wide Stereo Spread", moduleId, 0.f, 0.58f, 0.12f, 0.80f, 0.95f, 0.65f, 0.40f, 0.65f, 0, 20000.f, 0.707f, 0.f });
         list.push_back({ "Dark Acoustic Hall", moduleId, -3.f, 0.70f, 0.10f, 0.90f, 0.65f, 0.50f, 0.75f, 0.80f, 1, 4200.f, 1.2f, 0.f });
+        list.push_back({ "Bright Slapback Room", moduleId, 2.f, 0.32f, 0.15f, 0.70f, 0.80f, 0.40f, 0.60f, 0.50f, 0, 20000.f, 0.707f, 0.f });
     }
     else if (moduleId == "clap_trash")
     {
         list.push_back({ "Default Trash Clap", moduleId, 0.f, 0.28f, 0.25f, 0.70f, 0.60f, 0.65f, 0.55f, 0.55f, 0, 20000.f, 0.707f, 0.f });
         list.push_back({ "Severe Bitcrush Gated", moduleId, 2.f, 0.15f, 0.40f, 0.45f, 0.90f, 0.85f, 0.70f, 0.80f, 0, 20000.f, 0.707f, 0.f });
         list.push_back({ "Loose Industrial Clatter", moduleId, -2.f, 0.45f, 0.30f, 0.85f, 0.50f, 0.60f, 0.45f, 0.90f, 0, 20000.f, 0.707f, 0.f });
+        list.push_back({ "Gutter Slap", moduleId, 1.f, 0.22f, 0.35f, 0.60f, 0.80f, 0.70f, 0.60f, 0.65f, 0, 20000.f, 0.707f, 0.f });
     }
     else if (moduleId == "tom_dual")
     {
         list.push_back({ "Default Dual Tom", moduleId, 0.f, 0.45f, 0.08f, 0.55f, 0.45f, 0.50f, 0.50f, 0.45f, 0, 20000.f, 0.707f, 0.f });
         list.push_back({ "Downward Laser Chirp", moduleId, 4.f, 0.28f, 0.15f, 0.90f, 0.75f, 0.80f, 0.30f, 0.50f, 0, 20000.f, 0.707f, 0.f });
         list.push_back({ "Deep Resonant Shell", moduleId, -5.f, 0.65f, 0.08f, 0.35f, 0.30f, 0.35f, 0.85f, 0.65f, 1, 1400.f, 1.2f, 0.f });
+        list.push_back({ "Tribal Round Tom", moduleId, 1.f, 0.50f, 0.12f, 0.65f, 0.60f, 0.45f, 0.60f, 0.55f, 0, 20000.f, 0.707f, 0.f });
     }
     else if (moduleId == "tom_simmons")
     {
         list.push_back({ "Default Simmons Tom", moduleId, 0.f, 0.38f, 0.12f, 0.75f, 0.65f, 0.55f, 0.50f, 0.45f, 0, 20000.f, 0.707f, 0.f });
         list.push_back({ "80s Disco Space Drop", moduleId, 5.f, 0.25f, 0.18f, 0.95f, 0.80f, 0.70f, 0.40f, 0.25f, 0, 20000.f, 0.707f, 0.f });
         list.push_back({ "Noisy Industrial Hex", moduleId, -3.f, 0.48f, 0.30f, 0.65f, 0.50f, 0.60f, 0.85f, 0.80f, 0, 20000.f, 0.707f, 0.f });
+        list.push_back({ "Hi-Pitch Synth Tom", moduleId, 8.f, 0.18f, 0.15f, 0.85f, 0.85f, 0.45f, 0.35f, 0.35f, 0, 20000.f, 0.707f, 0.f });
     }
     else if (moduleId == "tom_floor")
     {
         list.push_back({ "Default Floor Tom", moduleId, 0.f, 0.65f, 0.10f, 0.75f, 0.60f, 0.50f, 0.45f, 0.40f, 0, 20000.f, 0.707f, 0.f });
         list.push_back({ "Sub Thunder Thump", moduleId, -4.f, 0.85f, 0.18f, 0.90f, 0.80f, 0.70f, 0.25f, 0.60f, 1, 950.f, 1.3f, 0.f });
         list.push_back({ "Damped Punch Tom", moduleId, 2.f, 0.28f, 0.08f, 0.45f, 0.70f, 0.30f, 0.80f, 0.35f, 0, 20000.f, 0.707f, 0.f });
+        list.push_back({ "Low Resonance Boom", moduleId, -6.f, 0.95f, 0.14f, 0.60f, 0.40f, 0.80f, 0.50f, 0.50f, 0, 20000.f, 0.707f, 0.f });
     }
     else if (moduleId == "cymbal_crash")
     {
         list.push_back({ "Default Modal Crash", moduleId, 0.f, 1.20f, 0.08f, 0.65f, 0.60f, 0.50f, 0.30f, 0.55f, 0, 20000.f, 0.707f, 0.f });
         list.push_back({ "Fast Splash Wash", moduleId, 3.f, 0.55f, 0.12f, 0.85f, 0.80f, 0.75f, 0.60f, 0.70f, 2, 4500.f, 1.5f, 0.f });
         list.push_back({ "Dark Hand Choke", moduleId, -2.f, 0.35f, 0.05f, 0.40f, 0.35f, 0.30f, 0.85f, 0.40f, 0, 20000.f, 0.707f, 0.f });
+        list.push_back({ "Explosive Bronze Crash", moduleId, 1.f, 1.60f, 0.15f, 0.80f, 0.75f, 0.60f, 0.20f, 0.80f, 0, 20000.f, 0.707f, 0.f });
     }
     else if (moduleId == "cymbal_ride")
     {
         list.push_back({ "Default Ride Bell", moduleId, 0.f, 0.85f, 0.05f, 0.75f, 0.55f, 0.60f, 0.50f, 0.45f, 0, 20000.f, 0.707f, 0.f });
         list.push_back({ "Pure Bell Ping", moduleId, 4.f, 0.50f, 0.03f, 0.95f, 0.30f, 0.80f, 0.40f, 0.35f, 0, 20000.f, 0.707f, 0.f });
         list.push_back({ "Heavy Bronze Sizzle", moduleId, -2.f, 1.10f, 0.08f, 0.50f, 0.85f, 0.45f, 0.75f, 0.25f, 0, 20000.f, 0.707f, 0.f });
+        list.push_back({ "Dry Jazz Ping", moduleId, 2.f, 0.40f, 0.04f, 0.90f, 0.40f, 0.70f, 0.70f, 0.40f, 0, 20000.f, 0.707f, 0.f });
     }
     else if (moduleId == "cymbal_china")
     {
         list.push_back({ "Default Trash China", moduleId, 0.f, 0.38f, 0.18f, 0.75f, 0.70f, 0.60f, 0.55f, 0.50f, 0, 20000.f, 0.707f, 0.f });
         list.push_back({ "Aggressive Edge Bite", moduleId, 2.f, 0.25f, 0.28f, 0.90f, 0.90f, 0.80f, 0.70f, 0.65f, 0, 20000.f, 0.707f, 0.f });
         list.push_back({ "Dark Clatter China", moduleId, -3.f, 0.55f, 0.15f, 0.60f, 0.45f, 0.40f, 0.30f, 0.80f, 0, 20000.f, 0.707f, 0.f });
+        list.push_back({ "Trash Splash Choke", moduleId, 4.f, 0.15f, 0.22f, 0.85f, 0.80f, 0.50f, 0.90f, 0.45f, 0, 20000.f, 0.707f, 0.f });
     }
     else if (moduleId == "perc_cowbell")
     {
         list.push_back({ "Default Cowbell", moduleId, 0.f, 0.30f, 0.08f, 0.55f, 0.50f, 0.50f, 0.50f, 0.50f, 0, 20000.f, 0.707f, 0.f });
         list.push_back({ "High Disco Bell", moduleId, 5.f, 0.20f, 0.10f, 0.75f, 0.65f, 0.65f, 0.65f, 0.55f, 0, 20000.f, 0.707f, 0.f });
         list.push_back({ "Low Latin Cha-Cha", moduleId, -4.f, 0.38f, 0.05f, 0.40f, 0.45f, 0.35f, 0.40f, 0.40f, 0, 20000.f, 0.707f, 0.f });
+        list.push_back({ "808 Electro Cowbell", moduleId, 0.f, 0.25f, 0.12f, 0.70f, 0.60f, 0.55f, 0.55f, 0.60f, 0, 20000.f, 0.707f, 0.f });
     }
     else if (moduleId == "perc_conga")
     {
         list.push_back({ "Default Open Conga", moduleId, 0.f, 0.35f, 0.05f, 0.55f, 0.50f, 0.60f, 0.50f, 0.50f, 0, 20000.f, 0.707f, 0.f });
         list.push_back({ "Slap Conga Hi", moduleId, 4.f, 0.16f, 0.10f, 0.85f, 0.70f, 0.40f, 0.65f, 0.60f, 0, 20000.f, 0.707f, 0.f });
         list.push_back({ "Low Muffled Bongo", moduleId, -5.f, 0.45f, 0.04f, 0.30f, 0.40f, 0.80f, 0.35f, 0.40f, 1, 1400.f, 1.2f, 0.f });
+        list.push_back({ "Resonant Quinto", moduleId, 2.f, 0.28f, 0.08f, 0.70f, 0.60f, 0.50f, 0.55f, 0.55f, 0, 20000.f, 0.707f, 0.f });
     }
     else if (moduleId == "perc_agogo")
     {
         list.push_back({ "Default High Agogo", moduleId, 0.f, 0.40f, 0.04f, 0.60f, 0.55f, 0.50f, 0.50f, 0.45f, 0, 20000.f, 0.707f, 0.f });
         list.push_back({ "Low Chamber Agogo", moduleId, -5.f, 0.50f, 0.05f, 0.20f, 0.65f, 0.40f, 0.40f, 0.50f, 0, 20000.f, 0.707f, 0.f });
         list.push_back({ "Hard Stick Bell", moduleId, 3.f, 0.25f, 0.12f, 0.85f, 0.80f, 0.85f, 0.65f, 0.30f, 0, 20000.f, 0.707f, 0.f });
+        list.push_back({ "Brazilian Samba Bell", moduleId, 1.f, 0.35f, 0.08f, 0.70f, 0.70f, 0.60f, 0.45f, 0.40f, 0, 20000.f, 0.707f, 0.f });
     }
     else if (moduleId == "perc_rimshot")
     {
         list.push_back({ "Default Wood Block", moduleId, 0.f, 0.10f, 0.06f, 0.60f, 0.55f, 0.50f, 0.50f, 0.50f, 0, 20000.f, 0.707f, 0.f });
         list.push_back({ "High Tonal Clave", moduleId, 7.f, 0.08f, 0.08f, 0.80f, 0.70f, 0.60f, 0.60f, 0.65f, 0, 20000.f, 0.707f, 0.f });
         list.push_back({ "Deep Hollow Chamber", moduleId, -3.f, 0.15f, 0.05f, 0.45f, 0.45f, 0.80f, 0.40f, 0.40f, 0, 20000.f, 0.707f, 0.f });
+        list.push_back({ "Latin Clave Stick", moduleId, 5.f, 0.06f, 0.07f, 0.90f, 0.80f, 0.40f, 0.70f, 0.60f, 0, 20000.f, 0.707f, 0.f });
     }
     else if (moduleId == "synth_zap")
     {
         list.push_back({ "Default Sci-Fi Zap", moduleId, 0.f, 0.22f, 0.15f, 0.80f, 0.65f, 0.40f, 0.50f, 0.45f, 0, 20000.f, 0.707f, 0.f });
         list.push_back({ "Space Invader Laser", moduleId, 6.f, 0.12f, 0.22f, 0.90f, 0.85f, 0.30f, 0.60f, 0.70f, 0, 20000.f, 0.707f, 0.f });
         list.push_back({ "Downer Sub Drop", moduleId, -4.f, 0.40f, 0.18f, 0.70f, 0.45f, 0.65f, 0.40f, 0.30f, 0, 20000.f, 0.707f, 0.f });
+        list.push_back({ "Laser Chirp Stereo", moduleId, 12.f, 0.10f, 0.12f, 0.95f, 0.90f, 0.25f, 0.65f, 0.80f, 0, 20000.f, 0.707f, 0.f });
     }
     else if (moduleId == "synth_acid")
     {
         list.push_back({ "Default 303 Hit", moduleId, 0.f, 0.42f, 0.25f, 0.45f, 0.80f, 0.70f, 0.35f, 0.60f, 0, 20000.f, 0.707f, 0.f });
         list.push_back({ "Screaming Reso Stab", moduleId, 2.f, 0.30f, 0.45f, 0.30f, 0.95f, 0.85f, 0.15f, 0.75f, 0, 20000.f, 0.707f, 0.f });
         list.push_back({ "Sub Square Acid Pluck", moduleId, -12.f, 0.45f, 0.20f, 0.50f, 0.65f, 0.55f, 0.80f, 0.40f, 0, 20000.f, 0.707f, 0.f });
+        list.push_back({ "Acid Rave Lead", moduleId, 0.f, 0.28f, 0.35f, 0.60f, 0.85f, 0.75f, 0.20f, 0.65f, 0, 20000.f, 0.707f, 0.f });
     }
     else if (moduleId == "synth_noise")
     {
         list.push_back({ "Default FM Noise", moduleId, 0.f, 0.35f, 0.20f, 0.60f, 0.55f, 0.65f, 0.55f, 0.45f, 0, 20000.f, 0.707f, 0.f });
         list.push_back({ "Static Burst Click", moduleId, 6.f, 0.10f, 0.35f, 0.85f, 0.75f, 0.80f, 0.65f, 0.70f, 0, 20000.f, 0.707f, 0.f });
         list.push_back({ "Low Drone Chaos", moduleId, -6.f, 0.75f, 0.25f, 0.45f, 0.80f, 0.50f, 0.70f, 0.30f, 0, 20000.f, 0.707f, 0.f });
+        list.push_back({ "Metallic FM Drone", moduleId, -3.f, 0.65f, 0.28f, 0.55f, 0.85f, 0.70f, 0.60f, 0.50f, 0, 20000.f, 0.707f, 0.f });
     }
     else if (moduleId == "synth_karplus")
     {
         list.push_back({ "Default Pluck", moduleId, 0.f, 0.50f, 0.10f, 0.50f, 0.60f, 0.50f, 0.50f, 0.50f, 0, 20000.f, 0.707f, 0.f });
         list.push_back({ "Muted Steel Wire", moduleId, 7.f, 0.25f, 0.08f, 0.75f, 0.80f, 0.35f, 0.75f, 0.70f, 0, 20000.f, 0.707f, 0.f });
         list.push_back({ "Deep Nylon Bass", moduleId, -12.f, 0.80f, 0.12f, 0.35f, 0.45f, 0.85f, 0.35f, 0.30f, 0, 20000.f, 0.707f, 0.f });
+        list.push_back({ "Harp Transient Pluck", moduleId, 12.f, 0.35f, 0.06f, 0.80f, 0.70f, 0.40f, 0.60f, 0.60f, 0, 20000.f, 0.707f, 0.f });
     }
     else
     {

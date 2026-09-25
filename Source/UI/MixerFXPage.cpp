@@ -443,19 +443,88 @@ MixerFXPage::AuxStrip::AuxStrip(MixerFXPage& owner, int auxIndex)
     };
 
     auto& p = page.proc.getAuxManager().auxParams[idx];
-    makeAuxKnob(p1Knob, "P1", p.p1, 0.f, 1.f, [this](float v) { page.proc.getAuxManager().auxParams[idx].p1 = v; });
-    makeAuxKnob(p2Knob, "P2", p.p2, 0.f, 1.f, [this](float v) { page.proc.getAuxManager().auxParams[idx].p2 = v; });
-    makeAuxKnob(p3Knob, "P3", p.p3, 0.f, 1.f, [this](float v) { page.proc.getAuxManager().auxParams[idx].p3 = v; });
-    makeAuxKnob(p4Knob, "P4", p.p4, 0.f, 1.f, [this](float v) { page.proc.getAuxManager().auxParams[idx].p4 = v; });
+    makeAuxKnob(p1Knob, "P1", p.p1, 0.f, 1.f, [this](float v)
+    {
+        page.proc.getAuxManager().auxParams[idx].p1 = v;
+        if (p1Knob) p1Knob->repaint();
+    });
+    makeAuxKnob(p2Knob, "P2", p.p2, 0.f, 1.f, [this](float v)
+    {
+        page.proc.getAuxManager().auxParams[idx].p2 = v;
+        if (p2Knob) p2Knob->repaint();
+    });
+    makeAuxKnob(p3Knob, "P3", p.p3, 0.f, 1.f, [this](float v)
+    {
+        page.proc.getAuxManager().auxParams[idx].p3 = v;
+        if (p3Knob) p3Knob->repaint();
+    });
+    makeAuxKnob(p4Knob, "P4", p.p4, 0.f, 1.f, [this](float v)
+    {
+        page.proc.getAuxManager().auxParams[idx].p4 = v;
+        const int type = page.proc.getAuxManager().auxParams[idx].fxType;
+        if (type == AUX_FX_DELAY || type == AUX_FX_PINGPONG)
+        {
+            const bool sync = (v >= 0.5f);
+            if (p1Knob)
+            {
+                p1Knob->setLabel(sync ? "DIVISION" : "TIME");
+                p1Knob->repaint();
+            }
+        }
+        if (p4Knob) p4Knob->repaint();
+    });
 
-    makeAuxKnob(returnKnob, "RETURN", p.returnLevel, 0.f, 1.5f, [this](float v) { page.proc.getAuxManager().auxParams[idx].returnLevel = v; });
-    makeAuxKnob(panKnob, "PAN", p.returnPan, -1.f, 1.f, [this](float v) { page.proc.getAuxManager().auxParams[idx].returnPan = v; });
+    makeAuxKnob(returnKnob, "RETURN", p.returnLevel, 0.f, 1.5f, [this](float v)
+    {
+        page.proc.getAuxManager().auxParams[idx].returnLevel = v;
+        if (returnKnob) returnKnob->repaint();
+    });
+    makeAuxKnob(panKnob, "PAN", p.returnPan, -1.f, 1.f, [this](float v)
+    {
+        page.proc.getAuxManager().auxParams[idx].returnPan = v;
+        if (panKnob) panKnob->repaint();
+    });
+
+    p1Knob->textFromValueFunction = [this](double v)
+    {
+        auto& ap = page.proc.getAuxManager().auxParams[idx];
+        return formatAuxParam(ap.fxType, 0, (float) v, ap.p4);
+    };
+    p2Knob->textFromValueFunction = [this](double v)
+    {
+        auto& ap = page.proc.getAuxManager().auxParams[idx];
+        return formatAuxParam(ap.fxType, 1, (float) v, ap.p4);
+    };
+    p3Knob->textFromValueFunction = [this](double v)
+    {
+        auto& ap = page.proc.getAuxManager().auxParams[idx];
+        return formatAuxParam(ap.fxType, 2, (float) v, ap.p4);
+    };
+    p4Knob->textFromValueFunction = [this](double v)
+    {
+        auto& ap = page.proc.getAuxManager().auxParams[idx];
+        return formatAuxParam(ap.fxType, 3, (float) v, ap.p4);
+    };
+    returnKnob->textFromValueFunction = [](double v)
+    {
+        return formatAuxReturnLevel((float) v);
+    };
+    panKnob->textFromValueFunction = [](double v)
+    {
+        return formatAuxReturnPan((float) v);
+    };
 
     updateLabels(p.fxType);
 }
 
 void MixerFXPage::AuxStrip::updateLabels(int fxType)
 {
+    auto& p = page.proc.getAuxManager().auxParams[idx];
+    if (fxType == AUX_FX_DELAY || fxType == AUX_FX_PINGPONG)
+        p4Knob->setRange(0.0, 1.0, 1.0);
+    else
+        p4Knob->setRange(0.0, 1.0, 0.01);
+
     switch (fxType)
     {
         case AUX_FX_REVERB:
@@ -465,10 +534,10 @@ void MixerFXPage::AuxStrip::updateLabels(int fxType)
             if (p4Knob) p4Knob->setLabel("WIDTH");
             break;
         case AUX_FX_DELAY:
-            if (p1Knob) p1Knob->setLabel("TIME");
+            if (p1Knob) p1Knob->setLabel(p.p4 >= 0.5f ? "DIVISION" : "TIME");
             if (p2Knob) p2Knob->setLabel("FEEDBACK");
             if (p3Knob) p3Knob->setLabel("HI-DAMP");
-            if (p4Knob) p4Knob->setLabel("STEREO");
+            if (p4Knob) p4Knob->setLabel("SYNC");
             break;
         case AUX_FX_DRIVE:
             if (p1Knob) p1Knob->setLabel("DRIVE");
@@ -496,6 +565,42 @@ void MixerFXPage::AuxStrip::updateLabels(int fxType)
             if (p3Knob) p3Knob->setLabel("MODE");
             if (p4Knob) p4Knob->setLabel("DRIVE");
             break;
+        case AUX_FX_SHIMMER:
+            if (p1Knob) p1Knob->setLabel("DECAY");
+            if (p2Knob) p2Knob->setLabel("SHIMMER");
+            if (p3Knob) p3Knob->setLabel("TONE");
+            if (p4Knob) p4Knob->setLabel("WIDTH");
+            break;
+        case AUX_FX_PINGPONG:
+            if (p1Knob) p1Knob->setLabel(p.p4 >= 0.5f ? "DIVISION" : "TIME");
+            if (p2Knob) p2Knob->setLabel("FEEDBACK");
+            if (p3Knob) p3Knob->setLabel("HI-DAMP");
+            if (p4Knob) p4Knob->setLabel("SYNC");
+            break;
+        case AUX_FX_GATED_VERB:
+            if (p1Knob) p1Knob->setLabel("GATE TIME");
+            if (p2Knob) p2Knob->setLabel("DENSITY");
+            if (p3Knob) p3Knob->setLabel("TONE");
+            if (p4Knob) p4Knob->setLabel("WIDTH");
+            break;
+        case AUX_FX_TUBE:
+            if (p1Knob) p1Knob->setLabel("DRIVE");
+            if (p2Knob) p2Knob->setLabel("BIAS");
+            if (p3Knob) p3Knob->setLabel("WARMTH");
+            if (p4Knob) p4Knob->setLabel("MIX");
+            break;
+        case AUX_FX_PITCH:
+            if (p1Knob) p1Knob->setLabel("PITCH");
+            if (p2Knob) p2Knob->setLabel("FINE");
+            if (p3Knob) p3Knob->setLabel("FEEDBACK");
+            if (p4Knob) p4Knob->setLabel("MIX");
+            break;
+        case AUX_FX_SPRING:
+            if (p1Knob) p1Knob->setLabel("TENSION");
+            if (p2Knob) p2Knob->setLabel("BOING");
+            if (p3Knob) p3Knob->setLabel("TONE");
+            if (p4Knob) p4Knob->setLabel("MIX");
+            break;
         default:
             if (p1Knob) p1Knob->setLabel("PARAM 1");
             if (p2Knob) p2Knob->setLabel("PARAM 2");
@@ -503,6 +608,11 @@ void MixerFXPage::AuxStrip::updateLabels(int fxType)
             if (p4Knob) p4Knob->setLabel("PARAM 4");
             break;
     }
+
+    if (p1Knob) p1Knob->repaint();
+    if (p2Knob) p2Knob->repaint();
+    if (p3Knob) p3Knob->repaint();
+    if (p4Knob) p4Knob->repaint();
 }
 
 void MixerFXPage::AuxStrip::paint(juce::Graphics& g)
@@ -643,6 +753,12 @@ MixerFXPage::MixerFXPage(Forge64Processor& processor, ModRingKnob::Services& ser
     makeMasterKnob(compAtkKnob,    "m_catk", "ATTACK", mp.compAtk,    0.1f, 100.f,  [&mp](float v) { mp.compAtk = v; });
     makeMasterKnob(compRelKnob,    "m_crel", "RELEASE",mp.compRel,    10.f, 1000.f, [&mp](float v) { mp.compRel = v; });
 
+    compThreshKnob->textFromValueFunction = [](double v) { return juce::String(v, 1) + " dB"; };
+    compRatioKnob->textFromValueFunction  = [](double v) { return juce::String(v, 1) + ":1"; };
+    compGainKnob->textFromValueFunction   = [](double v) { return (v > 0.05 ? "+" : "") + juce::String(v, 1) + " dB"; };
+    compAtkKnob->textFromValueFunction    = [](double v) { return juce::String(v, 1) + " ms"; };
+    compRelKnob->textFromValueFunction    = [](double v) { return juce::String((int) std::round(v)) + " ms"; };
+
     // 2. 4-Band Master EQ Module
     eqSectionTitle = ui::makeLabel("4-BAND MASTER HARMONIC EQ", 11.f, ui::accent());
     eqSectionTitle->setFont(uiFont(11.f, true));
@@ -677,6 +793,12 @@ MixerFXPage::MixerFXPage(Forge64Processor& processor, ModRingKnob::Services& ser
     makeMasterKnob(eqHighGainKnob,   "m_eqhg",  "HIGH 10kHz",  mp.eqHighGain,   -12.f, 12.f,
                    [&mp, this](float v) { mp.eqHighGain = v; if (eqGraph) eqGraph->repaint(); });
 
+    auto formatEqGain = [](double v) { return (v > 0.05 ? "+" : "") + juce::String(v, 1) + " dB"; };
+    eqLowGainKnob->textFromValueFunction    = formatEqGain;
+    eqLowMidGainKnob->textFromValueFunction = formatEqGain;
+    eqHiMidGainKnob->textFromValueFunction  = formatEqGain;
+    eqHighGainKnob->textFromValueFunction   = formatEqGain;
+
     // 3. Output & Saturation Module
     outSectionTitle = ui::makeLabel("OUTPUT & TAPE", 11.f, ui::accentHot());
     outSectionTitle->setFont(uiFont(11.f, true));
@@ -688,6 +810,9 @@ MixerFXPage::MixerFXPage(Forge64Processor& processor, ModRingKnob::Services& ser
         if (auto* p = dynamic_cast<juce::RangedAudioParameter*>(proc.getAPVTS().getParameter("master")))
             p->setValueNotifyingHost(p->convertTo0to1(v));
     });
+
+    masterDriveKnob->textFromValueFunction = [](double v) { return juce::String((int) std::round(v * 100.0)) + " %"; };
+    masterVolKnob->textFromValueFunction   = [](double v) { return juce::String((int) std::round(v * 100.0)) + " %"; };
 
     masterPeakMeter = std::make_unique<MasterPeakMeter>(proc);
     content->addAndMakeVisible(masterPeakMeter.get());

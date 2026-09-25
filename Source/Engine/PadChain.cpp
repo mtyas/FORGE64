@@ -96,7 +96,7 @@ void PadChain::prepare(double sr, int maxBlock)
     std::fill(std::begin(spApR), std::end(spApR), 0.f);
     springDampL = springDampR = 0.f;
 
-    const size_t gateLen = (size_t) (sr * 0.6) + 16;
+    const size_t gateLen = (size_t) (sr * 3.0) + 16;
     gateBufL.assign(gateLen, 0.f);
     gateBufR.assign(gateLen, 0.f);
     gateWrite = 0;
@@ -398,23 +398,23 @@ void PadChain::process(float* L, float* R, int n, const PadParams& p)
     const float hallMix = p.ifx4;
 
     // FX 13: Shimmer Reverb
-    const float shimFb = 0.35f + p.ifx1 * 0.55f;
-    const float shimOctaveAmt = p.ifx2 * 0.75f;
+    const float shimFb = 0.30f + p.ifx1 * 0.48f; // Max 0.78
+    const float shimOctaveAmt = p.ifx2 * 0.70f;
     const float shimDampAlpha = 1.0f - std::exp(-juce::MathConstants<float>::twoPi * (1500.f + (1.f - p.ifx3) * 9000.f) / (float) sampleRate);
     const float shimMix = p.ifx4;
-    const float shimGrainRate = -1.0f / (0.04f * (float) sampleRate); // +1 octave
-    const float shimGrainSamples = 0.04f * (float) sampleRate;
+    const float shimGrainSamples = 0.070f * (float) sampleRate;
+    const float shimGrainRate = -1.0f / shimGrainSamples; // +1 octave
     const size_t sLen = shimBufL.size();
 
     // FX 14: Spring Reverb
-    const float spTension = 0.4f + p.ifx1 * 0.52f;
+    const float spTension = 0.30f + p.ifx1 * 0.45f; // Max 0.75
     const float spBoing = 0.2f + p.ifx2 * 0.6f;
     const float spDampAlpha = 1.0f - std::exp(-juce::MathConstants<float>::twoPi * (800.f + (1.f - p.ifx3) * 6000.f) / (float) sampleRate);
     const float spMix = p.ifx4;
     const size_t spLen = springBufL.size();
 
     // FX 15: Gated Reverb
-    const int gateDurationSamples = (int) ((0.035f + p.ifx1 * 0.38f) * (float) sampleRate);
+    const int gateDurationSamples = (int) ((0.04f + std::pow(juce::jlimit(0.f, 1.f, p.ifx1), 1.6f) * 2.46f) * (float) sampleRate);
     const float gateToneAlpha = 1.0f - std::exp(-juce::MathConstants<float>::twoPi * (1000.f + p.ifx3 * 9000.f) / (float) sampleRate);
     const float gateMix = p.ifx4;
     const size_t gLen = gateBufL.size();
@@ -705,28 +705,42 @@ void PadChain::process(float* L, float* R, int n, const PadParams& p)
                 while (shimPhase < 0.0f)  shimPhase += 1.0f;
                 const float ph1 = shimPhase;
                 float ph2 = shimPhase + 0.5f;
-                if (ph2 >= 1.0f) ph2 -= 1.0f;
-                const float w1 = 1.0f - std::abs(2.0f * ph1 - 1.0f);
-                const float w2 = 1.0f - std::abs(2.0f * ph2 - 1.0f);
+                const float w1 = 0.5f * (1.0f - std::cos(ph1 * juce::MathConstants<float>::twoPi));
+                const float w2 = 0.5f * (1.0f - std::cos(ph2 * juce::MathConstants<float>::twoPi));
 
                 double rp1 = (double) shimWrite - (double) (ph1 * shimGrainSamples);
                 while (rp1 < 0.0) rp1 += (double) sLen;
+                size_t i0_1 = (size_t) rp1 % sLen;
+                size_t i1_1 = (i0_1 + 1) % sLen;
+                float f1 = (float) (rp1 - std::floor(rp1));
+                float rL1 = shimBufL[i0_1] + f1 * (shimBufL[i1_1] - shimBufL[i0_1]);
+                float rR1 = shimBufR[i0_1] + f1 * (shimBufR[i1_1] - shimBufR[i0_1]);
+
                 double rp2 = (double) shimWrite - (double) (ph2 * shimGrainSamples);
                 while (rp2 < 0.0) rp2 += (double) sLen;
+                size_t i0_2 = (size_t) rp2 % sLen;
+                size_t i1_2 = (i0_2 + 1) % sLen;
+                float f2 = (float) (rp2 - std::floor(rp2));
+                float rL2 = shimBufL[i0_2] + f2 * (shimBufL[i1_2] - shimBufL[i0_2]);
+                float rR2 = shimBufR[i0_2] + f2 * (shimBufR[i1_2] - shimBufR[i0_2]);
 
-                const size_t i0_1 = (size_t) rp1 % sLen;
-                const size_t i0_2 = (size_t) rp2 % sLen;
-                const float pitchOutL = shimBufL[i0_1] * w1 + shimBufL[i0_2] * w2;
-                const float pitchOutR = shimBufR[i0_1] * w1 + shimBufR[i0_2] * w2;
+                const float pitchOutL = rL1 * w1 + rL2 * w2;
+                const float pitchOutR = rR1 * w2 + rR2 * w1;
 
                 shimDampL += (pitchOutL - shimDampL) * shimDampAlpha;
                 shimDampR += (pitchOutR - shimDampR) * shimDampAlpha;
+                if (std::abs(shimDampL) < 1e-7f) shimDampL = 0.f;
+                if (std::abs(shimDampR) < 1e-7f) shimDampR = 0.f;
 
                 const float readL = shimBufL[(size_t) shimWrite];
                 const float readR = shimBufR[(size_t) shimWrite];
 
-                shimBufL[(size_t) shimWrite] = std::tanh(inSum + (readR * 0.35f + shimDampL * shimOctaveAmt) * shimFb);
-                shimBufR[(size_t) shimWrite] = std::tanh(inSum + (readL * 0.35f + shimDampR * shimOctaveAmt) * shimFb);
+                const float octMix = shimOctaveAmt * 0.5f;
+                const float loopL = (readR * (1.0f - octMix) + shimDampL * octMix) * shimFb;
+                const float loopR = (readL * (1.0f - octMix) + shimDampR * octMix) * shimFb;
+
+                shimBufL[(size_t) shimWrite] = std::tanh(inSum + loopL);
+                shimBufR[(size_t) shimWrite] = std::tanh(inSum + loopR);
                 shimWrite = (shimWrite + 1) % (int) sLen;
 
                 x += (readL - x) * shimMix;
@@ -736,7 +750,7 @@ void PadChain::process(float* L, float* R, int n, const PadParams& p)
             case 14: // Spring Reverb (Dispersive allpasses + dual tank)
             {
                 const float inL = x, inR = y;
-                const float c1 = 0.6f * spBoing, c2 = 0.5f * spBoing, c3 = 0.4f * spBoing;
+                const float c1 = 0.5f * spBoing, c2 = 0.4f * spBoing, c3 = 0.35f * spBoing;
                 float apL1 = inL - c1 * spApL[0]; float outApL1 = spApL[0] + c1 * apL1; spApL[0] = apL1;
                 float apL2 = outApL1 - c2 * spApL[1]; float outApL2 = spApL[1] + c2 * apL2; spApL[1] = apL2;
                 float apL3 = outApL2 - c3 * spApL[2]; float outApL3 = spApL[2] + c3 * apL3; spApL[2] = apL3;
@@ -757,6 +771,8 @@ void PadChain::process(float* L, float* R, int n, const PadParams& p)
 
                 springDampL += (tankOutL - springDampL) * spDampAlpha;
                 springDampR += (tankOutR - springDampR) * spDampAlpha;
+                if (std::abs(springDampL) < 1e-7f) springDampL = 0.f;
+                if (std::abs(springDampR) < 1e-7f) springDampR = 0.f;
 
                 springBufL[(size_t) springWrite] = std::tanh(outApL3 + springDampR * spTension);
                 springBufR[(size_t) springWrite] = std::tanh(outApR3 + springDampL * spTension);

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(FORGE64 VERSION 0.77.0 LANGUAGES C CXX)
+project(FORGE64 VERSION 0.90.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -44,7 +44,7 @@ endif()
 # ---------------------------------------------------------------- Plugin
 juce_add_plugin(Forge64
   COMPANY_NAME               "mtyas"
-  VERSION                    "0.77.0"
+  VERSION                    "0.90.0"
   IS_SYNTH                   TRUE
   NEEDS_MIDI_INPUT           TRUE
   PRODUCES_MIDI_OUTPUT       FALSE

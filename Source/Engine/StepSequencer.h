@@ -185,6 +185,13 @@ public:
     void setTrackSolo(int trackIdx, bool solo);
     void setStepActive(int trackIdx, int stepIdx, bool active);
     void setStepVelocity(int trackIdx, int stepIdx, float vel);
+    void setStepProbability(int trackIdx, int stepIdx, float prob);
+    void setStepMicrotiming(int trackIdx, int stepIdx, float micro);
+    void setStepPitch(int trackIdx, int stepIdx, float pitchSemi);
+    void setStepDecay(int trackIdx, int stepIdx, float decayFactor);
+    void setStepDrive(int trackIdx, int stepIdx, float driveAmt);
+    void setStepLevel(int trackIdx, int stepIdx, float levelAmt);
+    void setStepPan(int trackIdx, int stepIdx, float panAmt);
     void setStepData(int trackIdx, int stepIdx, const StepData& data);
 
     // Song mode blocks
@@ -199,6 +206,7 @@ public:
     void pastePattern();
     void clearCurrentPattern();
     void randomizeCurrentTrack();
+    void randomizeAllTracks();
     void loadFactoryPreset(int presetIdx);
 
     // Playhead tracking for UI

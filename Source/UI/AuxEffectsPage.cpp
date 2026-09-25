@@ -42,6 +42,7 @@ AuxEffectsPage::AuxStrip::AuxStrip(AuxEffectsPage& owner, int auxIndex)
         sl->setRange(minV, maxV, 0.01);
         sl->setValue(def, juce::dontSendNotification);
         sl->setDoubleClickReturnValue(true, def);
+        sl->setTextBoxStyle(juce::Slider::TextBoxBelow, false, 64, 16);
         sl->setColour(juce::Slider::thumbColourId, ui::accent());
         sl->setColour(juce::Slider::rotarySliderFillColourId, ui::accent());
         sl->setColour(juce::Slider::rotarySliderOutlineColourId, ui::panelHi().darker(0.3f));
@@ -56,19 +57,101 @@ AuxEffectsPage::AuxStrip::AuxStrip(AuxEffectsPage& owner, int auxIndex)
     };
 
     auto& p = page.proc.getAuxManager().auxParams[idx];
-    makeAuxSlider(p1Slider, p1Label, p.p1, 0.f, 1.f, "PARAM 1", [this](float v) { page.proc.getAuxManager().auxParams[idx].p1 = v; });
-    makeAuxSlider(p2Slider, p2Label, p.p2, 0.f, 1.f, "PARAM 2", [this](float v) { page.proc.getAuxManager().auxParams[idx].p2 = v; });
-    makeAuxSlider(p3Slider, p3Label, p.p3, 0.f, 1.f, "PARAM 3", [this](float v) { page.proc.getAuxManager().auxParams[idx].p3 = v; });
-    makeAuxSlider(p4Slider, p4Label, p.p4, 0.f, 1.f, "PARAM 4", [this](float v) { page.proc.getAuxManager().auxParams[idx].p4 = v; });
+    makeAuxSlider(p1Slider, p1Label, p.p1, 0.f, 1.f, "PARAM 1", [this](float v)
+    {
+        page.proc.getAuxManager().auxParams[idx].p1 = v;
+        if (p1Slider) p1Slider->updateText();
+    });
+    makeAuxSlider(p2Slider, p2Label, p.p2, 0.f, 1.f, "PARAM 2", [this](float v)
+    {
+        page.proc.getAuxManager().auxParams[idx].p2 = v;
+        if (p2Slider) p2Slider->updateText();
+    });
+    makeAuxSlider(p3Slider, p3Label, p.p3, 0.f, 1.f, "PARAM 3", [this](float v)
+    {
+        page.proc.getAuxManager().auxParams[idx].p3 = v;
+        if (p3Slider) p3Slider->updateText();
+    });
+    makeAuxSlider(p4Slider, p4Label, p.p4, 0.f, 1.f, "PARAM 4", [this](float v)
+    {
+        page.proc.getAuxManager().auxParams[idx].p4 = v;
+        const int type = page.proc.getAuxManager().auxParams[idx].fxType;
+        if (type == AUX_FX_DELAY || type == AUX_FX_PINGPONG)
+        {
+            const bool sync = (v >= 0.5f);
+            if (p1Label) p1Label->setText(sync ? "DIVISION" : "TIME", juce::dontSendNotification);
+            if (p1Slider) p1Slider->updateText();
+        }
+        if (p4Slider) p4Slider->updateText();
+    });
 
-    makeAuxSlider(returnSlider, returnLabel, p.returnLevel, 0.f, 1.5f, "RETURN", [this](float v) { page.proc.getAuxManager().auxParams[idx].returnLevel = v; });
-    makeAuxSlider(panSlider, panLabel, p.returnPan, -1.f, 1.f, "PAN", [this](float v) { page.proc.getAuxManager().auxParams[idx].returnPan = v; });
+    makeAuxSlider(returnSlider, returnLabel, p.returnLevel, 0.f, 1.5f, "RETURN", [this](float v)
+    {
+        page.proc.getAuxManager().auxParams[idx].returnLevel = v;
+        if (returnSlider) returnSlider->updateText();
+    });
+    makeAuxSlider(panSlider, panLabel, p.returnPan, -1.f, 1.f, "PAN", [this](float v)
+    {
+        page.proc.getAuxManager().auxParams[idx].returnPan = v;
+        if (panSlider) panSlider->updateText();
+    });
+
+    p1Slider->textFromValueFunction = [this](double v)
+    {
+        auto& ap = page.proc.getAuxManager().auxParams[idx];
+        return formatAuxParam(ap.fxType, 0, (float) v, ap.p4);
+    };
+    p2Slider->textFromValueFunction = [this](double v)
+    {
+        auto& ap = page.proc.getAuxManager().auxParams[idx];
+        return formatAuxParam(ap.fxType, 1, (float) v, ap.p4);
+    };
+    p3Slider->textFromValueFunction = [this](double v)
+    {
+        auto& ap = page.proc.getAuxManager().auxParams[idx];
+        return formatAuxParam(ap.fxType, 2, (float) v, ap.p4);
+    };
+    p4Slider->textFromValueFunction = [this](double v)
+    {
+        auto& ap = page.proc.getAuxManager().auxParams[idx];
+        return formatAuxParam(ap.fxType, 3, (float) v, ap.p4);
+    };
+
+    p1Slider->valueFromTextFunction = [this](const juce::String& s)
+    {
+        auto& ap = page.proc.getAuxManager().auxParams[idx];
+        return parseAuxParamText(ap.fxType, 0, s, ap.p4);
+    };
+    p2Slider->valueFromTextFunction = [this](const juce::String& s)
+    {
+        auto& ap = page.proc.getAuxManager().auxParams[idx];
+        return parseAuxParamText(ap.fxType, 1, s, ap.p4);
+    };
+    p3Slider->valueFromTextFunction = [this](const juce::String& s)
+    {
+        auto& ap = page.proc.getAuxManager().auxParams[idx];
+        return parseAuxParamText(ap.fxType, 2, s, ap.p4);
+    };
+    p4Slider->valueFromTextFunction = [this](const juce::String& s)
+    {
+        auto& ap = page.proc.getAuxManager().auxParams[idx];
+        return parseAuxParamText(ap.fxType, 3, s, ap.p4);
+    };
+
+    returnSlider->textFromValueFunction = [](double v) { return formatAuxReturnLevel((float) v); };
+    panSlider->textFromValueFunction    = [](double v) { return formatAuxReturnPan((float) v); };
 
     updateControlLabels(p.fxType);
 }
 
 void AuxEffectsPage::AuxStrip::updateControlLabels(int fxType)
 {
+    auto& p = page.proc.getAuxManager().auxParams[idx];
+    if (fxType == AUX_FX_DELAY || fxType == AUX_FX_PINGPONG)
+        p4Slider->setRange(0.0, 1.0, 1.0);
+    else
+        p4Slider->setRange(0.0, 1.0, 0.01);
+
     switch (fxType)
     {
         case AUX_FX_REVERB:
@@ -78,10 +161,10 @@ void AuxEffectsPage::AuxStrip::updateControlLabels(int fxType)
             p4Label->setText("WIDTH", juce::dontSendNotification);
             break;
         case AUX_FX_DELAY:
-            p1Label->setText("TIME", juce::dontSendNotification);
+            p1Label->setText(p.p4 >= 0.5f ? "DIVISION" : "TIME", juce::dontSendNotification);
             p2Label->setText("FEEDBACK", juce::dontSendNotification);
             p3Label->setText("HI-DAMP", juce::dontSendNotification);
-            p4Label->setText("STEREO", juce::dontSendNotification);
+            p4Label->setText("SYNC", juce::dontSendNotification);
             break;
         case AUX_FX_DRIVE:
             p1Label->setText("DRIVE", juce::dontSendNotification);
@@ -106,8 +189,8 @@ void AuxEffectsPage::AuxStrip::updateControlLabels(int fxType)
         case AUX_FX_FILTER:
             p1Label->setText("CUTOFF", juce::dontSendNotification);
             p2Label->setText("RESO", juce::dontSendNotification);
-            p3Label->setText("DRIVE", juce::dontSendNotification);
-            p4Label->setText("MODE", juce::dontSendNotification);
+            p3Label->setText("MODE", juce::dontSendNotification);
+            p4Label->setText("DRIVE", juce::dontSendNotification);
             break;
         case AUX_FX_SHIMMER:
             p1Label->setText("DECAY", juce::dontSendNotification);
@@ -116,10 +199,10 @@ void AuxEffectsPage::AuxStrip::updateControlLabels(int fxType)
             p4Label->setText("WIDTH", juce::dontSendNotification);
             break;
         case AUX_FX_PINGPONG:
-            p1Label->setText("TIME", juce::dontSendNotification);
+            p1Label->setText(p.p4 >= 0.5f ? "DIVISION" : "TIME", juce::dontSendNotification);
             p2Label->setText("FEEDBACK", juce::dontSendNotification);
-            p3Label->setText("DAMP", juce::dontSendNotification);
-            p4Label->setText("WIDTH", juce::dontSendNotification);
+            p3Label->setText("HI-DAMP", juce::dontSendNotification);
+            p4Label->setText("SYNC", juce::dontSendNotification);
             break;
         case AUX_FX_GATED_VERB:
             p1Label->setText("GATE TIME", juce::dontSendNotification);
@@ -134,8 +217,8 @@ void AuxEffectsPage::AuxStrip::updateControlLabels(int fxType)
             p4Label->setText("MIX", juce::dontSendNotification);
             break;
         case AUX_FX_PITCH:
-            p1Label->setText("DETUNE", juce::dontSendNotification);
-            p2Label->setText("SPREAD", juce::dontSendNotification);
+            p1Label->setText("PITCH", juce::dontSendNotification);
+            p2Label->setText("FINE", juce::dontSendNotification);
             p3Label->setText("FEEDBACK", juce::dontSendNotification);
             p4Label->setText("MIX", juce::dontSendNotification);
             break;
@@ -146,8 +229,19 @@ void AuxEffectsPage::AuxStrip::updateControlLabels(int fxType)
             p4Label->setText("MIX", juce::dontSendNotification);
             break;
         default:
+            p1Label->setText("PARAM 1", juce::dontSendNotification);
+            p2Label->setText("PARAM 2", juce::dontSendNotification);
+            p3Label->setText("PARAM 3", juce::dontSendNotification);
+            p4Label->setText("PARAM 4", juce::dontSendNotification);
             break;
     }
+
+    if (p1Slider) p1Slider->updateText();
+    if (p2Slider) p2Slider->updateText();
+    if (p3Slider) p3Slider->updateText();
+    if (p4Slider) p4Slider->updateText();
+    if (returnSlider) returnSlider->updateText();
+    if (panSlider) panSlider->updateText();
 }
 
 void AuxEffectsPage::AuxStrip::paint(juce::Graphics& g)

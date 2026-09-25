@@ -14,7 +14,7 @@ int main(int argc, char* argv[])
 
     auto editor = std::unique_ptr<juce::AudioProcessorEditor>(proc->createEditor());
     auto* f64Ed = dynamic_cast<f64::Forge64Editor*>(editor.get());
-    f64Ed->setSize(1024, 740);
+    f64Ed->setSize(proc->lastUIWidth, proc->lastUIHeight);
 
     auto capturePage = [&](f64::Forge64Editor::ActivePage page, const juce::String& filename)
     {
@@ -33,7 +33,11 @@ int main(int argc, char* argv[])
         std::cout << "Saved: docs/images/" << filename << " (" << img.getWidth() << "x" << img.getHeight() << ")" << std::endl;
     };
 
+    f64Ed->setBank(0);
     capturePage(f64::Forge64Editor::Page_Grid, "forge64_grid.png");
+    f64Ed->setBank(1);
+    capturePage(f64::Forge64Editor::Page_Grid, "forge64_grid_bank_b.png");
+    f64Ed->setBank(0);
     capturePage(f64::Forge64Editor::Page_PadEdit, "forge64_pad_edit.png");
     capturePage(f64::Forge64Editor::Page_Sequencer, "forge64_sequencer.png");
     capturePage(f64::Forge64Editor::Page_MixerFX, "forge64_mixer_fx.png");

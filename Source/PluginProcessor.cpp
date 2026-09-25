@@ -718,6 +718,15 @@ void Forge64Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::Midi
 
     for (int p = 0; p < kNumPads; ++p)
     {
+        if (padEvents[(size_t) p].size() > 1)
+        {
+            std::sort(padEvents[(size_t) p].begin(), padEvents[(size_t) p].end(),
+                      [](const VoicePool::TimedEvent& a, const VoicePool::TimedEvent& b) { return a.pos < b.pos; });
+        }
+    }
+
+    for (int p = 0; p < kNumPads; ++p)
+    {
         const bool hasEvents = ! padEvents[(size_t) p].empty();
         const bool vActive   = voices.padActive(p);
         if (! hasEvents && ! vActive && padTailHold[(size_t) p] <= 0)
@@ -889,6 +898,7 @@ void Forge64Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::Midi
     }
 
     // 6) 4 Aux Send Buses processed through AuxBusManager
+    auxManager.setBpm(bpm);
     auxManager.processAux(0, auxA.getWritePointer(0), auxA.getWritePointer(1), n, auxManager.auxParams[0]);
     auxManager.processAux(1, auxB.getWritePointer(0), auxB.getWritePointer(1), n, auxManager.auxParams[1]);
     auxManager.processAux(2, auxC.getWritePointer(0), auxC.getWritePointer(1), n, auxManager.auxParams[2]);
@@ -971,6 +981,10 @@ void Forge64Processor::onPresetLoaded()
 
 void Forge64Processor::getStateInformation(juce::MemoryBlock& destData)
 {
+    // Save UI dimensions
+    kitRoot.setProperty("uiWidth", lastUIWidth, nullptr);
+    kitRoot.setProperty("uiHeight", lastUIHeight, nullptr);
+
     // Save midi learn and sequencer into kitRoot before serializing
     kitRoot.removeChild(kitRoot.getChildWithName("MIDI_LEARN"), nullptr);
     kitRoot.appendChild(midiLearn.serialize(), nullptr);
@@ -993,6 +1007,11 @@ void Forge64Processor::setStateInformation(const void* data, int sizeInBytes)
     auto incoming = juce::ValueTree::fromXml(*xml);
     if (! incoming.isValid())
         return;
+
+    if (incoming.hasProperty("uiWidth"))
+        lastUIWidth = (int) incoming.getProperty("uiWidth", 1200);
+    if (incoming.hasProperty("uiHeight"))
+        lastUIHeight = (int) incoming.getProperty("uiHeight", 800);
 
     auto params = incoming.getChildWithName("PARAMS");
     if (params.isValid())

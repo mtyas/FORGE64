@@ -61,6 +61,9 @@ public:
     StepSequencer& getSequencer() { return sequencer; }
     juce::UndoManager& getUndoManager() { return undoManager; }
 
+    int lastUIWidth = 1200;
+    int lastUIHeight = 800;
+
     std::atomic<int>& uiBank() { return currentBank; }
     int64_t getClock() const { return clock.load(); }
 

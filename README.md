@@ -5,9 +5,10 @@
 ![C++20](https://img.shields.io/badge/C++-20-blue.svg)
 ![JUCE](https://img.shields.io/badge/JUCE-8.0-orange.svg)
 ![Format](https://img.shields.io/badge/Formats-VST3_%7C_CLAP_%7C_Standalone-green.svg)
-![Version](https://img.shields.io/badge/Version-0.77--Beta-red.svg)
+![Version](https://img.shields.io/badge/Version-0.90--Beta-red.svg)
 ![License](https://img.shields.io/badge/License-GPL_3.0-lightgrey.svg)
 ![Tests](https://img.shields.io/badge/Tests-64%2F64_Passing-brightgreen.svg)
+[![Support on Ko-fi](https://img.shields.io/badge/Ko--fi-Support%20My%20Work-ff5e5b?logo=ko-fi&logoColor=white)](https://ko-fi.com/mtyas)
 
 ---
 
@@ -35,7 +36,17 @@ Each of the 64 pads features a dedicated sound-sculpting suite: 5 dynamic Lua ma
 ---
 
 ### 🎼 Polyrhythmic Step Sequencer & Parameter Locks
-An 8-track polyrhythmic step sequencer with independent track lengths (1 to 64 steps), customizable swing, per-step velocity bars, ratchets (subdivisions), probability triggers, microtiming offsets, and full Elektron-style Parameter Locks (P-Locks) on all synthesis, filter, and FX parameters. Includes a convenient collapsible Sequencer Drawer accessible from every page!
+An 8-track polyrhythmic step sequencer with independent track lengths (1 to 64 steps), customizable swing, ratchets (subdivisions), probability triggers, microtiming offsets (-50% to +50%), and full Elektron-style Parameter Locks (P-Locks) on all synthesis, filter, and FX parameters. Features an interactive **Quick-Edit Lock Mode Selector** providing dedicated color-coded bar editors for:
+- 🔵 **VEL** (Velocity, 0–127)
+- 🟣 **PROB** (Trigger Probability, 0–100%)
+- 🟠 **TIME** (Microtiming Offset, -50% to +50% with bipolar zero center)
+- 🟢 **PITCH** (Note Pitch Offset, -24 to +24 semitones)
+- 🟡 **DECAY** (Amp Envelope Decay Multiplier, 0.1x to 4.0x)
+- 🔴 **DRIVE** (Overdrive Saturation Boost, 0% to 100%)
+- 🔵 **LEVEL** (Step Level Trim, -48 dB to +6 dB)
+- 🟣 **PAN** (Step Stereo Panning, 100% L to 100% R)
+
+Loads with a clean empty canvas by default for frictionless workflow in your DAW. Includes a convenient collapsible Sequencer Drawer accessible from every page!
 
 ![FORGE64 Sequencer](docs/images/forge64_sequencer.png)
 
@@ -79,7 +90,6 @@ Write, audition, and compile custom real-time synthesis algorithms directly insi
   - **3-Band Parametric EQ**: Low Shelf, Parametric Peak, High Shelf with interactive draggable handles.
   - **VCA Compressor**: Stereo-linked detector, Threshold, Ratio (1:1 to 20:1), Attack, Release, and live transfer curve display.
   - **Analog Waveshaping Drive**: Asymmetric tanh saturation with auto-gain compensation.
-  - **Analog Waveshaping Drive**: Asymmetric tanh saturation with auto-gain compensation.
   - **22 Dedicated Insert Multi-FX**: Flanger, Chorus, Bitcrusher, Phaser, Hall Reverb (8-delay FDN), Shimmer Reverb, Spring Reverb, Gated Reverb, Mono Delay, Stereo Ping-Pong Delay, Filtered Dub Delay, Tremolo, Vibrato, Auto-Pan, Ring Modulator, Frequency Shifter (quadrature Hilbert), Stereo Detuner, Overdrive, Tube Saturator, Wavefolder, and Compressor.
   - **Multi-Bus Routing**: Route pads across 16 stereo DAW outputs with fallback summing to Main.
   - **16 Choke Groups**: Seamless 5ms click-free cross-fade choking across pads and banks.
@@ -91,12 +101,17 @@ Write, audition, and compile custom real-time synthesis algorithms directly insi
   - 10 Mod Sequencers with smoothing slew and swing.
   - 8 Global Macro Knobs and full MIDI Latched Sources (Velocity, Mod Wheel, Pitch Bend, Aftertouch).
   - Visual feedback with colored animated modulation rings and live value dots on every knob.
-- **Master FX & 14 Aux Return Processors**:
-  - 4 independent stereo studio aux buses selectable between 14 algorithms: Studio Reverb, Hall Reverb, Shimmer Reverb, Spring Reverb, Gated Reverb, Stereo Delay, Ping-Pong Delay, Filtered Dub Delay, Tape Saturation, Tube Saturator, Wavefolder, Modulation Ensemble, Frequency Shifter, and Stereo Pitch Detuner.
-  - **Master Bus Console**: VCA Stereo Bus Glue Compressor, 4-Band Harmonic EQ, and Tape Drive.
+- **Master FX & 14 Studio Aux Return Processors**:
+  - 4 independent stereo studio aux buses selectable between 14 algorithms:
+    - **Reverbs**: Studio Reverb, Hall Reverb, Shimmer Reverb (with infinite high-octave feedback and sustained decay), Spring Reverb (extended mechanical dual-spring decay & boing), Gated Reverb (with extended 12s non-linear gate).
+    - **Delays**: Stereo Delay, Ping-Pong Delay, Filtered Dub Delay — all featuring **Musical Host Tempo Sync** (1/32 to 2 bars, dotted, triplets) with clear subdivision readouts and high-resonance feedback filtering.
+    - **Dynamics & Coloration**: Tape Saturation, Tube Saturator, Wavefolder, Modulation Ensemble, Quadrature Frequency Shifter, and clean Pitch Shifter.
+  - **Master Bus Console**: VCA Stereo Bus Glue Compressor with live gain-reduction meter, 4-Band Harmonic EQ, and Analog Tape Drive.
 - **Complete MIDI Learn & Full Undo/Redo**:
   - 1-click MIDI CC learn on all parameters and macro controls.
   - Full history undo/redo (`Ctrl+Z` / `Ctrl+Y`) with dedicated header toolbar buttons.
+- **150+ Sound Presets Across All 31 Modules**:
+  - Redesigned preset library covering classic 808/909, modern acoustic, heavy industrial, physical Karplus-Strong, and 303 acid styles.
 - **Sample Engine**:
   - Drag-and-drop WAV/AIFF sample loading with waveform preview, start/end trimming, loop markers, reverse, and ADSR envelope.
 
@@ -227,9 +242,11 @@ FORGE64 includes an automated headless DSP and audio test suite (`test_audio.exe
 
 ## Support & Donations
 
-To support my work and encourage future synthesizer development, please consider buying me a coffee:
+If you enjoy using **FORGE64** and want to support ongoing development, new DSP algorithms, and feature updates, please consider buying me a coffee! Every contribution directly supports independent audio software development:
 
-[![Support on Ko-fi](https://img.shields.io/badge/Ko--fi-Support%20My%20Work-ff5e5b?logo=ko-fi&logoColor=white)](https://ko-fi.com/mtyas)
+[![Support on Ko-fi](https://img.shields.io/badge/Ko--fi-Support%20My%20Work-ff5e5b?style=for-the-badge&logo=ko-fi&logoColor=white)](https://ko-fi.com/mtyas)
+
+☕ **[https://ko-fi.com/mtyas](https://ko-fi.com/mtyas)**
 
 ---
 

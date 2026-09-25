@@ -69,7 +69,9 @@ private:
     std::array<std::unique_ptr<juce::TextButton>, kNumBanks> bankBtns;
     std::unique_ptr<juce::TextButton> gridNavBtn, editNavBtn, mixerNavBtn, seqNavBtn, performNavBtn;
     std::unique_ptr<juce::Button> undoBtn, redoBtn, midiLearnBtn;
-    float navDividerX = 0.f;
+    float toolDividerLeftX = 0.f;
+    float toolDividerRightX = 0.f;
+    std::unique_ptr<juce::LookAndFeel_V4> pageNavLnF;
     std::unique_ptr<ModRingKnob> masterKnob;
     std::unique_ptr<juce::SliderParameterAttachment> masterAtt;
     std::unique_ptr<juce::TextButton> kitBtn, bankMenuBtn, padMenuBtn;
@@ -90,6 +92,7 @@ private:
     int currentBank = 0;
     int zoomedPad = -1;
     int selectedPad = -1;
+    bool isInitialized = false;
 };
 
 } // namespace f64

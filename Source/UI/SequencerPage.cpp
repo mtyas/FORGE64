@@ -34,23 +34,284 @@ public:
 
         if (s.active)
         {
-            // Active Step: Molten fire orange fill with velocity height
-            const float vH = r.getHeight() * clampRange(s.velocity, 0.08f, 1.0f);
-            auto barR = r.withTrimmedTop(r.getHeight() - vH);
-
             g.setColour(ui::panel());
             g.fillRoundedRectangle(r, 3.f);
 
-            juce::ColourGradient grad(ui::accentHot(), barR.getX(), barR.getY(),
-                                      ui::accent(), barR.getX(), barR.getBottom(), false);
-            g.setGradientFill(grad);
-            g.fillRoundedRectangle(barR, 3.f);
+            if (owner.getLockViewMode() == SequencerPage::LOCK_VIEW_VELOCITY)
+            {
+                // Active Step (Velocity): Molten fire orange fill
+                const float vH = r.getHeight() * clampRange(s.velocity, 0.08f, 1.0f);
+                auto barR = r.withTrimmedTop(r.getHeight() - vH);
 
-            g.setColour(juce::Colours::white.withAlpha(0.6f));
-            g.drawHorizontalLine((int) barR.getY(), barR.getX() + 1.f, barR.getRight() - 1.f);
+                juce::ColourGradient grad(ui::accentHot(), barR.getX(), barR.getY(),
+                                          ui::accent(), barR.getX(), barR.getBottom(), false);
+                g.setGradientFill(grad);
+                g.fillRoundedRectangle(barR, 3.f);
 
-            g.setColour(ui::accentHot().withAlpha(0.8f));
-            g.drawRoundedRectangle(r, 3.f, 1.2f);
+                g.setColour(juce::Colours::white.withAlpha(0.6f));
+                g.drawHorizontalLine((int) barR.getY(), barR.getX() + 1.f, barR.getRight() - 1.f);
+
+                g.setColour(ui::accentHot().withAlpha(0.8f));
+                g.drawRoundedRectangle(r, 3.f, 1.2f);
+            }
+            else if (owner.getLockViewMode() == SequencerPage::LOCK_VIEW_PROBABILITY)
+            {
+                // Active Step (Probability): Bright Neon Mint / Emerald Teal fill
+                const float pH = r.getHeight() * clampRange(s.probability, 0.08f, 1.0f);
+                auto barR = r.withTrimmedTop(r.getHeight() - pH);
+
+                const juce::Colour probHi(0xFF00F5D4);
+                const juce::Colour probLo(0xFF00897B);
+                juce::ColourGradient grad(probHi, barR.getX(), barR.getY(),
+                                          probLo, barR.getX(), barR.getBottom(), false);
+                g.setGradientFill(grad);
+                g.fillRoundedRectangle(barR, 3.f);
+
+                g.setColour(juce::Colours::white.withAlpha(0.7f));
+                g.drawHorizontalLine((int) barR.getY(), barR.getX() + 1.f, barR.getRight() - 1.f);
+
+                g.setColour(probHi.withAlpha(0.85f));
+                g.drawRoundedRectangle(r, 3.f, 1.2f);
+
+                if (s.probability < 0.99f)
+                {
+                    g.setFont(uiFont(7.5f, true));
+                    g.setColour(juce::Colours::white);
+                    g.drawText(juce::String((int) std::round(s.probability * 100.f)) + "%",
+                               r.reduced(1.f), juce::Justification::centred);
+                }
+            }
+            else if (owner.getLockViewMode() == SequencerPage::LOCK_VIEW_MICROTIMING)
+            {
+                // Active Step (Microtiming): Vivid Electric Magenta / Purple offset
+                const juce::Colour microCol(0xFFCC55FF);
+                const float centerY = r.getCentreY();
+
+                // Center reference gridline (0.0 offset)
+                g.setColour(juce::Colours::white.withAlpha(0.25f));
+                g.drawHorizontalLine((int) centerY, r.getX() + 2.f, r.getRight() - 2.f);
+
+                const float maxHalfH = r.getHeight() * 0.44f;
+                const float mOffset = juce::jlimit(-0.5f, 0.5f, s.microtiming);
+
+                if (std::abs(mOffset) < 0.015f)
+                {
+                    // Perfectly on grid
+                    g.setColour(microCol);
+                    g.fillRoundedRectangle(r.getX() + 2.f, centerY - 2.f, r.getWidth() - 4.f, 4.f, 1.5f);
+                }
+                else if (mOffset > 0.f)
+                {
+                    // Late (delayed): bar upwards from center
+                    const float bH = (mOffset / 0.5f) * maxHalfH;
+                    auto barR = juce::Rectangle<float>(r.getX() + 2.f, centerY - bH, r.getWidth() - 4.f, bH);
+                    juce::ColourGradient grad(microCol.brighter(0.2f), barR.getX(), barR.getY(),
+                                              microCol, barR.getX(), barR.getBottom(), false);
+                    g.setGradientFill(grad);
+                    g.fillRoundedRectangle(barR, 2.f);
+
+                    g.setFont(uiFont(7.f, true));
+                    g.setColour(juce::Colours::white);
+                    g.drawText("+" + juce::String((int) std::round(mOffset * 100.f)) + "%",
+                               r.reduced(1.f), juce::Justification::centredTop);
+                }
+                else
+                {
+                    // Early (rushed): bar downwards from center
+                    const float bH = (-mOffset / 0.5f) * maxHalfH;
+                    auto barR = juce::Rectangle<float>(r.getX() + 2.f, centerY, r.getWidth() - 4.f, bH);
+                    juce::ColourGradient grad(microCol, barR.getX(), barR.getY(),
+                                              microCol.darker(0.3f), barR.getX(), barR.getBottom(), false);
+                    g.setGradientFill(grad);
+                    g.fillRoundedRectangle(barR, 2.f);
+
+                    g.setFont(uiFont(7.f, true));
+                    g.setColour(juce::Colours::white);
+                    g.drawText(juce::String((int) std::round(mOffset * 100.f)) + "%",
+                               r.reduced(1.f), juce::Justification::centredBottom);
+                }
+
+                g.setColour(microCol.withAlpha(0.85f));
+                g.drawRoundedRectangle(r, 3.f, 1.2f);
+            }
+            else if (owner.getLockViewMode() == SequencerPage::LOCK_VIEW_PITCH)
+            {
+                // Active Step (Pitch): Electric Neon Blue
+                const juce::Colour pitchCol(0xFF2979FF);
+                const float centerY = r.getCentreY();
+                const float maxHalfH = r.getHeight() * 0.44f;
+                const float pOffset = juce::jlimit(-24.0f, 24.0f, s.pLockPitch);
+
+                // Center reference line (0st)
+                g.setColour(juce::Colours::white.withAlpha(0.25f));
+                g.drawHorizontalLine((int) centerY, r.getX() + 2.f, r.getRight() - 2.f);
+
+                if (std::abs(pOffset) < 0.2f)
+                {
+                    g.setColour(pitchCol);
+                    g.fillRoundedRectangle(r.getX() + 2.f, centerY - 2.f, r.getWidth() - 4.f, 4.f, 1.5f);
+                }
+                else if (pOffset > 0.f)
+                {
+                    const float bH = (pOffset / 24.0f) * maxHalfH;
+                    auto barR = juce::Rectangle<float>(r.getX() + 2.f, centerY - bH, r.getWidth() - 4.f, bH);
+                    juce::ColourGradient grad(pitchCol.brighter(0.25f), barR.getX(), barR.getY(),
+                                              pitchCol, barR.getX(), barR.getBottom(), false);
+                    g.setGradientFill(grad);
+                    g.fillRoundedRectangle(barR, 2.f);
+
+                    g.setFont(uiFont(7.f, true));
+                    g.setColour(juce::Colours::white);
+                    g.drawText("+" + juce::String((int) std::round(pOffset)),
+                               r.reduced(1.f), juce::Justification::centredTop);
+                }
+                else
+                {
+                    const float bH = (-pOffset / 24.0f) * maxHalfH;
+                    auto barR = juce::Rectangle<float>(r.getX() + 2.f, centerY, r.getWidth() - 4.f, bH);
+                    juce::ColourGradient grad(pitchCol, barR.getX(), barR.getY(),
+                                              pitchCol.darker(0.35f), barR.getX(), barR.getBottom(), false);
+                    g.setGradientFill(grad);
+                    g.fillRoundedRectangle(barR, 2.f);
+
+                    g.setFont(uiFont(7.f, true));
+                    g.setColour(juce::Colours::white);
+                    g.drawText(juce::String((int) std::round(pOffset)),
+                               r.reduced(1.f), juce::Justification::centredBottom);
+                }
+
+                g.setColour(pitchCol.withAlpha(0.85f));
+                g.drawRoundedRectangle(r, 3.f, 1.2f);
+            }
+            else if (owner.getLockViewMode() == SequencerPage::LOCK_VIEW_DECAY)
+            {
+                // Active Step (Decay): Neon Emerald Green
+                const juce::Colour decayCol(0xFF00E676);
+                const float dNorm = clampRange((s.pLockDecay - 0.05f) / 4.95f, 0.08f, 1.0f);
+                const float dH = r.getHeight() * dNorm;
+                auto barR = r.withTrimmedTop(r.getHeight() - dH);
+
+                juce::ColourGradient grad(decayCol.brighter(0.2f), barR.getX(), barR.getY(),
+                                          decayCol.darker(0.3f), barR.getX(), barR.getBottom(), false);
+                g.setGradientFill(grad);
+                g.fillRoundedRectangle(barR, 3.f);
+
+                g.setColour(juce::Colours::white.withAlpha(0.6f));
+                g.drawHorizontalLine((int) barR.getY(), barR.getX() + 1.f, barR.getRight() - 1.f);
+
+                g.setColour(decayCol.withAlpha(0.85f));
+                g.drawRoundedRectangle(r, 3.f, 1.2f);
+
+                g.setFont(uiFont(7.5f, true));
+                g.setColour(juce::Colours::white);
+                g.drawText(juce::String(s.pLockDecay, 1) + "x", r.reduced(1.f), juce::Justification::centred);
+            }
+            else if (owner.getLockViewMode() == SequencerPage::LOCK_VIEW_DRIVE)
+            {
+                // Active Step (Drive): Crimson Flame
+                const juce::Colour driveCol(0xFFFF3D00);
+                const float drH = r.getHeight() * clampRange(s.pLockDrive, 0.08f, 1.0f);
+                auto barR = r.withTrimmedTop(r.getHeight() - drH);
+
+                juce::ColourGradient grad(driveCol.brighter(0.2f), barR.getX(), barR.getY(),
+                                          driveCol.darker(0.4f), barR.getX(), barR.getBottom(), false);
+                g.setGradientFill(grad);
+                g.fillRoundedRectangle(barR, 3.f);
+
+                g.setColour(juce::Colours::white.withAlpha(0.6f));
+                g.drawHorizontalLine((int) barR.getY(), barR.getX() + 1.f, barR.getRight() - 1.f);
+
+                g.setColour(driveCol.withAlpha(0.85f));
+                g.drawRoundedRectangle(r, 3.f, 1.2f);
+
+                if (s.pLockDrive > 0.01f)
+                {
+                    g.setFont(uiFont(7.5f, true));
+                    g.setColour(juce::Colours::white);
+                    g.drawText(juce::String((int) std::round(s.pLockDrive * 100.f)) + "%",
+                               r.reduced(1.f), juce::Justification::centred);
+                }
+            }
+            else if (owner.getLockViewMode() == SequencerPage::LOCK_VIEW_LEVEL)
+            {
+                // Active Step (Level): Radiant Gold / Cyber Amber
+                const juce::Colour levCol(0xFFFFD600);
+                const float levNorm = clampRange(s.pLockLevel / 1.5f, 0.08f, 1.0f);
+                const float lH = r.getHeight() * levNorm;
+                auto barR = r.withTrimmedTop(r.getHeight() - lH);
+
+                juce::ColourGradient grad(levCol.brighter(0.2f), barR.getX(), barR.getY(),
+                                          levCol.darker(0.35f), barR.getX(), barR.getBottom(), false);
+                g.setGradientFill(grad);
+                g.fillRoundedRectangle(barR, 3.f);
+
+                g.setColour(juce::Colours::white.withAlpha(0.6f));
+                g.drawHorizontalLine((int) barR.getY(), barR.getX() + 1.f, barR.getRight() - 1.f);
+
+                g.setColour(levCol.withAlpha(0.85f));
+                g.drawRoundedRectangle(r, 3.f, 1.2f);
+
+                g.setFont(uiFont(7.5f, true));
+                g.setColour(juce::Colours::white);
+                g.drawText(juce::String((int) std::round(s.pLockLevel * 100.f)) + "%",
+                           r.reduced(1.f), juce::Justification::centred);
+            }
+            else // LOCK_VIEW_PAN
+            {
+                // Active Step (Pan): Violet Orchid / Electric Fuchsia
+                const juce::Colour panCol(0xFFE040FB);
+                const float centerX = r.getCentreX();
+
+                // Vertical center reference line
+                g.setColour(juce::Colours::white.withAlpha(0.25f));
+                g.drawVerticalLine((int) centerX, r.getY() + 2.f, r.getBottom() - 2.f);
+
+                const float maxHalfW = r.getWidth() * 0.44f;
+                const float panVal = juce::jlimit(-1.0f, 1.0f, s.pLockPan);
+
+                if (std::abs(panVal) < 0.05f)
+                {
+                    g.setColour(panCol);
+                    g.fillRoundedRectangle(centerX - 2.f, r.getY() + 2.f, 4.f, r.getHeight() - 4.f, 1.5f);
+
+                    g.setFont(uiFont(7.5f, true));
+                    g.setColour(juce::Colours::white);
+                    g.drawText("C", r.reduced(1.f), juce::Justification::centred);
+                }
+                else if (panVal < 0.f)
+                {
+                    // Left
+                    const float bW = (-panVal) * maxHalfW;
+                    auto barR = juce::Rectangle<float>(centerX - bW, r.getY() + 2.f, bW, r.getHeight() - 4.f);
+                    juce::ColourGradient grad(panCol.brighter(0.2f), barR.getX(), barR.getY(),
+                                              panCol, barR.getRight(), barR.getY(), false);
+                    g.setGradientFill(grad);
+                    g.fillRoundedRectangle(barR, 2.f);
+
+                    g.setFont(uiFont(7.f, true));
+                    g.setColour(juce::Colours::white);
+                    g.drawText("L" + juce::String((int) std::round(-panVal * 100.f)),
+                               r.reduced(1.f), juce::Justification::centred);
+                }
+                else
+                {
+                    // Right
+                    const float bW = panVal * maxHalfW;
+                    auto barR = juce::Rectangle<float>(centerX, r.getY() + 2.f, bW, r.getHeight() - 4.f);
+                    juce::ColourGradient grad(panCol, barR.getX(), barR.getY(),
+                                              panCol.brighter(0.2f), barR.getRight(), barR.getY(), false);
+                    g.setGradientFill(grad);
+                    g.fillRoundedRectangle(barR, 2.f);
+
+                    g.setFont(uiFont(7.f, true));
+                    g.setColour(juce::Colours::white);
+                    g.drawText("R" + juce::String((int) std::round(panVal * 100.f)),
+                               r.reduced(1.f), juce::Justification::centred);
+                }
+
+                g.setColour(panCol.withAlpha(0.85f));
+                g.drawRoundedRectangle(r, 3.f, 1.2f);
+            }
         }
         else
         {
@@ -93,7 +354,7 @@ public:
 private:
     SequencerPage& owner;
     int trackIdx, stepIdx;
-    float dragStartVel = 0.85f;
+    float dragStartVal = 0.85f;
     float dragStartY = 0.f;
     bool wasActiveOnDown = false;
 };
@@ -147,6 +408,8 @@ public:
         makeSlider(decaySlider, decayLabel, "Decay Lock", 0.1f, 4.0f, 1.0f);
         makeSlider(toneSlider, toneLabel, "Tone / Filter", 0.0f, 1.0f, 0.5f);
         makeSlider(driveSlider, driveLabel, "Drive Lock", 0.0f, 1.0f, 0.0f);
+        makeSlider(levelSlider, levelLabel, "Level Lock", 0.0f, 1.5f, 1.0f);
+        makeSlider(panSlider, panLabel, "Pan Lock", -1.0f, 1.0f, 0.0f);
         makeSlider(sendASlider, sendALabel, "Send A Lock", 0.0f, 1.0f, 0.0f);
 
         ratchetCombo = std::make_unique<juce::ComboBox>();
@@ -170,6 +433,11 @@ public:
                 s.ratchet = 1;
                 s.microtiming = 0.f;
                 s.probability = 1.f;
+                s.pLockPitch = 0.0f;
+                s.pLockDecay = 1.0f;
+                s.pLockDrive = 0.0f;
+                s.pLockLevel = 1.0f;
+                s.pLockPan   = 0.0f;
                 openForStep(curTrack, curStep);
                 owner.repaint();
             }
@@ -198,6 +466,8 @@ public:
         decaySlider->setValue(st.pLockDecay, juce::dontSendNotification);
         toneSlider->setValue(st.pLockTone, juce::dontSendNotification);
         driveSlider->setValue(st.pLockDrive, juce::dontSendNotification);
+        levelSlider->setValue(st.pLockLevel, juce::dontSendNotification);
+        panSlider->setValue(st.pLockPan, juce::dontSendNotification);
         sendASlider->setValue(st.pLockSendA, juce::dontSendNotification);
 
         setVisible(true);
@@ -220,9 +490,12 @@ public:
         s.pLockDecay = (float) decaySlider->getValue();
         s.pLockTone  = (float) toneSlider->getValue();
         s.pLockDrive = (float) driveSlider->getValue();
+        s.pLockLevel = (float) levelSlider->getValue();
+        s.pLockPan   = (float) panSlider->getValue();
         s.pLockSendA = (float) sendASlider->getValue();
         s.hasLocks = (std::abs(s.pLockPitch) > 0.01f || std::abs(s.pLockDecay - 1.0f) > 0.01f
                       || std::abs(s.pLockTone - 0.5f) > 0.01f || s.pLockDrive > 0.01f || s.pLockSendA > 0.01f
+                      || std::abs(s.pLockLevel - 1.0f) > 0.01f || std::abs(s.pLockPan) > 0.01f
                       || s.padOverride >= 0 || s.ratchet > 1);
         owner.repaint();
     }
@@ -257,6 +530,8 @@ public:
         row(decayLabel, decaySlider);
         row(toneLabel, toneSlider);
         row(driveLabel, driveSlider);
+        row(levelLabel, levelSlider);
+        row(panLabel, panSlider);
         row(sendALabel, sendASlider);
 
         clearBtn->setBounds(14, y + 6, 120, 24);
@@ -264,14 +539,17 @@ public:
 
     SequencerPage& owner;
     int curTrack = -1, curStep = -1;
-    std::unique_ptr<juce::Label> title, velLabel, probLabel, mtimeLabel, pitchLabel, decayLabel, toneLabel, driveLabel, sendALabel;
+    std::unique_ptr<juce::Label> title, velLabel, probLabel, mtimeLabel, pitchLabel, decayLabel, toneLabel, driveLabel, levelLabel, panLabel, sendALabel;
     std::unique_ptr<juce::ComboBox> padCombo, ratchetCombo;
-    std::unique_ptr<juce::Slider> velSlider, probSlider, mtimeSlider, pitchSlider, decaySlider, toneSlider, driveSlider, sendASlider;
+    std::unique_ptr<juce::Slider> velSlider, probSlider, mtimeSlider, pitchSlider, decaySlider, toneSlider, driveSlider, levelSlider, panSlider, sendASlider;
     std::unique_ptr<juce::TextButton> clearBtn, closeBtn;
 };
 
 void SequencerPage::StepButton::mouseDown(const juce::MouseEvent& e)
 {
+    owner.seq.setSelectedTrack(trackIdx);
+    owner.repaint();
+
     if (e.mods.isPopupMenu() || e.mods.isAltDown())
     {
         owner.popoverTrack = trackIdx;
@@ -284,15 +562,38 @@ void SequencerPage::StepButton::mouseDown(const juce::MouseEvent& e)
     const auto& trk = owner.seq.currentPattern().tracks[(size_t) trackIdx];
     const auto& s = trk.steps[(size_t) stepIdx];
     wasActiveOnDown = s.active;
-    dragStartVel = s.velocity;
     dragStartY = (float) e.position.y;
 
     if (! wasActiveOnDown)
     {
         owner.seq.setStepActive(trackIdx, stepIdx, true);
-        dragStartVel = 0.85f;
-        owner.seq.setStepVelocity(trackIdx, stepIdx, 0.85f);
+        switch (owner.getLockViewMode())
+        {
+            case SequencerPage::LOCK_VIEW_PROBABILITY: owner.seq.setStepProbability(trackIdx, stepIdx, 1.0f); break;
+            case SequencerPage::LOCK_VIEW_MICROTIMING: owner.seq.setStepMicrotiming(trackIdx, stepIdx, 0.0f); break;
+            case SequencerPage::LOCK_VIEW_PITCH:       owner.seq.setStepPitch(trackIdx, stepIdx, 0.0f); break;
+            case SequencerPage::LOCK_VIEW_DECAY:       owner.seq.setStepDecay(trackIdx, stepIdx, 1.0f); break;
+            case SequencerPage::LOCK_VIEW_DRIVE:       owner.seq.setStepDrive(trackIdx, stepIdx, 0.0f); break;
+            case SequencerPage::LOCK_VIEW_LEVEL:       owner.seq.setStepLevel(trackIdx, stepIdx, 1.0f); break;
+            case SequencerPage::LOCK_VIEW_PAN:         owner.seq.setStepPan(trackIdx, stepIdx, 0.0f); break;
+            case SequencerPage::LOCK_VIEW_VELOCITY:
+            default:                                   owner.seq.setStepVelocity(trackIdx, stepIdx, 0.85f); break;
+        }
     }
+
+    switch (owner.getLockViewMode())
+    {
+        case SequencerPage::LOCK_VIEW_PROBABILITY: dragStartVal = s.probability; break;
+        case SequencerPage::LOCK_VIEW_MICROTIMING: dragStartVal = s.microtiming; break;
+        case SequencerPage::LOCK_VIEW_PITCH:       dragStartVal = s.pLockPitch; break;
+        case SequencerPage::LOCK_VIEW_DECAY:       dragStartVal = s.pLockDecay; break;
+        case SequencerPage::LOCK_VIEW_DRIVE:       dragStartVal = s.pLockDrive; break;
+        case SequencerPage::LOCK_VIEW_LEVEL:       dragStartVal = s.pLockLevel; break;
+        case SequencerPage::LOCK_VIEW_PAN:         dragStartVal = s.pLockPan; break;
+        case SequencerPage::LOCK_VIEW_VELOCITY:
+        default:                                   dragStartVal = s.velocity; break;
+    }
+
     repaint();
 }
 
@@ -302,8 +603,58 @@ void SequencerPage::StepButton::mouseDrag(const juce::MouseEvent& e)
     if (trk.steps[(size_t) stepIdx].active)
     {
         const float deltaY = dragStartY - (float) e.position.y;
-        const float newVel = juce::jlimit(0.05f, 1.0f, dragStartVel + deltaY / 80.0f);
-        owner.seq.setStepVelocity(trackIdx, stepIdx, newVel);
+        switch (owner.getLockViewMode())
+        {
+            case SequencerPage::LOCK_VIEW_PROBABILITY:
+            {
+                const float newProb = juce::jlimit(0.0f, 1.0f, dragStartVal + deltaY / 80.0f);
+                owner.seq.setStepProbability(trackIdx, stepIdx, newProb);
+                break;
+            }
+            case SequencerPage::LOCK_VIEW_MICROTIMING:
+            {
+                const float newMicro = juce::jlimit(-0.5f, 0.5f, dragStartVal + deltaY / 120.0f);
+                owner.seq.setStepMicrotiming(trackIdx, stepIdx, newMicro);
+                break;
+            }
+            case SequencerPage::LOCK_VIEW_PITCH:
+            {
+                const float newPitch = std::round(juce::jlimit(-24.0f, 24.0f, dragStartVal + deltaY * (24.0f / 80.0f)));
+                owner.seq.setStepPitch(trackIdx, stepIdx, newPitch);
+                break;
+            }
+            case SequencerPage::LOCK_VIEW_DECAY:
+            {
+                const float newDecay = juce::jlimit(0.05f, 5.0f, dragStartVal + deltaY / 40.0f);
+                owner.seq.setStepDecay(trackIdx, stepIdx, newDecay);
+                break;
+            }
+            case SequencerPage::LOCK_VIEW_DRIVE:
+            {
+                const float newDrive = juce::jlimit(0.0f, 1.0f, dragStartVal + deltaY / 80.0f);
+                owner.seq.setStepDrive(trackIdx, stepIdx, newDrive);
+                break;
+            }
+            case SequencerPage::LOCK_VIEW_LEVEL:
+            {
+                const float newLevel = juce::jlimit(0.0f, 1.5f, dragStartVal + deltaY / 60.0f);
+                owner.seq.setStepLevel(trackIdx, stepIdx, newLevel);
+                break;
+            }
+            case SequencerPage::LOCK_VIEW_PAN:
+            {
+                const float newPan = juce::jlimit(-1.0f, 1.0f, dragStartVal + deltaY / 60.0f);
+                owner.seq.setStepPan(trackIdx, stepIdx, newPan);
+                break;
+            }
+            case SequencerPage::LOCK_VIEW_VELOCITY:
+            default:
+            {
+                const float newVel = juce::jlimit(0.05f, 1.0f, dragStartVal + deltaY / 80.0f);
+                owner.seq.setStepVelocity(trackIdx, stepIdx, newVel);
+                break;
+            }
+        }
         repaint();
     }
 }
@@ -326,8 +677,35 @@ void SequencerPage::StepButton::mouseWheelMove(const juce::MouseEvent&, const ju
     const auto& s = trk.steps[(size_t) stepIdx];
     if (s.active)
     {
-        const float delta = (wheel.deltaY > 0.f ? 0.05f : -0.05f);
-        owner.seq.setStepVelocity(trackIdx, stepIdx, juce::jlimit(0.05f, 1.0f, s.velocity + delta));
+        const bool up = (wheel.deltaY > 0.f);
+        switch (owner.getLockViewMode())
+        {
+            case SequencerPage::LOCK_VIEW_PROBABILITY:
+                owner.seq.setStepProbability(trackIdx, stepIdx, juce::jlimit(0.0f, 1.0f, s.probability + (up ? 0.05f : -0.05f)));
+                break;
+            case SequencerPage::LOCK_VIEW_MICROTIMING:
+                owner.seq.setStepMicrotiming(trackIdx, stepIdx, juce::jlimit(-0.5f, 0.5f, s.microtiming + (up ? 0.02f : -0.02f)));
+                break;
+            case SequencerPage::LOCK_VIEW_PITCH:
+                owner.seq.setStepPitch(trackIdx, stepIdx, juce::jlimit(-24.0f, 24.0f, s.pLockPitch + (up ? 1.0f : -1.0f)));
+                break;
+            case SequencerPage::LOCK_VIEW_DECAY:
+                owner.seq.setStepDecay(trackIdx, stepIdx, juce::jlimit(0.05f, 5.0f, s.pLockDecay + (up ? 0.1f : -0.1f)));
+                break;
+            case SequencerPage::LOCK_VIEW_DRIVE:
+                owner.seq.setStepDrive(trackIdx, stepIdx, juce::jlimit(0.0f, 1.0f, s.pLockDrive + (up ? 0.05f : -0.05f)));
+                break;
+            case SequencerPage::LOCK_VIEW_LEVEL:
+                owner.seq.setStepLevel(trackIdx, stepIdx, juce::jlimit(0.0f, 1.5f, s.pLockLevel + (up ? 0.05f : -0.05f)));
+                break;
+            case SequencerPage::LOCK_VIEW_PAN:
+                owner.seq.setStepPan(trackIdx, stepIdx, juce::jlimit(-1.0f, 1.0f, s.pLockPan + (up ? 0.05f : -0.05f)));
+                break;
+            case SequencerPage::LOCK_VIEW_VELOCITY:
+            default:
+                owner.seq.setStepVelocity(trackIdx, stepIdx, juce::jlimit(0.05f, 1.0f, s.velocity + (up ? 0.05f : -0.05f)));
+                break;
+        }
         repaint();
     }
 }
@@ -378,7 +756,9 @@ public:
         padCombo->setSelectedId(owner.seq.currentPattern().tracks[(size_t) trackIdx].defaultPad + 1, juce::dontSendNotification);
         padCombo->onChange = [this]
         {
+            owner.seq.setSelectedTrack(trackIdx);
             owner.seq.setTrackPad(trackIdx, padCombo->getSelectedId() - 1);
+            owner.repaint();
         };
         addAndMakeVisible(padCombo.get());
 
@@ -389,6 +769,7 @@ public:
         lenSlider->setColour(juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
         lenSlider->onValueChange = [this]
         {
+            owner.seq.setSelectedTrack(trackIdx);
             owner.seq.setTrackLength(trackIdx, (int) lenSlider->getValue());
             owner.repaint();
         };
@@ -399,6 +780,12 @@ public:
             stepBtns[(size_t) s] = std::make_unique<StepButton>(owner, trackIdx, s);
             addAndMakeVisible(stepBtns[(size_t) s].get());
         }
+    }
+
+    void mouseDown(const juce::MouseEvent&) override
+    {
+        owner.seq.setSelectedTrack(trackIdx);
+        owner.repaint();
     }
 
     void updateTrackData()
@@ -447,7 +834,14 @@ public:
     void paint(juce::Graphics& g) override
     {
         auto r = getLocalBounds().toFloat().reduced(1.f);
-        ui::drawForgedPlate(g, r, 3.f, false);
+        const bool isSelected = (owner.seq.selectedTrackIndex() == trackIdx);
+        ui::drawForgedPlate(g, r, 3.f, isSelected);
+
+        if (isSelected)
+        {
+            g.setColour(ui::accentHot().withAlpha(0.75f));
+            g.drawRoundedRectangle(r, 3.f, 1.5f);
+        }
     }
 
     SequencerPage& owner;
@@ -547,6 +941,7 @@ SequencerPage::SequencerPage(Forge64Processor& processor)
     // Mode toggle button
     modeBtn = std::make_unique<juce::TextButton>("PATTERN MODE");
     ui::styleButton(*modeBtn);
+    modeBtn->setLookAndFeel(&compactBtnLnF);
     modeBtn->onClick = [this]
     {
         const bool song = (seq.getPlayMode() == StepSequencer::MODE_PATTERN);
@@ -561,6 +956,7 @@ SequencerPage::SequencerPage(Forge64Processor& processor)
     // Play / Stop
     playBtn = std::make_unique<juce::TextButton>("PLAY");
     ui::styleButton(*playBtn);
+    playBtn->setLookAndFeel(&compactBtnLnF);
     playBtn->onClick = [this]
     {
         const bool pl = ! seq.isPlaying();
@@ -587,14 +983,15 @@ SequencerPage::SequencerPage(Forge64Processor& processor)
     addAndMakeVisible(swingSlider.get());
 
     // 16 Pattern Buttons
-    patternBarLabel = ui::makeLabel("PATTERNS:", 10.5f, ui::accentHot());
-    patternBarLabel->setFont(uiFont(10.5f, true));
+    patternBarLabel = ui::makeLabel("PAT:", 10.f, ui::accentHot());
+    patternBarLabel->setFont(uiFont(10.f, true));
     addAndMakeVisible(patternBarLabel.get());
 
     for (int p = 0; p < 16; ++p)
     {
         patternBtns[(size_t) p] = std::make_unique<juce::TextButton>(juce::String(p + 1));
         ui::styleButton(*patternBtns[(size_t) p]);
+        patternBtns[(size_t) p]->setLookAndFeel(&compactBtnLnF);
         patternBtns[(size_t) p]->onClick = [this, p]
         {
             seq.setSelectedPattern(p);
@@ -626,25 +1023,67 @@ SequencerPage::SequencerPage(Forge64Processor& processor)
     };
     addAndMakeVisible(presetCombo.get());
 
+    // Lock View & Quick Edit mode controls
+    lockModeLabel = ui::makeLabel("LOCK:", 10.f, ui::dim());
+    addAndMakeVisible(lockModeLabel.get());
+
+    auto setupLockBtn = [this](std::unique_ptr<juce::TextButton>& btn, const char* name, const char* tip, StepLockViewMode mode)
+    {
+        btn = std::make_unique<juce::TextButton>(name);
+        ui::styleButton(*btn);
+        btn->setLookAndFeel(&compactBtnLnF);
+        btn->setTooltip(tip);
+        btn->onClick = [this, mode] { setLockViewMode(mode); };
+        addAndMakeVisible(btn.get());
+    };
+
+    setupLockBtn(velLockBtn,   "VEL",   "View and edit step Velocity (Molten Orange)", LOCK_VIEW_VELOCITY);
+    setupLockBtn(probLockBtn,  "PROB",  "View and edit step Probability % (Mint Green)", LOCK_VIEW_PROBABILITY);
+    setupLockBtn(microLockBtn, "TIME",  "View and edit step Microtiming offset (Electric Purple)", LOCK_VIEW_MICROTIMING);
+    setupLockBtn(pitchLockBtn, "PITCH", "View and edit step Pitch lock -24..+24 st (Electric Blue)", LOCK_VIEW_PITCH);
+    setupLockBtn(decayLockBtn, "DECAY", "View and edit step Decay lock 0.1x..5.0x (Emerald Green)", LOCK_VIEW_DECAY);
+    setupLockBtn(driveLockBtn, "DRIVE", "View and edit step Drive saturation (Crimson Flame)", LOCK_VIEW_DRIVE);
+    setupLockBtn(levelLockBtn, "LEVEL", "View and edit step Level lock (Radiant Gold)", LOCK_VIEW_LEVEL);
+    setupLockBtn(panLockBtn,   "PAN",   "View and edit step Pan lock (Violet Orchid)", LOCK_VIEW_PAN);
+
+    setLockViewMode(LOCK_VIEW_VELOCITY);
+
     // Action buttons
     copyBtn = std::make_unique<juce::TextButton>("COPY");
     ui::styleButton(*copyBtn);
+    copyBtn->setLookAndFeel(&compactBtnLnF);
     copyBtn->onClick = [this] { seq.copyPattern(); };
     addAndMakeVisible(copyBtn.get());
 
     pasteBtn = std::make_unique<juce::TextButton>("PASTE");
     ui::styleButton(*pasteBtn);
+    pasteBtn->setLookAndFeel(&compactBtnLnF);
     pasteBtn->onClick = [this] { seq.pastePattern(); refreshFromSequencer(); };
     addAndMakeVisible(pasteBtn.get());
 
     clearBtn = std::make_unique<juce::TextButton>("CLEAR");
     ui::styleButton(*clearBtn);
+    clearBtn->setLookAndFeel(&compactBtnLnF);
     clearBtn->onClick = [this] { seq.clearCurrentPattern(); refreshFromSequencer(); };
     addAndMakeVisible(clearBtn.get());
 
     randBtn = std::make_unique<juce::TextButton>("RAND");
     ui::styleButton(*randBtn);
-    randBtn->onClick = [this] { seq.randomizeCurrentTrack(); refreshFromSequencer(); };
+    randBtn->setLookAndFeel(&compactBtnLnF);
+    randBtn->setTooltip("Randomize selected track (Shift+click to randomize all 8 tracks)");
+    randBtn->onClick = [this]
+    {
+        if (juce::ModifierKeys::getCurrentModifiers().isShiftDown() ||
+            juce::ModifierKeys::getCurrentModifiers().isAltDown())
+        {
+            seq.randomizeAllTracks();
+        }
+        else
+        {
+            seq.randomizeCurrentTrack();
+        }
+        refreshFromSequencer();
+    };
     addAndMakeVisible(randBtn.get());
 
     // Page Buttons: 1-16, 17-32, 33-48, 49-64
@@ -653,6 +1092,7 @@ SequencerPage::SequencerPage(Forge64Processor& processor)
     {
         pageBtns[(size_t) p] = std::make_unique<juce::TextButton>(pNames[p]);
         ui::styleButton(*pageBtns[(size_t) p]);
+        pageBtns[(size_t) p]->setLookAndFeel(&compactBtnLnF);
         pageBtns[(size_t) p]->onClick = [this, p]
         {
             seq.setPage(p);
@@ -714,6 +1154,22 @@ SequencerPage::SequencerPage(Forge64Processor& processor)
 SequencerPage::~SequencerPage()
 {
     stopTimer();
+    for (auto& b : patternBtns) if (b != nullptr) b->setLookAndFeel(nullptr);
+    for (auto& b : pageBtns)    if (b != nullptr) b->setLookAndFeel(nullptr);
+    if (velLockBtn != nullptr)   velLockBtn->setLookAndFeel(nullptr);
+    if (probLockBtn != nullptr)  probLockBtn->setLookAndFeel(nullptr);
+    if (microLockBtn != nullptr) microLockBtn->setLookAndFeel(nullptr);
+    if (pitchLockBtn != nullptr) pitchLockBtn->setLookAndFeel(nullptr);
+    if (decayLockBtn != nullptr) decayLockBtn->setLookAndFeel(nullptr);
+    if (driveLockBtn != nullptr) driveLockBtn->setLookAndFeel(nullptr);
+    if (levelLockBtn != nullptr) levelLockBtn->setLookAndFeel(nullptr);
+    if (panLockBtn != nullptr)   panLockBtn->setLookAndFeel(nullptr);
+    if (copyBtn != nullptr)      copyBtn->setLookAndFeel(nullptr);
+    if (pasteBtn != nullptr)     pasteBtn->setLookAndFeel(nullptr);
+    if (clearBtn != nullptr)     clearBtn->setLookAndFeel(nullptr);
+    if (randBtn != nullptr)      randBtn->setLookAndFeel(nullptr);
+    if (playBtn != nullptr)      playBtn->setLookAndFeel(nullptr);
+    if (modeBtn != nullptr)      modeBtn->setLookAndFeel(nullptr);
 }
 
 void SequencerPage::timerCallback()
@@ -750,56 +1206,104 @@ void SequencerPage::paint(juce::Graphics& g)
     g.fillAll(ui::bg());
 }
 
+void SequencerPage::setLockViewMode(StepLockViewMode mode)
+{
+    lockViewMode = mode;
+    if (velLockBtn != nullptr)
+        velLockBtn->setColour(juce::TextButton::buttonColourId,
+            (mode == LOCK_VIEW_VELOCITY) ? ui::accent() : ui::panelHi());
+
+    if (probLockBtn != nullptr)
+        probLockBtn->setColour(juce::TextButton::buttonColourId,
+            (mode == LOCK_VIEW_PROBABILITY) ? juce::Colour(0xFF00BFA5) : ui::panelHi());
+
+    if (microLockBtn != nullptr)
+        microLockBtn->setColour(juce::TextButton::buttonColourId,
+            (mode == LOCK_VIEW_MICROTIMING) ? juce::Colour(0xFFA826E8) : ui::panelHi());
+
+    if (pitchLockBtn != nullptr)
+        pitchLockBtn->setColour(juce::TextButton::buttonColourId,
+            (mode == LOCK_VIEW_PITCH) ? juce::Colour(0xFF2979FF) : ui::panelHi());
+
+    if (decayLockBtn != nullptr)
+        decayLockBtn->setColour(juce::TextButton::buttonColourId,
+            (mode == LOCK_VIEW_DECAY) ? juce::Colour(0xFF00E676) : ui::panelHi());
+
+    if (driveLockBtn != nullptr)
+        driveLockBtn->setColour(juce::TextButton::buttonColourId,
+            (mode == LOCK_VIEW_DRIVE) ? juce::Colour(0xFFFF3D00) : ui::panelHi());
+
+    if (levelLockBtn != nullptr)
+        levelLockBtn->setColour(juce::TextButton::buttonColourId,
+            (mode == LOCK_VIEW_LEVEL) ? juce::Colour(0xFFFFD600) : ui::panelHi());
+
+    if (panLockBtn != nullptr)
+        panLockBtn->setColour(juce::TextButton::buttonColourId,
+            (mode == LOCK_VIEW_PAN) ? juce::Colour(0xFFE040FB) : ui::panelHi());
+
+    repaint();
+}
+
 void SequencerPage::resized()
 {
     const int w = getWidth();
     const int h = getHeight();
 
-    // Row 1 (y = 6, height = 26): Transport, Mode, Groove, Presets, Pages
-    int r1x = 8;
-    modeBtn->setBounds(r1x, 6, 110, 26);   r1x += 116;
-    playBtn->setBounds(r1x, 6, 52, 26);     r1x += 58;
-    tempoLabel->setBounds(r1x, 6, 68, 26);  r1x += 74;
-    swingLabel->setBounds(r1x, 6, 40, 26);  r1x += 44;
-    swingSlider->setBounds(r1x, 6, 68, 26); r1x += 76;
-    presetCombo->setBounds(r1x, 6, 148, 26);
+    // Row 1 (y = 5, height = 24): Transport, Mode, Groove, Presets, Lock Modes, Pages
+    int r1x = 6;
+    modeBtn->setBounds(r1x, 5, 84, 24);    r1x += 88;
+    playBtn->setBounds(r1x, 5, 44, 24);    r1x += 48;
+    swingSlider->setBounds(r1x, 5, 50, 24); r1x += 54;
+    presetCombo->setBounds(r1x, 5, 108, 24); r1x += 114;
+
+    if (lockModeLabel != nullptr) { lockModeLabel->setBounds(r1x, 5, 36, 24); r1x += 38; }
+    if (velLockBtn != nullptr)    { velLockBtn->setBounds(r1x, 5, 28, 24);    r1x += 30; }
+    if (probLockBtn != nullptr)   { probLockBtn->setBounds(r1x, 5, 34, 24);   r1x += 36; }
+    if (microLockBtn != nullptr)  { microLockBtn->setBounds(r1x, 5, 34, 24);  r1x += 36; }
+    if (pitchLockBtn != nullptr)  { pitchLockBtn->setBounds(r1x, 5, 38, 24);  r1x += 40; }
+    if (decayLockBtn != nullptr)  { decayLockBtn->setBounds(r1x, 5, 40, 24);  r1x += 42; }
+    if (driveLockBtn != nullptr)  { driveLockBtn->setBounds(r1x, 5, 38, 24);  r1x += 40; }
+    if (levelLockBtn != nullptr)  { levelLockBtn->setBounds(r1x, 5, 38, 24);  r1x += 40; }
+    if (panLockBtn != nullptr)    { panLockBtn->setBounds(r1x, 5, 30, 24);    r1x += 32; }
 
     // Page Buttons on Row 1 (Right-aligned)
-    int px = w - 8 - 4 * 44;
+    const int pageBtnW = 34;
+    int px = w - 6 - 4 * (pageBtnW + 3);
     for (int p = 0; p < 4; ++p)
     {
-        pageBtns[(size_t) p]->setBounds(px, 6, 40, 26);
-        px += 44;
+        pageBtns[(size_t) p]->setBounds(px, 5, pageBtnW, 24);
+        px += pageBtnW + 3;
     }
 
-    // Row 2 (y = 36, height = 26): Pattern Selection & Action Buttons
-    int r2x = 8;
+    // Row 2 (y = 33, height = 24): Pattern Selection & Action Buttons
+    int r2x = 6;
     if (patternBarLabel != nullptr)
     {
-        patternBarLabel->setBounds(r2x, 36, 68, 26);
-        r2x += 72;
+        patternBarLabel->setBounds(r2x, 33, 34, 24);
+        r2x += 36;
     }
 
-    // 16 large, readable pattern buttons (each 30px wide)
+    // 16 hardware-style pattern buttons (each 24px wide)
+    const int patBtnW = 24;
     for (int p = 0; p < 16; ++p)
     {
-        patternBtns[(size_t) p]->setBounds(r2x, 36, 30, 26);
-        r2x += 32;
+        patternBtns[(size_t) p]->setBounds(r2x, 33, patBtnW, 24);
+        r2x += patBtnW + 2;
     }
-    r2x += 8;
+    r2x += 6;
 
-    copyBtn->setBounds(r2x, 36, 46, 26);  r2x += 50;
-    pasteBtn->setBounds(r2x, 36, 46, 26); r2x += 50;
-    clearBtn->setBounds(r2x, 36, 54, 26); r2x += 58;
-    randBtn->setBounds(r2x, 36, 48, 26);
+    copyBtn->setBounds(r2x, 33, 38, 24);  r2x += 41;
+    pasteBtn->setBounds(r2x, 33, 40, 24); r2x += 43;
+    clearBtn->setBounds(r2x, 33, 42, 24); r2x += 45;
+    randBtn->setBounds(r2x, 33, 38, 24);
 
-    // Pattern Mode container (starting below row 2 at y = 68)
-    const int topMargin = 68;
-    patternContainer->setBounds(8, topMargin, w - 16, h - topMargin - 8);
-    const int laneH = (h - topMargin - 12) / 8;
+    // Pattern Mode container (starting below row 2 at y = 62)
+    const int topMargin = 62;
+    patternContainer->setBounds(6, topMargin, w - 12, h - topMargin - 6);
+    const int laneH = (h - topMargin - 10) / 8;
     for (int t = 0; t < 8; ++t)
         if (trackLanes[(size_t) t] != nullptr)
-            trackLanes[(size_t) t]->setBounds(0, t * laneH, w - 16, laneH);
+            trackLanes[(size_t) t]->setBounds(0, t * laneH, w - 12, laneH);
 
     // Song Mode
     songContainer->setBounds(8, topMargin, w - 16, h - topMargin - 8);
@@ -823,7 +1327,7 @@ void SequencerPage::resized()
 
     // Popover overlay center
     if (pLockPopover->isVisible())
-        pLockPopover->setBounds((w - 380) / 2, (h - 320) / 2, 380, 320);
+        pLockPopover->setBounds((w - 380) / 2, (h - 430) / 2, 380, 430);
 }
 
 } // namespace f64

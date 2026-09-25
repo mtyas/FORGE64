@@ -123,6 +123,75 @@ void StepSequencer::setStepVelocity(int trackIdx, int stepIdx, float vel)
         currentPattern().tracks[(size_t) trackIdx].steps[(size_t) stepIdx].velocity = clampRange(vel, 0.05f, 1.0f);
 }
 
+void StepSequencer::setStepProbability(int trackIdx, int stepIdx, float prob)
+{
+    std::lock_guard<std::mutex> lock(seqMutex);
+    if (trackIdx >= 0 && trackIdx < 8 && stepIdx >= 0 && stepIdx < 64)
+        currentPattern().tracks[(size_t) trackIdx].steps[(size_t) stepIdx].probability = clampRange(prob, 0.0f, 1.0f);
+}
+
+void StepSequencer::setStepMicrotiming(int trackIdx, int stepIdx, float micro)
+{
+    std::lock_guard<std::mutex> lock(seqMutex);
+    if (trackIdx >= 0 && trackIdx < 8 && stepIdx >= 0 && stepIdx < 64)
+        currentPattern().tracks[(size_t) trackIdx].steps[(size_t) stepIdx].microtiming = clampRange(micro, -0.5f, 0.5f);
+}
+
+void StepSequencer::setStepPitch(int trackIdx, int stepIdx, float pitchSemi)
+{
+    std::lock_guard<std::mutex> lock(seqMutex);
+    if (trackIdx >= 0 && trackIdx < 8 && stepIdx >= 0 && stepIdx < 64)
+    {
+        auto& s = currentPattern().tracks[(size_t) trackIdx].steps[(size_t) stepIdx];
+        s.pLockPitch = clampRange(pitchSemi, -24.0f, 24.0f);
+        s.hasLocks = true;
+    }
+}
+
+void StepSequencer::setStepDecay(int trackIdx, int stepIdx, float decayFactor)
+{
+    std::lock_guard<std::mutex> lock(seqMutex);
+    if (trackIdx >= 0 && trackIdx < 8 && stepIdx >= 0 && stepIdx < 64)
+    {
+        auto& s = currentPattern().tracks[(size_t) trackIdx].steps[(size_t) stepIdx];
+        s.pLockDecay = clampRange(decayFactor, 0.05f, 5.0f);
+        s.hasLocks = true;
+    }
+}
+
+void StepSequencer::setStepDrive(int trackIdx, int stepIdx, float driveAmt)
+{
+    std::lock_guard<std::mutex> lock(seqMutex);
+    if (trackIdx >= 0 && trackIdx < 8 && stepIdx >= 0 && stepIdx < 64)
+    {
+        auto& s = currentPattern().tracks[(size_t) trackIdx].steps[(size_t) stepIdx];
+        s.pLockDrive = clampRange(driveAmt, 0.0f, 1.0f);
+        s.hasLocks = true;
+    }
+}
+
+void StepSequencer::setStepLevel(int trackIdx, int stepIdx, float levelAmt)
+{
+    std::lock_guard<std::mutex> lock(seqMutex);
+    if (trackIdx >= 0 && trackIdx < 8 && stepIdx >= 0 && stepIdx < 64)
+    {
+        auto& s = currentPattern().tracks[(size_t) trackIdx].steps[(size_t) stepIdx];
+        s.pLockLevel = clampRange(levelAmt, 0.0f, 1.5f);
+        s.hasLocks = true;
+    }
+}
+
+void StepSequencer::setStepPan(int trackIdx, int stepIdx, float panAmt)
+{
+    std::lock_guard<std::mutex> lock(seqMutex);
+    if (trackIdx >= 0 && trackIdx < 8 && stepIdx >= 0 && stepIdx < 64)
+    {
+        auto& s = currentPattern().tracks[(size_t) trackIdx].steps[(size_t) stepIdx];
+        s.pLockPan = clampRange(panAmt, -1.0f, 1.0f);
+        s.hasLocks = true;
+    }
+}
+
 void StepSequencer::setStepData(int trackIdx, int stepIdx, const StepData& data)
 {
     std::lock_guard<std::mutex> lock(seqMutex);
@@ -209,6 +278,27 @@ void StepSequencer::randomizeCurrentTrack()
     }
 }
 
+void StepSequencer::randomizeAllTracks()
+{
+    std::lock_guard<std::mutex> lock(seqMutex);
+    for (int t = 0; t < 8; ++t)
+    {
+        auto& trk = currentPattern().tracks[(size_t) t];
+        const int len = trk.stepCount;
+        for (int i = 0; i < len; ++i)
+        {
+            trk.steps[(size_t) i].active = (rng.nextFloat() > 0.65f);
+            trk.steps[(size_t) i].velocity = 0.5f + rng.nextFloat() * 0.45f;
+            trk.steps[(size_t) i].hasLocks = (rng.nextFloat() > 0.8f);
+            if (trk.steps[(size_t) i].hasLocks)
+            {
+                trk.steps[(size_t) i].pLockPitch = (float) rng.nextInt({ -7, 8 });
+                trk.steps[(size_t) i].pLockDecay = 0.5f + rng.nextFloat() * 1.5f;
+            }
+        }
+    }
+}
+
 void StepSequencer::process(int numSamples, double bpm, bool hostPlaying, std::vector<TriggerEvent>& outEvents)
 {
     isHostPlaying.store(hostPlaying);
@@ -280,72 +370,56 @@ void StepSequencer::process(int numSamples, double bpm, bool hostPlaying, std::v
                 trackStepIndices[(size_t) tIdx].store(stepIdx);
 
                 const auto& step = trk.steps[(size_t) stepIdx];
-                if (step.active)
+
+                auto scheduleStepTriggers = [&](const StepData& s, int defaultPad, int startOffset)
                 {
-                    // Check probability
-                    if (step.probability < 0.999f && rng.nextFloat() > step.probability)
-                        continue;
-
-                    const int padToTrigger = (step.padOverride >= 0 && step.padOverride < kNumPads)
-                                                ? step.padOverride : trk.defaultPad;
-
-                    // Swing delay applied to odd 16th steps (1, 3, 5, ...)
-                    int swingOffset = 0;
-                    if ((stepIdx % 2 != 0) && trk.swing > 0.001f)
-                    {
-                        swingOffset = (int) (trk.swing * samplesPer16th * 0.5);
-                    }
-
-                    // Microtiming & swing combined offset
-                    const int baseOffset = blockPos + (int) (step.microtiming * samplesPer16th) + swingOffset;
-
-                    // Ratchet repetitions
-                    const int rCount = juce::jlimit(1, 4, step.ratchet);
+                    const int padToTrigger = (s.padOverride >= 0 && s.padOverride < kNumPads) ? s.padOverride : defaultPad;
+                    const int rCount = juce::jlimit(1, 4, s.ratchet);
                     const int subStepLen = (int) (samplesPer16th / (double) rCount);
 
                     for (int r = 0; r < rCount; ++r)
                     {
-                        const int rTargetPos = baseOffset + r * subStepLen;
+                        const int rTargetPos = startOffset + r * subStepLen;
                         TriggerEvent ev;
                         ev.pad = padToTrigger;
-                        ev.vel = clampRange(step.velocity, 0.05f, 1.0f);
-                        ev.hasLocks = step.hasLocks;
-                        if (step.hasLocks)
+                        ev.vel = clampRange(s.velocity, 0.05f, 1.0f);
+                        ev.hasLocks = s.hasLocks;
+                        if (s.hasLocks)
                         {
-                            ev.pitch = step.pLockPitch;
-                            ev.decay = step.pLockDecay;
-                            ev.tone  = step.pLockTone;
-                            ev.drive = step.pLockDrive;
-                            ev.sendA = step.pLockSendA;
-                            ev.sendB = step.pLockSendB;
-                            ev.level = step.pLockLevel;
-                            ev.pan   = step.pLockPan;
-                            ev.p2    = step.pLockP2;
-                            ev.p3    = step.pLockP3;
-                            ev.p4    = step.pLockP4;
-                            ev.p5    = step.pLockP5;
-                            ev.modAmt = step.pLockModAmt;
-                            ev.vcfType = step.pLockVcfType;
-                            ev.vcfCut  = step.pLockVcfCut;
-                            ev.vcfRes  = step.pLockVcfRes;
-                            ev.vcfEnv  = step.pLockVcfEnv;
-                            ev.eqLF    = step.pLockEqLF;
-                            ev.eqLG    = step.pLockEqLG;
-                            ev.eqMF    = step.pLockEqMF;
-                            ev.eqMG    = step.pLockEqMG;
-                            ev.eqHF    = step.pLockEqHF;
-                            ev.eqHG    = step.pLockEqHG;
-                            ev.cThr    = step.pLockCThr;
-                            ev.cRat    = step.pLockCRat;
-                            ev.cAtk    = step.pLockCAtk;
-                            ev.cRel    = step.pLockCRel;
-                            ev.ifxType = step.pLockIfxType;
-                            ev.ifx1    = step.pLockIfx1;
-                            ev.ifx2    = step.pLockIfx2;
-                            ev.ifx3    = step.pLockIfx3;
-                            ev.ifx4    = step.pLockIfx4;
-                            ev.sendC   = step.pLockSendC;
-                            ev.sendD   = step.pLockSendD;
+                            ev.pitch = s.pLockPitch;
+                            ev.decay = s.pLockDecay;
+                            ev.tone  = s.pLockTone;
+                            ev.drive = s.pLockDrive;
+                            ev.sendA = s.pLockSendA;
+                            ev.sendB = s.pLockSendB;
+                            ev.level = s.pLockLevel;
+                            ev.pan   = s.pLockPan;
+                            ev.p2    = s.pLockP2;
+                            ev.p3    = s.pLockP3;
+                            ev.p4    = s.pLockP4;
+                            ev.p5    = s.pLockP5;
+                            ev.modAmt = s.pLockModAmt;
+                            ev.vcfType = s.pLockVcfType;
+                            ev.vcfCut  = s.pLockVcfCut;
+                            ev.vcfRes  = s.pLockVcfRes;
+                            ev.vcfEnv  = s.pLockVcfEnv;
+                            ev.eqLF    = s.pLockEqLF;
+                            ev.eqLG    = s.pLockEqLG;
+                            ev.eqMF    = s.pLockEqMF;
+                            ev.eqMG    = s.pLockEqMG;
+                            ev.eqHF    = s.pLockEqHF;
+                            ev.eqHG    = s.pLockEqHG;
+                            ev.cThr    = s.pLockCThr;
+                            ev.cRat    = s.pLockCRat;
+                            ev.cAtk    = s.pLockCAtk;
+                            ev.cRel    = s.pLockCRel;
+                            ev.ifxType = s.pLockIfxType;
+                            ev.ifx1    = s.pLockIfx1;
+                            ev.ifx2    = s.pLockIfx2;
+                            ev.ifx3    = s.pLockIfx3;
+                            ev.ifx4    = s.pLockIfx4;
+                            ev.sendC   = s.pLockSendC;
+                            ev.sendD   = s.pLockSendD;
                         }
 
                         if (rTargetPos < numSamples)
@@ -360,6 +434,34 @@ void StepSequencer::process(int numSamples, double bpm, bool hostPlaying, std::v
                             pt.event = ev;
                             pendingTriggers.push_back(pt);
                         }
+                    }
+                };
+
+                // 1. Current step trigger (for steps on grid or with positive microtiming)
+                // If microtiming < -0.001f, this step was already triggered early during the previous 16th interval.
+                const bool shouldTriggerNow = step.active && (step.microtiming >= -0.001f || global16thCounter == 0);
+                if (shouldTriggerNow)
+                {
+                    if (step.probability >= 0.999f || rng.nextFloat() <= step.probability)
+                    {
+                        int swingOffset = ((stepIdx % 2 != 0) && trk.swing > 0.001f)
+                                          ? (int) (trk.swing * samplesPer16th * 0.5) : 0;
+                        const int mOffset = (step.microtiming >= -0.001f) ? (int) (step.microtiming * samplesPer16th) : 0;
+                        scheduleStepTriggers(step, trk.defaultPad, blockPos + mOffset + swingOffset);
+                    }
+                }
+
+                // 2. Look-ahead for next step with negative microtiming (rushed / early hit)
+                const int nextStepIdx = (int) ((global16thCounter + 1) % (int64_t) len);
+                const auto& nextStep = trk.steps[(size_t) nextStepIdx];
+                if (nextStep.active && nextStep.microtiming < -0.001f)
+                {
+                    if (nextStep.probability >= 0.999f || rng.nextFloat() <= nextStep.probability)
+                    {
+                        int nextSwingOffset = ((nextStepIdx % 2 != 0) && trk.swing > 0.001f)
+                                              ? (int) (trk.swing * samplesPer16th * 0.5) : 0;
+                        const int earlyOffset = blockPos + (int) ((1.0f + nextStep.microtiming) * samplesPer16th) + nextSwingOffset;
+                        scheduleStepTriggers(nextStep, trk.defaultPad, earlyOffset);
                     }
                 }
             }
@@ -384,6 +486,13 @@ void StepSequencer::process(int numSamples, double bpm, bool hostPlaying, std::v
                 }
             }
         }
+    }
+
+    if (outEvents.size() > 1)
+    {
+        std::sort(outEvents.begin(), outEvents.end(), [](const TriggerEvent& a, const TriggerEvent& b) {
+            return a.pos < b.pos;
+        });
     }
 }
 
@@ -418,12 +527,9 @@ void StepSequencer::initDefaultPatterns()
         }
     }
 
-    // Default Pattern 1: Classic 4-on-the-Floor with groove
-    loadFactoryPreset(0);
-
-    // Default Song Sequence: Pattern 1 x 2, Pattern 2 x 2
-    songSequence.push_back({ 0, 2 });
-    songSequence.push_back({ 1, 2 });
+    // Sequencer initializes completely clean and empty by default
+    clearCurrentPattern();
+    songSequence.clear();
 }
 
 void StepSequencer::loadFactoryPreset(int presetIdx)

@@ -121,6 +121,67 @@ private:
     IconType type;
 };
 
+class PageNavLookAndFeel : public juce::LookAndFeel_V4
+{
+public:
+    void drawButtonBackground(juce::Graphics& g, juce::Button& button,
+                              const juce::Colour& /*backgroundColour*/,
+                              bool isMouseOverButton, bool isButtonDown) override
+    {
+        auto bounds = button.getLocalBounds().toFloat().reduced(0.5f);
+        const bool isOn = button.getToggleState();
+
+        if (isOn)
+        {
+            // Active page: molten forge plate gradient
+            juce::ColourGradient grad(juce::Colour(0xFF752B08), bounds.getX(), bounds.getY(),
+                                      juce::Colour(0xFF381203), bounds.getX(), bounds.getBottom(), false);
+            g.setGradientFill(grad);
+            g.fillRoundedRectangle(bounds, 4.f);
+
+            // Glowing ember rim
+            g.setColour(ui::accent().withAlpha(0.9f));
+            g.drawRoundedRectangle(bounds, 4.f, 1.4f);
+
+            // White-hot accent line at bottom
+            auto bottomLine = bounds.removeFromBottom(3.0f);
+            g.setColour(ui::accentHot());
+            g.fillRoundedRectangle(bottomLine.reduced(3.f, 0.f), 1.5f);
+        }
+        else
+        {
+            // Inactive page: cast iron plate with warm hover
+            juce::Colour bg = isButtonDown ? ui::panelHover().brighter(0.12f)
+                            : (isMouseOverButton ? ui::panelHover() : ui::panelHi());
+            g.setColour(bg);
+            g.fillRoundedRectangle(bounds, 4.f);
+
+            g.setColour(isMouseOverButton ? ui::line().brighter(0.25f) : ui::line());
+            g.drawRoundedRectangle(bounds, 4.f, 1.0f);
+
+            if (isMouseOverButton)
+            {
+                g.setColour(ui::accent().withAlpha(0.45f));
+                g.drawHorizontalLine((int) bounds.getY() + 1, bounds.getX() + 3.f, bounds.getRight() - 3.f);
+            }
+        }
+    }
+
+    void drawButtonText(juce::Graphics& g, juce::TextButton& button,
+                        bool isMouseOverButton, bool /*isButtonDown*/) override
+    {
+        const bool isOn = button.getToggleState();
+        g.setFont(uiFont(11.5f, true));
+        juce::Colour textCol = isOn ? juce::Colour(0xFFFFF7F0)
+                             : (isMouseOverButton ? ui::accentHot() : ui::txt());
+        g.setColour(textCol);
+        auto r = button.getLocalBounds();
+        if (isOn)
+            r = r.withTrimmedBottom(2);
+        g.drawText(button.getButtonText(), r, juce::Justification::centred, false);
+    }
+};
+
 Forge64Editor::Forge64Editor(Forge64Processor& p)
     : AudioProcessorEditor(p), processor(p)
 {
@@ -148,10 +209,13 @@ Forge64Editor::Forge64Editor(Forge64Processor& p)
         bankBtns[(size_t) i] = std::move(b);
     }
 
+    pageNavLnF = std::make_unique<PageNavLookAndFeel>();
+
     auto makeNav = [&](std::unique_ptr<juce::TextButton>& btn, const char* name, ActivePage pg)
     {
         btn = std::make_unique<juce::TextButton>(name);
         ui::styleButton(*btn);
+        btn->setLookAndFeel(pageNavLnF.get());
         btn->setClickingTogglesState(true);
         btn->onClick = [this, pg] { setPage(pg); };
         addAndMakeVisible(btn.get());
@@ -238,15 +302,23 @@ Forge64Editor::Forge64Editor(Forge64Processor& p)
                                           &processor);
     addAndMakeVisible(modPanel.get());
 
-    setSize(1024, 740);
+    setSize(juce::jlimit(980, 2560, processor.lastUIWidth),
+            juce::jlimit(640, 1600, processor.lastUIHeight));
     setBank(0);
     setPage(Page_Grid);
     startTimerHz(30);
+    isInitialized = true;
 }
 
 Forge64Editor::~Forge64Editor()
 {
     stopTimer();
+    if (gridNavBtn)    gridNavBtn->setLookAndFeel(nullptr);
+    if (editNavBtn)    editNavBtn->setLookAndFeel(nullptr);
+    if (mixerNavBtn)   mixerNavBtn->setLookAndFeel(nullptr);
+    if (seqNavBtn)     seqNavBtn->setLookAndFeel(nullptr);
+    if (performNavBtn) performNavBtn->setLookAndFeel(nullptr);
+
     sequencerDrawer.reset();
     performPage.reset();
     seqPage.reset();
@@ -273,12 +345,21 @@ void Forge64Editor::paint(juce::Graphics& g)
     g.drawHorizontalLine(0, 0.f, (float) getWidth());
 
     // Vertical divider separating page navigation tabs from utility tool buttons
-    if (navDividerX > 0.f)
+    if (toolDividerLeftX > 0.f)
     {
         g.setColour(juce::Colour(0xFF0A0706));
-        g.drawVerticalLine((int) navDividerX, 12.f, 42.f);
+        g.drawVerticalLine((int) toolDividerLeftX, 12.f, 42.f);
         g.setColour(ui::line().brighter(0.2f));
-        g.drawVerticalLine((int) navDividerX + 1, 12.f, 42.f);
+        g.drawVerticalLine((int) toolDividerLeftX + 1, 12.f, 42.f);
+    }
+
+    // Vertical divider separating utility tool buttons from preset buttons
+    if (toolDividerRightX > 0.f)
+    {
+        g.setColour(juce::Colour(0xFF0A0706));
+        g.drawVerticalLine((int) toolDividerRightX, 12.f, 42.f);
+        g.setColour(ui::line().brighter(0.2f));
+        g.drawVerticalLine((int) toolDividerRightX + 1, 12.f, 42.f);
     }
 
     // Seam line separating top bar: Smoldering molten divider
@@ -293,31 +374,54 @@ void Forge64Editor::resized()
     const int w = getWidth();
     const int h = getHeight();
 
+    if (isInitialized)
+    {
+        processor.lastUIWidth = w;
+        processor.lastUIHeight = h;
+    }
+
     if (logo) logo->setBounds(12, 6, 120, 26);
     if (tagline) tagline->setBounds(14, 33, 130, 14);
 
     for (int i = 0; i < kNumBanks; ++i)
         if (bankBtns[(size_t) i])
-            bankBtns[(size_t) i]->setBounds(138 + i * 29, 12, 26, 30);
+            bankBtns[(size_t) i]->setBounds(136 + i * 29, 11, 26, 32);
 
-    int nx = 258;
-    if (gridNavBtn)    { gridNavBtn->setBounds(nx, 12, 60, 30); nx += 64; }
-    if (editNavBtn)    { editNavBtn->setBounds(nx, 12, 60, 30); nx += 64; }
-    if (mixerNavBtn)   { mixerNavBtn->setBounds(nx, 12, 62, 30); nx += 66; }
-    if (seqNavBtn)     { seqNavBtn->setBounds(nx, 12, 70, 30); nx += 74; }
-    if (performNavBtn) { performNavBtn->setBounds(nx, 12, 66, 30); nx += 70; }
+    // Right-hand header controls (Master knob and Kit/Bank/Pad preset menus)
+    if (masterKnob)  masterKnob->setBounds(w - 78, 4, 70, 46);
+    if (padMenuBtn)  padMenuBtn->setBounds(w - 140, 11, 56, 32);
+    if (bankMenuBtn) bankMenuBtn->setBounds(w - 202, 11, 58, 32);
+    if (kitBtn)      kitBtn->setBounds(w - 262, 11, 56, 32);
 
-    navDividerX = (float) nx + 4.0f;
-    nx += 10;
+    toolDividerRightX = (float) (w - 270);
 
-    if (undoBtn)       { undoBtn->setBounds(nx, 12, 26, 30); nx += 30; }
-    if (redoBtn)       { redoBtn->setBounds(nx, 12, 26, 30); nx += 30; }
-    if (midiLearnBtn)  { midiLearnBtn->setBounds(nx, 12, 54, 30); nx += 58; }
+    // Undo, Redo, Midi Learn icon buttons placed right before KIT
+    int rx = w - 278;
+    if (midiLearnBtn) { rx -= 64; midiLearnBtn->setBounds(rx, 11, 62, 32); rx -= 4; }
+    if (redoBtn)      { rx -= 30; redoBtn->setBounds(rx, 11, 28, 32); rx -= 2; }
+    if (undoBtn)      { rx -= 30; undoBtn->setBounds(rx, 11, 28, 32); rx -= 6; }
 
-    if (kitBtn) kitBtn->setBounds(w - 290, 12, 58, 30);
-    if (bankMenuBtn) bankMenuBtn->setBounds(w - 228, 12, 62, 30);
-    if (padMenuBtn) padMenuBtn->setBounds(w - 162, 12, 58, 30);
-    if (masterKnob) masterKnob->setBounds(w - 82, 4, 74, 46);
+    toolDividerLeftX = (float) (rx + 2);
+
+    // Main Page navigation tabs: prominent, bold, fully readable
+    const int availableForNav = (int) toolDividerLeftX - 12 - 256;
+    int gW = 88, eW = 88, mW = 84, sW = 106, pW = 88;
+    if (availableForNav < 470 && availableForNav > 200)
+    {
+        const float scale = juce::jlimit(0.68f, 1.0f, (float) availableForNav / 470.f);
+        gW = (int) (88 * scale);
+        eW = (int) (88 * scale);
+        mW = (int) (84 * scale);
+        sW = (int) (106 * scale);
+        pW = (int) (88 * scale);
+    }
+
+    int nx = 256;
+    if (gridNavBtn)    { gridNavBtn->setBounds(nx, 11, gW, 32); nx += gW + 4; }
+    if (editNavBtn)    { editNavBtn->setBounds(nx, 11, eW, 32); nx += eW + 4; }
+    if (mixerNavBtn)   { mixerNavBtn->setBounds(nx, 11, mW, 32); nx += mW + 4; }
+    if (seqNavBtn)     { seqNavBtn->setBounds(nx, 11, sW, 32); nx += sW + 4; }
+    if (performNavBtn) { performNavBtn->setBounds(nx, 11, pW, 32); nx += pW + 4; }
 
     if (modPanel) modPanel->setBounds(w - 350, 54, 350, h - 54);
     layoutCenter();
