@@ -52,96 +52,20 @@ juce::AudioProcessorValueTreeState::ParameterLayout Forge64Processor::makeParams
         const juce::String n = "P" + juce::String(p + 1).paddedLeft('0', 2) + " ";
         auto id = [p](const char* base) { return padParamId(p, base); };
 
-        struct PadInitialDefaults
-        {
-            float tune, dec, drv, p1, p2, p3, p4, p5;
-            int choke;
-        };
-
-        static const PadInitialDefaults kPadDefaults[kNumPads] = {
-            // Bank A: Core Electronic & Acoustic (0..15)
-            {   0.f, 0.65f, 0.12f, 0.60f, 0.40f, 0.50f, 0.40f, 0.30f, 0 }, // 00: 808 Sub Kick
-            {   0.f, 0.28f, 0.08f, 0.65f, 0.50f, 0.45f, 0.55f, 0.50f, 0 }, // 01: 808 Snare
-            {   0.f, 0.08f, 0.05f, 0.50f, 0.60f, 0.45f, 0.50f, 0.60f, 1 }, // 02: Closed Hat
-            {   0.f, 0.55f, 0.06f, 0.60f, 0.65f, 0.55f, 0.50f, 0.45f, 1 }, // 03: Open Hat
-            {   0.f, 0.35f, 0.06f, 0.55f, 0.50f, 0.50f, 0.50f, 0.60f, 0 }, // 04: 808 Clap
-            {  -7.f, 0.55f, 0.08f, 0.55f, 0.45f, 0.50f, 0.50f, 0.45f, 0 }, // 05: Acoustic Low Tom
-            {   0.f, 0.48f, 0.08f, 0.55f, 0.45f, 0.50f, 0.50f, 0.45f, 0 }, // 06: Acoustic Mid Tom
-            {  +7.f, 0.42f, 0.08f, 0.55f, 0.45f, 0.50f, 0.50f, 0.45f, 0 }, // 07: Acoustic Hi Tom
-            {  +2.f, 0.12f, 0.08f, 0.65f, 0.60f, 0.50f, 0.50f, 0.55f, 0 }, // 08: Maple Rimshot
-            {   0.f, 0.30f, 0.08f, 0.55f, 0.50f, 0.50f, 0.50f, 0.50f, 0 }, // 09: 808 Cowbell
-            {  +3.f, 0.12f, 0.04f, 0.65f, 0.45f, 0.55f, 0.50f, 0.50f, 0 }, // 10: Sizzle Shaker
-            {   0.f, 1.20f, 0.08f, 0.65f, 0.60f, 0.50f, 0.30f, 0.55f, 0 }, // 11: Modal Crash
-            {   0.f, 0.85f, 0.05f, 0.75f, 0.55f, 0.60f, 0.50f, 0.45f, 0 }, // 12: Ride Bell
-            {   0.f, 0.35f, 0.05f, 0.55f, 0.50f, 0.60f, 0.50f, 0.50f, 0 }, // 13: Latin Conga
-            {  +4.f, 0.22f, 0.15f, 0.80f, 0.65f, 0.40f, 0.50f, 0.45f, 0 }, // 14: Laser Zap
-            {  -3.f, 0.42f, 0.14f, 0.65f, 0.50f, 0.50f, 0.50f, 0.45f, 0 }, // 15: Rock Kick
-
-            // Bank B: Heavy / Electro / Industrial Club (16..31)
-            {   0.f, 0.36f, 0.15f, 0.65f, 0.65f, 0.50f, 0.50f, 0.45f, 0 }, // 16: 909 Punch Kick
-            {   0.f, 0.25f, 0.10f, 0.65f, 0.60f, 0.50f, 0.50f, 0.55f, 0 }, // 17: 909 Dance Snare
-            {  +3.f, 0.10f, 0.05f, 0.65f, 0.55f, 0.60f, 0.45f, 0.55f, 2 }, // 18: Linear FM Hat
-            {  +3.f, 0.45f, 0.06f, 0.85f, 0.75f, 0.70f, 0.40f, 0.80f, 2 }, // 19: FM Cyber Bell
-            {   0.f, 0.45f, 0.08f, 0.60f, 0.70f, 0.55f, 0.50f, 0.55f, 0 }, // 20: Stereo Room Clap
-            {  -6.f, 0.45f, 0.12f, 0.75f, 0.65f, 0.55f, 0.50f, 0.45f, 0 }, // 21: Simmons Low Tom
-            {   0.f, 0.38f, 0.12f, 0.75f, 0.65f, 0.55f, 0.50f, 0.45f, 0 }, // 22: Simmons Mid Tom
-            {  +6.f, 0.32f, 0.12f, 0.75f, 0.65f, 0.55f, 0.50f, 0.45f, 0 }, // 23: Simmons Hi Tom
-            {  +1.f, 0.48f, 0.35f, 0.85f, 0.65f, 0.60f, 0.60f, 0.50f, 0 }, // 24: Hardstyle Kick
-            {   0.f, 0.28f, 0.25f, 0.70f, 0.60f, 0.65f, 0.55f, 0.55f, 0 }, // 25: Trash Gated Clap
-            {   0.f, 0.32f, 0.12f, 0.65f, 0.55f, 0.50f, 0.60f, 0.45f, 0 }, // 26: Rock Noise Snare
-            {   0.f, 0.38f, 0.18f, 0.75f, 0.70f, 0.60f, 0.55f, 0.50f, 0 }, // 27: Trash China Splash
-            {   0.f, 0.35f, 0.22f, 0.70f, 0.50f, 0.50f, 0.40f, 0.30f, 0 }, // 28: Electro 7-Oct Kick
-            {   0.f, 0.35f, 0.20f, 0.60f, 0.55f, 0.65f, 0.55f, 0.45f, 0 }, // 29: Cross-Mod Noise
-            { -12.f, 0.42f, 0.25f, 0.45f, 0.80f, 0.70f, 0.35f, 0.60f, 0 }, // 30: 303 Acid Stab
-            {  -3.f, 0.60f, 0.12f, 0.50f, 0.50f, 0.60f, 0.40f, 0.40f, 0 }, // 31: Deep Sub FM Kick
-
-            // Bank C: World & Acoustic Percussion (32..47)
-            {  -4.f, 0.65f, 0.10f, 0.75f, 0.60f, 0.50f, 0.45f, 0.40f, 0 }, // 32: Floor Tom Sub
-            {   0.f, 0.10f, 0.06f, 0.60f, 0.55f, 0.50f, 0.50f, 0.50f, 0 }, // 33: Studio Wood Rim
-            {  +5.f, 0.38f, 0.04f, 0.65f, 0.60f, 0.50f, 0.50f, 0.45f, 0 }, // 34: Agogo High Bell
-            {  -2.f, 0.48f, 0.04f, 0.35f, 0.55f, 0.50f, 0.50f, 0.45f, 0 }, // 35: Agogo Low Bell
-            {  +4.f, 0.16f, 0.10f, 0.85f, 0.70f, 0.40f, 0.65f, 0.60f, 0 }, // 36: Conga Slap
-            {  -5.f, 0.45f, 0.04f, 0.30f, 0.40f, 0.80f, 0.35f, 0.40f, 0 }, // 37: Conga Low Mute
-            {  +7.f, 0.08f, 0.08f, 0.80f, 0.70f, 0.60f, 0.60f, 0.65f, 0 }, // 38: Hardwood Block Hi
-            {  -3.f, 0.14f, 0.06f, 0.45f, 0.50f, 0.75f, 0.45f, 0.45f, 0 }, // 39: Hardwood Block Lo
-            {  +5.f, 0.20f, 0.10f, 0.75f, 0.65f, 0.65f, 0.65f, 0.55f, 0 }, // 40: High Disco Cowbell
-            {  -4.f, 0.38f, 0.05f, 0.40f, 0.45f, 0.35f, 0.40f, 0.40f, 0 }, // 41: Low Latin Cha-Cha
-            {  +4.f, 0.50f, 0.03f, 0.95f, 0.30f, 0.80f, 0.40f, 0.35f, 0 }, // 42: Pure Ride Ping
-            {  +3.f, 0.25f, 0.24f, 0.85f, 0.85f, 0.75f, 0.65f, 0.60f, 0 }, // 43: China Choke
-            {  +3.f, 0.55f, 0.12f, 0.85f, 0.80f, 0.75f, 0.60f, 0.70f, 0 }, // 44: Fast Splash Wash
-            {  +2.f, 0.09f, 0.02f, 0.70f, 0.50f, 0.60f, 0.50f, 0.45f, 0 }, // 45: Air Noise Shaker
-            {  +3.f, 0.20f, 0.16f, 0.80f, 0.70f, 0.90f, 0.70f, 0.60f, 0 }, // 46: Acoustic Snare Rim
-            {  -4.f, 0.58f, 0.15f, 0.45f, 0.35f, 0.75f, 0.70f, 0.40f, 0 }, // 47: 24-Inch Deep Bass
-
-            // Bank D: Melodic Synths, Acid, Plucks & Cyber FX (48..63)
-            {   0.f, 0.65f, 0.08f, 0.50f, 0.60f, 0.50f, 0.50f, 0.50f, 0 }, // 48: Karplus Nylon
-            {  +7.f, 0.35f, 0.12f, 0.75f, 0.80f, 0.35f, 0.75f, 0.70f, 0 }, // 49: Karplus Steel Wire
-            { -12.f, 0.85f, 0.15f, 0.35f, 0.45f, 0.85f, 0.35f, 0.30f, 0 }, // 50: Karplus Bass Pluck
-            {  -2.f, 0.30f, 0.45f, 0.30f, 0.95f, 0.85f, 0.15f, 0.75f, 0 }, // 51: 303 Screaming Reso
-            { -12.f, 0.45f, 0.20f, 0.50f, 0.65f, 0.55f, 0.80f, 0.40f, 0 }, // 52: 303 Square Bass
-            {   0.f, 0.28f, 0.35f, 0.60f, 0.85f, 0.75f, 0.20f, 0.65f, 0 }, // 53: Acid Rave Lead
-            {  +6.f, 0.12f, 0.22f, 0.90f, 0.85f, 0.30f, 0.60f, 0.70f, 0 }, // 54: Space Invader Zap
-            {  -4.f, 0.40f, 0.18f, 0.70f, 0.45f, 0.65f, 0.40f, 0.30f, 0 }, // 55: Downer Laser Drop
-            { +12.f, 0.10f, 0.12f, 0.95f, 0.90f, 0.25f, 0.65f, 0.80f, 0 }, // 56: Laser Chirp Stereo
-            {  +6.f, 0.15f, 0.32f, 0.85f, 0.75f, 0.80f, 0.65f, 0.70f, 0 }, // 57: FM Chaos Static
-            {  -6.f, 0.75f, 0.25f, 0.45f, 0.80f, 0.50f, 0.70f, 0.30f, 0 }, // 58: Metallic FM Drone
-            {  -4.f, 0.80f, 0.28f, 0.75f, 0.70f, 0.80f, 0.60f, 0.55f, 0 }, // 59: Dubstep Low Rattle
-            {  +1.f, 0.55f, 0.65f, 0.95f, 0.85f, 0.80f, 0.80f, 0.75f, 0 }, // 60: Brutal Folded Raw
-            {  +3.f, 0.22f, 0.35f, 0.90f, 0.80f, 0.30f, 0.85f, 0.70f, 0 }, // 61: Electro Air Crunch
-            {  -2.f, 0.65f, 0.12f, 0.80f, 0.95f, 0.65f, 0.40f, 0.65f, 0 }, // 62: Ambient Hall Clap
-            {  -2.f, 1.40f, 0.08f, 0.65f, 0.70f, 0.60f, 0.25f, 0.70f, 0 }  // 63: Plate Shimmer
-        };
-
-        const auto& d = kPadDefaults[juce::jlimit(0, kNumPads - 1, p)];
+        const auto d = PadGrid::getDefaultPadPreset(p);
         const float defTune = d.tune;
-        const float defDec  = d.dec;
-        const float defDrv  = d.drv;
+        const float defDec  = d.decay;
+        const float defDrv  = d.drive;
         const float defP1   = d.p1;
         const float defP2   = d.p2;
         const float defP3   = d.p3;
         const float defP4   = d.p4;
         const float defP5   = d.p5;
         const int defChoke  = d.choke;
+        const int defVcfType = d.vcfType;
+        const float defVcfCut = d.vcfCut;
+        const float defVcfRes = d.vcfRes;
+        const float defVcfEnv = d.vcfEnv;
 
         addF(id("lvl"),  n + "Level",     { 0.f, 1.f, 0.001f },              0.55f);
         addF(id("pan"),  n + "Pan",       { -1.f, 1.f, 0.001f },             0.f);
@@ -186,10 +110,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout Forge64Processor::makeParams
         addF(id("ifx3"), n + "IFX P3",    { 0.f, 1.f, 0.001f },              0.5f);
         addF(id("ifx4"), n + "IFX P4",    { 0.f, 1.f, 0.001f },              0.5f);
 
-        addI(id("vcft"), n + "VCF Type",  0, 4, 0);
-        addF(id("vcfc"), n + "VCF Cut",   { 20.f, 20000.f, 0.1f, 0.25f },   20000.f);
-        addF(id("vcfr"), n + "VCF Res",   { 0.1f, 10.f, 0.01f, 0.35f },     0.707f);
-        addF(id("vcfe"), n + "VCF Env",   { -1.f, 1.f, 0.001f },            0.0f);
+        addI(id("vcft"), n + "VCF Type",  0, 4,                              defVcfType);
+        addF(id("vcfc"), n + "VCF Cut",   { 20.f, 20000.f, 0.1f, 0.25f },   defVcfCut);
+        addF(id("vcfr"), n + "VCF Res",   { 0.1f, 10.f, 0.01f, 0.35f },     defVcfRes);
+        addF(id("vcfe"), n + "VCF Env",   { -1.f, 1.f, 0.001f },            defVcfEnv);
     }
 
     return { params.begin(), params.end() };
@@ -241,6 +165,31 @@ Forge64Processor::Forge64Processor()
     static const char* gids[GI_Count] = { "master", "revsize", "revdamp", "dlytime", "dlyfb" };
     for (int i = 0; i < GI_Count; ++i)
         globalPtrs[(size_t) i] = dynamic_cast<juce::RangedAudioParameter*>(apvts.getParameter(gids[i]));
+
+    // Initialize all 64 pads with tailored sound presets
+    for (int p = 0; p < kNumPads; ++p)
+    {
+        const auto pre = PadGrid::getDefaultPadPreset(p);
+        auto setP = [this, p](const char* base, float val)
+        {
+            if (auto* par = dynamic_cast<juce::RangedAudioParameter*>(apvts.getParameter(padParamId(p, base))))
+                par->setValueNotifyingHost(par->convertTo0to1(val));
+        };
+        setP("tune", pre.tune);
+        setP("dec",  pre.decay);
+        setP("drv",  pre.drive);
+        setP("fx1",  pre.p1);
+        setP("fx2",  pre.p2);
+        setP("fx3",  pre.p3);
+        setP("fx4",  pre.p4);
+        setP("fx5",  pre.p5);
+        setP("vcft", (float) pre.vcfType);
+        setP("vcfc", pre.vcfCut);
+        setP("vcfr", pre.vcfRes);
+        setP("vcfe", pre.vcfEnv);
+    }
+
+    sequencer.clearCurrentPattern();
 }
 
 Forge64Processor::~Forge64Processor() = default;

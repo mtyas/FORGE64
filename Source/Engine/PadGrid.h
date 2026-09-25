@@ -78,6 +78,23 @@ struct PadRuntime
     std::atomic<bool>    isNewTrigger { false };
 };
 
+struct DefaultPadPreset
+{
+    float tune    = 0.f;
+    float decay   = 1.0f;
+    float drive   = 0.f;
+    float p1      = 0.5f;
+    float p2      = 0.5f;
+    float p3      = 0.5f;
+    float p4      = 0.5f;
+    float p5      = 0.5f;
+    int   choke   = 0;
+    int   vcfType = 0;
+    float vcfCut  = 20000.f;
+    float vcfRes  = 0.707f;
+    float vcfEnv  = 0.f;
+};
+
 class PadGrid : private juce::ValueTree::Listener
 {
 public:
@@ -85,6 +102,7 @@ public:
     ~PadGrid() override;
 
     static juce::ValueTree makeDefaultTree();
+    static DefaultPadPreset getDefaultPadPreset(int pad);
 
     void bindParams(juce::AudioProcessorValueTreeState* a) { apvts = a; }
 

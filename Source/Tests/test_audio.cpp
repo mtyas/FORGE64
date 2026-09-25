@@ -12,6 +12,27 @@ int main(int argc, char* argv[])
     proc->setPlayConfigDetails(0, 2, 44100.0, 512);
     proc->prepareToPlay(44100.0, 512);
 
+    // 0. Default State Verification (Empty Sequencer & Tailored Pad Presets)
+    {
+        int initialActiveSteps = 0;
+        const auto& curPat = proc->getSequencer().currentPattern();
+        for (int t = 0; t < 8; ++t)
+            for (int s = 0; s < 64; ++s)
+                if (curPat.tracks[(size_t) t].steps[(size_t) s].active)
+                    initialActiveSteps++;
+
+        auto* hatDecParam = proc->getAPVTS().getRawParameterValue(f64::padParamId(2, "dec"));
+        float hatDec = hatDecParam ? hatDecParam->load() : 1.5f;
+
+        std::cout << "[0] Default State: initialActiveSteps=" << initialActiveSteps
+                  << ", pad2 hatDecay=" << hatDec << std::endl;
+        if (initialActiveSteps != 0 || hatDec > 0.2f)
+        {
+            std::cerr << "FAIL: Sequencer not empty or default presets not loaded!" << std::endl;
+            return 1;
+        }
+    }
+
     // 1. Audition Test
     int failedPads = 0;
     for (int p = 0; p < 64; ++p)
