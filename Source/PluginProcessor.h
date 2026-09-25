@@ -138,6 +138,7 @@ private:
     juce::AudioBuffer<float> busScratch, auxA, auxB, auxC, auxD;
     std::vector<float> scratchL, scratchR;
     std::array<std::vector<VoicePool::TimedEvent>, kNumPads> padEvents;
+    std::array<int, kNumPads> padTailHold {};
     std::array<std::vector<int>, 128> noteMap;
     std::array<int, 17> chromMap {};
     std::vector<RawMidiEv> rawEvents;

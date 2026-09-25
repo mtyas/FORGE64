@@ -70,6 +70,61 @@ private:
 
     // 11: Ring Modulator
     float ringPhase = 0.f;
+
+    // Output 5 Hz DC blocker
+    float dcX_L = 0.f, dcY_L = 0.f;
+    float dcX_R = 0.f, dcY_R = 0.f;
+
+    // 12: Hall Reverb (8-delay FDN)
+    std::vector<float> hallBuf[8];
+    int hallWrite[8] = { 0 };
+    float hallDamp[8] = { 0.f };
+
+    // 13: Shimmer Reverb (Reverb + Octave-Up Pitch Grain in feedback)
+    std::vector<float> shimBufL, shimBufR;
+    int shimWrite = 0;
+    float shimPhase = 0.f;
+    float shimDampL = 0.f, shimDampR = 0.f;
+
+    // 14: Spring Reverb (Dispersive allpasses + dual tank)
+    std::vector<float> springBufL, springBufR;
+    int springWrite = 0;
+    float spApL[3] = { 0.f }, spApR[3] = { 0.f };
+    float springDampL = 0.f, springDampR = 0.f;
+
+    // 15: Gated Reverb (Early reflections + non-linear gate envelope)
+    std::vector<float> gateBufL, gateBufR;
+    int gateWrite = 0;
+    float gateEnv = 0.f;
+    int gateTimer = 0;
+
+    // 16: Ping-Pong Delay (Cross-feedback stereo delay)
+    std::vector<float> ppDlyL, ppDlyR;
+    int ppWriteL = 0, ppWriteR = 0;
+    float ppDampL = 0.f, ppDampR = 0.f;
+
+    // 17: Filtered Dub Delay (Resonant lowpass in feedback loop)
+    std::vector<float> dubDlyL, dubDlyR;
+    int dubWrite = 0;
+    float dubFiltL1 = 0.f, dubFiltL2 = 0.f;
+    float dubFiltR1 = 0.f, dubFiltR2 = 0.f;
+
+    // 18: Tube Saturator (Triode modeling with tone)
+    float tubeToneL = 0.f, tubeToneR = 0.f;
+
+    // 19: Wavefolder (West-coast multi-stage folding with smoothing filter)
+    float foldSmL = 0.f, foldSmR = 0.f;
+
+    // 20: Frequency Shifter (Quadrature Hilbert Transform Allpass Chain)
+    float hilb1_L[4] = { 0.f }, hilb2_L[4] = { 0.f };
+    float hilb1_R[4] = { 0.f }, hilb2_R[4] = { 0.f };
+    float freqShiftPhase = 0.f;
+    float fsFbL = 0.f, fsFbR = 0.f;
+
+    // 21: Stereo Detuner (Dual micro-pitch grains: +cents Left, -cents Right)
+    std::vector<float> detuneBufL, detuneBufR;
+    int detuneWrite = 0;
+    float detunePhaseL = 0.f, detunePhaseR = 0.f;
 };
 
 } // namespace f64

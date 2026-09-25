@@ -257,6 +257,213 @@ void AuxBusManager::processAux(int b, float* L, float* R, int n, const AuxBusPar
             break;
         }
 
+        case AUX_FX_SHIMMER:
+        {
+            const float fb = 0.70f + juce::jlimit(0.f, 1.f, p.p1) * 0.26f;
+            const float shimAmt = p.p2 * 0.7f;
+            const float d1 = juce::jlimit(0.f, 1.f, p.p3) * 0.45f;
+            const float d2 = 1.f - d1;
+            const float width = 0.5f + p.p4 * 0.5f;
+
+            for (int i = 0; i < n; ++i)
+            {
+                const float in = (L[i] + R[i]) * 0.5f;
+                float outL = 0.f, outR = 0.f;
+                for (int c = 0; c < 4; ++c)
+                {
+                    auto& cl = combL[b][c];
+                    float oL = cl.buf[cl.idx];
+                    cl.store = oL * d2 + cl.store * d1;
+                    // Add octave pitch frequency doubling in the feedback
+                    float shimmerInj = std::sin(oL * 6.2831853f) * shimAmt * 0.5f;
+                    cl.buf[cl.idx] = in + (cl.store + shimmerInj) * fb;
+                    if (++cl.idx >= cl.buf.size()) cl.idx = 0;
+                    outL += oL;
+
+                    auto& cr = combR[b][c];
+                    float oR = cr.buf[cr.idx];
+                    cr.store = oR * d2 + cr.store * d1;
+                    float shimmerInjR = std::sin(oR * 6.2831853f) * shimAmt * 0.5f;
+                    cr.buf[cr.idx] = in + (cr.store + shimmerInjR) * fb;
+                    if (++cr.idx >= cr.buf.size()) cr.idx = 0;
+                    outR += oR;
+                }
+                L[i] = (outL * width + outR * (1.f - width)) * 0.38f;
+                R[i] = (outR * width + outL * (1.f - width)) * 0.38f;
+            }
+            break;
+        }
+
+        case AUX_FX_PINGPONG:
+        {
+            const double ms = 20.0 + (double) p.p1 * 1200.0;
+            const double d = juce::jlimit(2.0, sampleRate * 2.0, ms * 0.001 * sampleRate);
+            const float fb = juce::jlimit(0.f, 0.88f, p.p2);
+            auto& bL = dlyBufL[b];
+            auto& bR = dlyBufR[b];
+            const size_t len = bL.size();
+
+            for (int i = 0; i < n; ++i)
+            {
+                double rpL = (double) dlyIdxL[b] - d;
+                while (rpL < 0.0) rpL += (double) len;
+                size_t i0L = (size_t) rpL % len;
+                size_t i1L = (i0L + 1) % len;
+                float frL = (float) (rpL - std::floor(rpL));
+                float rL = bL[i0L] + frL * (bL[i1L] - bL[i0L]);
+
+                double rpR = (double) dlyIdxR[b] - d;
+                while (rpR < 0.0) rpR += (double) len;
+                size_t i0R = (size_t) rpR % len;
+                size_t i1R = (i0R + 1) % len;
+                float frR = (float) (rpR - std::floor(rpR));
+                float rR = bR[i0R] + frR * (bR[i1R] - bR[i0R]);
+
+                // Ping-pong cross feedback
+                bL[dlyIdxL[b]] = std::tanh(L[i] + rR * fb);
+                bR[dlyIdxR[b]] = std::tanh(R[i] + rL * fb);
+                if (++dlyIdxL[b] >= len) dlyIdxL[b] = 0;
+                if (++dlyIdxR[b] >= len) dlyIdxR[b] = 0;
+
+                L[i] = rL;
+                R[i] = rR;
+            }
+            break;
+        }
+
+        case AUX_FX_GATED_VERB:
+        {
+            const float fb = 0.80f + juce::jlimit(0.f, 1.f, p.p2) * 0.16f;
+            const int gateSamples = (int) ((0.05f + p.p1 * 0.40f) * sampleRate);
+            static int auxGateTimer[4] = { 0, 0, 0, 0 };
+            static float auxGateEnv[4] = { 0.f, 0.f, 0.f, 0.f };
+
+            for (int i = 0; i < n; ++i)
+            {
+                const float in = (L[i] + R[i]) * 0.5f;
+                if (std::abs(in) > 0.05f)
+                    auxGateTimer[b] = gateSamples;
+                else if (auxGateTimer[b] > 0)
+                    --auxGateTimer[b];
+
+                const float gTarg = auxGateTimer[b] > 0 ? 1.0f : 0.0f;
+                auxGateEnv[b] += (gTarg - auxGateEnv[b]) * 0.04f;
+
+                float outL = 0.f, outR = 0.f;
+                for (int c = 0; c < 4; ++c)
+                {
+                    auto& cl = combL[b][c];
+                    float oL = cl.buf[cl.idx];
+                    cl.buf[cl.idx] = in + oL * fb;
+                    if (++cl.idx >= cl.buf.size()) cl.idx = 0;
+                    outL += oL;
+
+                    auto& cr = combR[b][c];
+                    float oR = cr.buf[cr.idx];
+                    cr.buf[cr.idx] = in + oR * fb;
+                    if (++cr.idx >= cr.buf.size()) cr.idx = 0;
+                    outR += oR;
+                }
+                L[i] = std::tanh(outL * 0.4f) * auxGateEnv[b];
+                R[i] = std::tanh(outR * 0.4f) * auxGateEnv[b];
+            }
+            break;
+        }
+
+        case AUX_FX_TUBE:
+        {
+            const float k = 1.0f + p.p1 * 25.0f;
+            const float bias = p.p2 * 0.6f;
+            for (int i = 0; i < n; ++i)
+            {
+                float xL = L[i] * k;
+                float xR = R[i] * k;
+                L[i] = (xL + bias * xL * std::abs(xL)) / (1.0f + std::abs(xL));
+                R[i] = (xR + bias * xR * std::abs(xR)) / (1.0f + std::abs(xR));
+            }
+            break;
+        }
+
+        case AUX_FX_PITCH:
+        {
+            // Detuner / pitch thickener in aux return
+            const float cents = 2.0f + p.p1 * 40.0f;
+            const float ratio = std::pow(2.0f, cents / 1200.0f);
+            const float grainSamples = 0.03f * (float) sampleRate;
+            const float gRate = (1.0f - ratio) / grainSamples;
+            static float auxPitchPh[4] = { 0.f, 0.f, 0.f, 0.f };
+
+            auto& bL = dlyBufL[b];
+            auto& bR = dlyBufR[b];
+            const size_t len = bL.size();
+
+            for (int i = 0; i < n; ++i)
+            {
+                auxPitchPh[b] += gRate;
+                while (auxPitchPh[b] >= 1.0f) auxPitchPh[b] -= 1.0f;
+                while (auxPitchPh[b] < 0.0f)  auxPitchPh[b] += 1.0f;
+
+                float ph1 = auxPitchPh[b];
+                float ph2 = auxPitchPh[b] + 0.5f;
+                if (ph2 >= 1.0f) ph2 -= 1.0f;
+                float w1 = 1.0f - std::abs(2.0f * ph1 - 1.0f);
+                float w2 = 1.0f - std::abs(2.0f * ph2 - 1.0f);
+
+                double rp1 = (double) dlyIdxL[b] - (double) (ph1 * grainSamples);
+                while (rp1 < 0.0) rp1 += (double) len;
+                double rp2 = (double) dlyIdxL[b] - (double) (ph2 * grainSamples);
+                while (rp2 < 0.0) rp2 += (double) len;
+
+                float rL = bL[(size_t) rp1 % len] * w1 + bL[(size_t) rp2 % len] * w2;
+                float rR = bR[(size_t) rp1 % len] * w2 + bR[(size_t) rp2 % len] * w1;
+
+                bL[dlyIdxL[b]] = L[i];
+                bR[dlyIdxR[b]] = R[i];
+                if (++dlyIdxL[b] >= len) dlyIdxL[b] = 0;
+                if (++dlyIdxR[b] >= len) dlyIdxR[b] = 0;
+
+                L[i] = rL;
+                R[i] = rR;
+            }
+            break;
+        }
+
+        case AUX_FX_SPRING:
+        {
+            const float tension = 0.5f + p.p1 * 0.45f;
+            const float boing = 0.3f + p.p2 * 0.55f;
+            const float d1 = juce::jlimit(0.f, 1.f, p.p3) * 0.5f;
+            const float d2 = 1.f - d1;
+
+            for (int i = 0; i < n; ++i)
+            {
+                const float in = (L[i] + R[i]) * 0.5f;
+                float outL = 0.f, outR = 0.f;
+                for (int c = 0; c < 2; ++c)
+                {
+                    auto& cl = combL[b][c];
+                    float oL = cl.buf[cl.idx];
+                    cl.store = oL * d2 + cl.store * d1;
+                    // Chirp dispersion
+                    float chirp = std::sin(oL * 12.0f) * boing * 0.2f;
+                    cl.buf[cl.idx] = in + (cl.store + chirp) * tension;
+                    if (++cl.idx >= cl.buf.size()) cl.idx = 0;
+                    outL += oL;
+
+                    auto& cr = combR[b][c];
+                    float oR = cr.buf[cr.idx];
+                    cr.store = oR * d2 + cr.store * d1;
+                    float chirpR = std::sin(oR * 12.0f) * boing * 0.2f;
+                    cr.buf[cr.idx] = in + (cr.store + chirpR) * tension;
+                    if (++cr.idx >= cr.buf.size()) cr.idx = 0;
+                    outR += oR;
+                }
+                L[i] = outL * 0.5f;
+                R[i] = outR * 0.5f;
+            }
+            break;
+        }
+
         default:
             break;
     }

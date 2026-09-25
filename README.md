@@ -79,21 +79,20 @@ Write, audition, and compile custom real-time synthesis algorithms directly insi
   - **3-Band Parametric EQ**: Low Shelf, Parametric Peak, High Shelf with interactive draggable handles.
   - **VCA Compressor**: Stereo-linked detector, Threshold, Ratio (1:1 to 20:1), Attack, Release, and live transfer curve display.
   - **Analog Waveshaping Drive**: Asymmetric tanh saturation with auto-gain compensation.
-  - **Dedicated Insert Multi-FX**: Flanger, Chorus, Bitcrusher, Phaser with 4 dedicated modulation parameters.
+  - **Analog Waveshaping Drive**: Asymmetric tanh saturation with auto-gain compensation.
+  - **22 Dedicated Insert Multi-FX**: Flanger, Chorus, Bitcrusher, Phaser, Hall Reverb (8-delay FDN), Shimmer Reverb, Spring Reverb, Gated Reverb, Mono Delay, Stereo Ping-Pong Delay, Filtered Dub Delay, Tremolo, Vibrato, Auto-Pan, Ring Modulator, Frequency Shifter (quadrature Hilbert), Stereo Detuner, Overdrive, Tube Saturator, Wavefolder, and Compressor.
   - **Multi-Bus Routing**: Route pads across 16 stereo DAW outputs with fallback summing to Main.
   - **16 Choke Groups**: Seamless 5ms click-free cross-fade choking across pads and banks.
 - **53-Source Modulation Matrix with Drag-and-Drop Patching**:
+  - Live animated waveform and level visualizers directly in the side panel for all 53 sources (LFO curves, chaotic paths, DAHDSR envelopes, step sequences, and MIDI meters).
   - 10 Multi-Wave LFOs (Sine, Triangle, Saw, Ramp, Square, S&H, Glide S&H with 15 tempo divisions).
   - 2 Chaos & Random Generators featuring real-time Lorenz Attractor 3D integration.
   - 10 DAHDSR Envelopes with voice-level polyphonic retriggering.
   - 10 Mod Sequencers with smoothing slew and swing.
   - 8 Global Macro Knobs and full MIDI Latched Sources (Velocity, Mod Wheel, Pitch Bend, Aftertouch).
   - Visual feedback with colored animated modulation rings and live value dots on every knob.
-- **Master FX & Aux Return Console**:
-  - **Aux 1 (Studio Reverb)**: Variable size, damping, pre-delay, width, and return pan.
-  - **Aux 2 (Stereo Delay)**: Millisecond or tempo-synced delay, feedback, hi-damp, and ping-pong stereo width.
-  - **Aux 3 (Tape / Saturation)**: Tube & magnetic tape ADAA saturation with drive, bias, and tone shaping.
-  - **Aux 4 (Modulation Ensemble)**: Multi-voice dimensional chorus and flanger.
+- **Master FX & 14 Aux Return Processors**:
+  - 4 independent stereo studio aux buses selectable between 14 algorithms: Studio Reverb, Hall Reverb, Shimmer Reverb, Spring Reverb, Gated Reverb, Stereo Delay, Ping-Pong Delay, Filtered Dub Delay, Tape Saturation, Tube Saturator, Wavefolder, Modulation Ensemble, Frequency Shifter, and Stereo Pitch Detuner.
   - **Master Bus Console**: VCA Stereo Bus Glue Compressor, 4-Band Harmonic EQ, and Tape Drive.
 - **Complete MIDI Learn & Full Undo/Redo**:
   - 1-click MIDI CC learn on all parameters and macro controls.

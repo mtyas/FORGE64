@@ -37,7 +37,7 @@ class Forge64Processor;
 
 // Right-hand panel: the 53 modulation sources (draggable badges, enable,
 // per-source editors) plus the global modulation matrix table.
-class ModPanel : public juce::Component
+class ModPanel : public juce::Component, private juce::Timer
 {
 public:
     ModPanel(ModMatrix& m, juce::ValueTree srcTree, juce::ValueTree matTree, Forge64Processor* proc = nullptr);
@@ -51,6 +51,8 @@ public:
     Forge64Processor* getProcessor() const { return procPtr; }
 
 private:
+    void timerCallback() override;
+
     class SourceListModel;
     class SourceRow;
     class SourceEditorContent;

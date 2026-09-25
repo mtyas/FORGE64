@@ -337,7 +337,10 @@ PadEditor::PadEditor(Forge64Processor& p, ModRingKnob::Services& s, int globalPa
     makeCaption("AUX SENDS & DEDICATED MULTI-FX INSERT");
     ifxCombo = makeCombo("ifx", { "Off", "Flanger", "Chorus", "Crusher", "Phaser",
                                   "Overdrive", "Fuzz", "Tape Echo", "Plate Reverb",
-                                  "Pitch Shift", "Formant", "Ring Mod" });
+                                  "Pitch Shift", "Formant", "Ring Mod",
+                                  "Hall Reverb", "Shimmer Reverb", "Spring Reverb", "Gated Reverb",
+                                  "Ping-Pong Delay", "Dub Delay", "Tube Saturator", "Wavefolder",
+                                  "Freq Shifter", "Stereo Detuner" });
     ifxCombo->setTooltip("Dedicated pad insert multi-effect");
     ifx1Knob = makeKnob("ifx1", "RATE");
     ifx2Knob = makeKnob("ifx2", "DEPTH");
@@ -1227,6 +1230,66 @@ void PadEditor::updateIfxLabels(int ifxType)
             ifxKnobs[0]->setLabel("FREQ");
             ifxKnobs[1]->setLabel("SHAPE");
             ifxKnobs[2]->setLabel("DRIVE");
+            ifxKnobs[3]->setLabel("MIX");
+            break;
+        case 12: // Hall Reverb
+            ifxKnobs[0]->setLabel("SIZE");
+            ifxKnobs[1]->setLabel("DAMP");
+            ifxKnobs[2]->setLabel("PRE-DLY");
+            ifxKnobs[3]->setLabel("MIX");
+            break;
+        case 13: // Shimmer Reverb
+            ifxKnobs[0]->setLabel("DECAY");
+            ifxKnobs[1]->setLabel("SHIMMER");
+            ifxKnobs[2]->setLabel("TONE");
+            ifxKnobs[3]->setLabel("MIX");
+            break;
+        case 14: // Spring Reverb
+            ifxKnobs[0]->setLabel("TENSION");
+            ifxKnobs[1]->setLabel("BOING");
+            ifxKnobs[2]->setLabel("TONE");
+            ifxKnobs[3]->setLabel("MIX");
+            break;
+        case 15: // Gated Reverb
+            ifxKnobs[0]->setLabel("GATE");
+            ifxKnobs[1]->setLabel("DENSITY");
+            ifxKnobs[2]->setLabel("TONE");
+            ifxKnobs[3]->setLabel("MIX");
+            break;
+        case 16: // Ping-Pong Delay
+            ifxKnobs[0]->setLabel("TIME");
+            ifxKnobs[1]->setLabel("FEEDBK");
+            ifxKnobs[2]->setLabel("DAMP");
+            ifxKnobs[3]->setLabel("MIX");
+            break;
+        case 17: // Dub Delay
+            ifxKnobs[0]->setLabel("TIME");
+            ifxKnobs[1]->setLabel("FEEDBK");
+            ifxKnobs[2]->setLabel("CUTOFF");
+            ifxKnobs[3]->setLabel("MIX");
+            break;
+        case 18: // Tube Saturator
+            ifxKnobs[0]->setLabel("DRIVE");
+            ifxKnobs[1]->setLabel("BIAS");
+            ifxKnobs[2]->setLabel("WARMTH");
+            ifxKnobs[3]->setLabel("MIX");
+            break;
+        case 19: // Wavefolder
+            ifxKnobs[0]->setLabel("FOLDS");
+            ifxKnobs[1]->setLabel("SYMMETRY");
+            ifxKnobs[2]->setLabel("SMOOTH");
+            ifxKnobs[3]->setLabel("MIX");
+            break;
+        case 20: // Frequency Shifter
+            ifxKnobs[0]->setLabel("SHIFT");
+            ifxKnobs[1]->setLabel("FEEDBK");
+            ifxKnobs[2]->setLabel("DIR");
+            ifxKnobs[3]->setLabel("MIX");
+            break;
+        case 21: // Stereo Detuner
+            ifxKnobs[0]->setLabel("DETUNE");
+            ifxKnobs[1]->setLabel("SPREAD");
+            ifxKnobs[2]->setLabel("FEEDBK");
             ifxKnobs[3]->setLabel("MIX");
             break;
         default: // Off

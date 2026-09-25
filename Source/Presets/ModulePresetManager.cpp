@@ -152,7 +152,7 @@ function process()
 
         local sig = (body + subOsc + click) * math.exp(-t / dec) * vel * 1.4
         if grit > 0.02 then
-            sig = sig + (math.abs(sig) - 0.5) * grit * 0.5
+            sig = sig + (sig * math.abs(sig)) * grit * 0.4
         end
         local totalDrv = drv + grit * 0.35
         if totalDrv > 0.01 then sig = math.tanh(sig * (1.0 + totalDrv * 5.0)) end
@@ -1175,7 +1175,7 @@ function process()
 
         local raw = (b1 + b2 + clk) * math.exp(-t / dec) * vel * 1.3
         if warmth > 0.02 then
-            raw = raw + (raw * raw - 0.5) * warmth * 0.4
+            raw = raw + (raw * math.abs(raw)) * warmth * 0.35
         end
 
         local sig = raw

@@ -296,7 +296,7 @@ void VoicePool::renderSegment(Voice& v, float* L, float* R, int from, int to,
             }
             else if (! (v.sustain && ! v.choked))
             {
-                const float relSec = isLuaSynth ? juce::jmax(0.04f, pp.decay * 0.65f)
+                const float relSec = isLuaSynth ? juce::jmax(0.12f, pp.decay * 1.8f)
                                                 : juce::jmax(0.005f, pp.decay);
                 const float curDecCoef = std::exp(-1.f / (relSec * (float) sr));
                 v.env *= curDecCoef;
@@ -418,13 +418,17 @@ void VoicePool::renderSegment(Voice& v, float* L, float* R, int from, int to,
     {
         if (isLuaSynth)
         {
-            const float minLuaLife = 0.08f + pp.decay * 1.5f;
+            const float minLuaLife = juce::jlimit(0.35f, 12.0f, 0.25f + pp.decay * 4.5f);
             if (v.env < 1e-4f && v.ageSec >= minLuaLife)
-                deactivate(v);
+            {
+                if (! v.choked)
+                    killVoice(v, sr, 4.0f);
+            }
         }
         else if (v.env < 1e-5f || (ended && v.env < 1e-4f) || (v.srcType != SRC_SAMPLE && ended))
         {
-            deactivate(v);
+            if (! v.choked)
+                killVoice(v, sr, 4.0f);
         }
     }
 }

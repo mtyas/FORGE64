@@ -180,7 +180,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout Forge64Processor::makeParams
         addF(id("sdec"), n + "SMPL Dec",  { 0.005f, 10.0f, 0.001f, 0.3f },  1.0f);
         addF(id("ssus"), n + "SMPL Sus",  { 0.f, 1.f, 0.001f },              1.0f);
         addF(id("srel"), n + "SMPL Rel",  { 0.005f, 10.0f, 0.001f, 0.3f },  0.1f);
-        addI(id("ifx"),  n + "Insert FX", 0, 11, 0);
+        addI(id("ifx"),  n + "Insert FX", 0, 21, 0);
         addF(id("ifx1"), n + "IFX P1",    { 0.f, 1.f, 0.001f },              0.5f);
         addF(id("ifx2"), n + "IFX P2",    { 0.f, 1.f, 0.001f },              0.5f);
         addF(id("ifx3"), n + "IFX P3",    { 0.f, 1.f, 0.001f },              0.5f);
@@ -326,6 +326,7 @@ void Forge64Processor::prepareToPlay(double sr, int maxBlock)
     modPtr->prepare(sr, maxBlock);
     voices.prepare(sr, maxBlock);
     sequencer.prepare(sr);
+    padTailHold.fill(0);
 
     busScratch.setSize(2 * kNumBuses, maxBlock, false, false, true);
     auxA.setSize(2, maxBlock, false, false, true);
@@ -718,8 +719,16 @@ void Forge64Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::Midi
     for (int p = 0; p < kNumPads; ++p)
     {
         const bool hasEvents = ! padEvents[(size_t) p].empty();
-        if (! hasEvents && ! voices.padActive(p))
+        const bool vActive   = voices.padActive(p);
+        if (! hasEvents && ! vActive && padTailHold[(size_t) p] <= 0)
             continue;
+
+        if (vActive || hasEvents)
+            padTailHold[(size_t) p] = 20; // Maintain ~200ms ringdown for filter/FX tails and clean fadeout
+        else if (padTailHold[(size_t) p] > 0)
+            --padTailHold[(size_t) p];
+
+        const bool isLastTailBlock = (! vActive && ! hasEvents && padTailHold[(size_t) p] == 0);
 
         std::fill(scratchL.begin(), scratchL.begin() + n, 0.f);
         std::fill(scratchR.begin(), scratchR.begin() + n, 0.f);
@@ -830,6 +839,22 @@ void Forge64Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::Midi
 
         const float gt = rt.gainTrim.load();
         chains[(size_t) p].process(scratchL.data(), scratchR.data(), n, pp);
+
+        if (isLastTailBlock)
+        {
+            const int fadeLen = juce::jmin(n, 64);
+            for (int i = 0; i < fadeLen; ++i)
+            {
+                const float g = 0.5f * (1.0f + std::cos((float) i * juce::MathConstants<float>::pi / (float) fadeLen));
+                scratchL[(size_t) i] *= g;
+                scratchR[(size_t) i] *= g;
+            }
+            for (int i = fadeLen; i < n; ++i)
+            {
+                scratchL[(size_t) i] = 0.f;
+                scratchR[(size_t) i] = 0.f;
+            }
+        }
 
         const float lvl = pp.level * master * gt * 0.75f; // Nominal -2.5 dB summing headroom
         const float pan = clampRange(pp.pan, -1.0f, 1.0f);

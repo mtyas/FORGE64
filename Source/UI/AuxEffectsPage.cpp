@@ -109,6 +109,42 @@ void AuxEffectsPage::AuxStrip::updateControlLabels(int fxType)
             p3Label->setText("DRIVE", juce::dontSendNotification);
             p4Label->setText("MODE", juce::dontSendNotification);
             break;
+        case AUX_FX_SHIMMER:
+            p1Label->setText("DECAY", juce::dontSendNotification);
+            p2Label->setText("SHIMMER", juce::dontSendNotification);
+            p3Label->setText("TONE", juce::dontSendNotification);
+            p4Label->setText("WIDTH", juce::dontSendNotification);
+            break;
+        case AUX_FX_PINGPONG:
+            p1Label->setText("TIME", juce::dontSendNotification);
+            p2Label->setText("FEEDBACK", juce::dontSendNotification);
+            p3Label->setText("DAMP", juce::dontSendNotification);
+            p4Label->setText("WIDTH", juce::dontSendNotification);
+            break;
+        case AUX_FX_GATED_VERB:
+            p1Label->setText("GATE TIME", juce::dontSendNotification);
+            p2Label->setText("DENSITY", juce::dontSendNotification);
+            p3Label->setText("TONE", juce::dontSendNotification);
+            p4Label->setText("WIDTH", juce::dontSendNotification);
+            break;
+        case AUX_FX_TUBE:
+            p1Label->setText("DRIVE", juce::dontSendNotification);
+            p2Label->setText("BIAS", juce::dontSendNotification);
+            p3Label->setText("WARMTH", juce::dontSendNotification);
+            p4Label->setText("MIX", juce::dontSendNotification);
+            break;
+        case AUX_FX_PITCH:
+            p1Label->setText("DETUNE", juce::dontSendNotification);
+            p2Label->setText("SPREAD", juce::dontSendNotification);
+            p3Label->setText("FEEDBACK", juce::dontSendNotification);
+            p4Label->setText("MIX", juce::dontSendNotification);
+            break;
+        case AUX_FX_SPRING:
+            p1Label->setText("TENSION", juce::dontSendNotification);
+            p2Label->setText("BOING", juce::dontSendNotification);
+            p3Label->setText("TONE", juce::dontSendNotification);
+            p4Label->setText("MIX", juce::dontSendNotification);
+            break;
         default:
             break;
     }

@@ -120,7 +120,13 @@ The 5 macro knobs dynamically adapt their labels and behavioral ranges according
 - Interactive transfer characteristic plot displaying knee and compression slope.
 
 ### Insert Multi-FX & Aux Sends
-- **Dedicated Multi-FX Insert**: Choose between `Flanger`, `Chorus`, `Bitcrusher`, and `Phaser` with 4 dedicated modulation parameters (`P1` to `P4`).
+- **Dedicated Multi-FX Insert**: Choose between 22 studio-grade insert algorithms per pad:
+  - **Flanger, Chorus, Phaser, Tremolo, Vibrato, Auto-Pan, Ring Modulator**: Complete modulation suite.
+  - **Mono Delay, Stereo Ping-Pong Delay, Filtered Dub Delay**: Flexible delays with resonant feedback damping.
+  - **Room Reverb, Plate Reverb, Hall Reverb (8-delay FDN), Shimmer Reverb, Spring Reverb, Gated Reverb**: Expansive spatial treatments.
+  - **Bitcrusher, Overdrive, Tube Saturator (triode warm saturation), Wavefolder (multi-stage West Coast wavefolding)**: Aggressive to subtle harmonic saturation.
+  - **Frequency Shifter (quadrature Hilbert transform), Stereo Detuner (dual micro-pitch grains)**: Radical spectral and pitch manipulation.
+  - **Compressor**: Dedicated per-pad dynamics control.
 - **Aux Sends (`Send A`, `Send B`, `Send C`, `Send D`)**: Route dry signal post-insert into the 4 studio Aux FX buses.
 
 ---
@@ -201,10 +207,11 @@ Click `PATTERN MODE` to toggle into `SONG MODE`.
 - If a secondary bus is disabled in the host, audio automatically sums cleanly to the Main bus.
 
 ### Aux Return FX Processors
-- **Aux 1 (Studio Reverb)**: Algorithmic plate and room reverb with damping, pre-delay, and stereo width.
-- **Aux 2 (Stereo Delay)**: Stereo cross-feedback delay with millisecond or tempo sync divisions and high-frequency damping.
-- **Aux 3 (Tape / Saturation)**: ADAA non-linear tape and tube saturation with adjustable bias and tone control.
-- **Aux 4 (Modulation Ensemble)**: Dimensional BBD chorus and multi-stage flanger.
+Each of the 4 independent Aux Return channels can load any of the 14 studio processors:
+- **Studio Reverb, Hall Reverb (8-delay FDN), Shimmer Reverb, Spring Reverb, Gated Reverb**: Premium spatial ambiances.
+- **Stereo Delay, Ping-Pong Delay, Filtered Dub Delay**: Studio echo and tape delays with cross-feedback.
+- **Tape / Saturation, Tube Saturator, Wavefolder**: Analog non-linear saturation, triode warmth, and multi-stage folding.
+- **Modulation Ensemble (Chorus/Flanger), Frequency Shifter, Stereo Pitch Detuner**: Spatial chorusing, pitch micro-detuning, and quadrature frequency shifts.
 
 ### Master Bus Console
 - **VCA Glue Compressor**: Solid-state bus compressor modeled after legendary British consoles. Features gain-reduction metering and auto-makeup gain.
@@ -224,7 +231,8 @@ The Performance tab is designed for live stage improvisation:
 
 ## 10. 53-Source Modulation Matrix
 
-FORGE64 features a modulation system with visual feedback:
+FORGE64 features a deep modulation system with real-time visual feedback:
+- **Live Side-Panel Visualizers**: Every modulation source row displays an animated waveform or level meter showing real-time phase, envelope curves, chaotic trajectories, and current values.
 
 ### Available Modulation Sources
 - **10 Multi-Wave LFOs**: Sine, Triangle, Sawtooth, Ramp, Square, S&H, and S&H Glide with 15 tempo sync divisions.

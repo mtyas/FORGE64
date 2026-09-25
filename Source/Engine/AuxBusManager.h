@@ -16,22 +16,34 @@ enum AuxFxType
     AUX_FX_PHASER = 5,
     AUX_FX_COMP = 6,
     AUX_FX_FILTER = 7,
-    AUX_FX_COUNT = 8
+    AUX_FX_SHIMMER = 8,
+    AUX_FX_PINGPONG = 9,
+    AUX_FX_GATED_VERB = 10,
+    AUX_FX_TUBE = 11,
+    AUX_FX_PITCH = 12,
+    AUX_FX_SPRING = 13,
+    AUX_FX_COUNT = 14
 };
 
 inline const char* auxFxTypeName(int type)
 {
     switch (type)
     {
-        case AUX_FX_REVERB:  return "Studio Reverb";
-        case AUX_FX_DELAY:   return "Stereo Delay";
-        case AUX_FX_DRIVE:   return "Tape / Saturation";
-        case AUX_FX_CHORUS:  return "Stereo Chorus";
-        case AUX_FX_FLANGER: return "Jet Flanger";
-        case AUX_FX_PHASER:  return "Multi Phaser";
-        case AUX_FX_COMP:    return "Bus Compressor";
-        case AUX_FX_FILTER:  return "Resonant Filter";
-        default:             return "Studio Reverb";
+        case AUX_FX_REVERB:      return "Studio Reverb";
+        case AUX_FX_DELAY:       return "Stereo Delay";
+        case AUX_FX_DRIVE:       return "Tape / Saturation";
+        case AUX_FX_CHORUS:      return "Stereo Chorus";
+        case AUX_FX_FLANGER:     return "Jet Flanger";
+        case AUX_FX_PHASER:      return "Multi Phaser";
+        case AUX_FX_COMP:        return "Bus Compressor";
+        case AUX_FX_FILTER:      return "Resonant Filter";
+        case AUX_FX_SHIMMER:     return "Shimmer Reverb";
+        case AUX_FX_PINGPONG:    return "Ping-Pong Delay";
+        case AUX_FX_GATED_VERB:  return "Gated Drum Reverb";
+        case AUX_FX_TUBE:        return "Tube Warmth";
+        case AUX_FX_PITCH:       return "Pitch Detuner";
+        case AUX_FX_SPRING:      return "Spring Reverb";
+        default:                 return "Studio Reverb";
     }
 }
 

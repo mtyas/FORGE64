@@ -69,6 +69,67 @@ void PadChain::prepare(double sr, int maxBlock)
     ringPhase = 0.f;
     odToneL = odToneR = 0.f;
     fuzzHpL = fuzzHpR = 0.f;
+
+    dcX_L = dcY_L = dcX_R = dcY_R = 0.f;
+
+    static const int hallSizes[8] = { 1357, 1583, 1867, 2153, 2477, 2749, 3121, 3571 };
+    for (int k = 0; k < 8; ++k)
+    {
+        const size_t sz = (size_t) std::max(64.0, hallSizes[k] * (sr / 44100.0)) + 32;
+        hallBuf[k].assign(sz, 0.f);
+        hallWrite[k] = 0;
+        hallDamp[k] = 0.f;
+    }
+
+    const size_t shimLen = (size_t) (sr * 0.8) + 16;
+    shimBufL.assign(shimLen, 0.f);
+    shimBufR.assign(shimLen, 0.f);
+    shimWrite = 0;
+    shimPhase = 0.f;
+    shimDampL = shimDampR = 0.f;
+
+    const size_t spLen = (size_t) (sr * 0.15) + 16;
+    springBufL.assign(spLen, 0.f);
+    springBufR.assign(spLen, 0.f);
+    springWrite = 0;
+    std::fill(std::begin(spApL), std::end(spApL), 0.f);
+    std::fill(std::begin(spApR), std::end(spApR), 0.f);
+    springDampL = springDampR = 0.f;
+
+    const size_t gateLen = (size_t) (sr * 0.6) + 16;
+    gateBufL.assign(gateLen, 0.f);
+    gateBufR.assign(gateLen, 0.f);
+    gateWrite = 0;
+    gateEnv = 0.f;
+    gateTimer = 0;
+
+    const size_t ppLen = (size_t) (sr * 1.5) + 16;
+    ppDlyL.assign(ppLen, 0.f);
+    ppDlyR.assign(ppLen, 0.f);
+    ppWriteL = ppWriteR = 0;
+    ppDampL = ppDampR = 0.f;
+
+    const size_t dubLen = (size_t) (sr * 1.5) + 16;
+    dubDlyL.assign(dubLen, 0.f);
+    dubDlyR.assign(dubLen, 0.f);
+    dubWrite = 0;
+    dubFiltL1 = dubFiltL2 = dubFiltR1 = dubFiltR2 = 0.f;
+
+    tubeToneL = tubeToneR = 0.f;
+    foldSmL = foldSmR = 0.f;
+
+    std::fill(std::begin(hilb1_L), std::end(hilb1_L), 0.f);
+    std::fill(std::begin(hilb2_L), std::end(hilb2_L), 0.f);
+    std::fill(std::begin(hilb1_R), std::end(hilb1_R), 0.f);
+    std::fill(std::begin(hilb2_R), std::end(hilb2_R), 0.f);
+    freqShiftPhase = 0.f;
+    fsFbL = fsFbR = 0.f;
+
+    const size_t detuneLen = (size_t) (sr * 0.1) + 16;
+    detuneBufL.assign(detuneLen, 0.f);
+    detuneBufR.assign(detuneLen, 0.f);
+    detuneWrite = 0;
+    detunePhaseL = detunePhaseR = 0.f;
 }
 
 void PadChain::process(float* L, float* R, int n, const PadParams& p)
@@ -170,7 +231,7 @@ void PadChain::process(float* L, float* R, int n, const PadParams& p)
     const float driveNorm = 1.f / std::tanh(driveGain * 0.7f);
 
     // ---------------- insert FX state
-    const int fx = juce::jlimit(0, 11, p.ifxType);
+    const int fx = juce::jlimit(0, 21, p.ifxType);
     if (fx != lastFx)
     {
         lastFx = fx;
@@ -205,6 +266,40 @@ void PadChain::process(float* L, float* R, int n, const PadParams& p)
         lastVowelPos = -1.f;
         lastReso = -1.f;
         ringPhase = 0.f;
+
+        for (int k = 0; k < 8; ++k)
+        {
+            std::fill(hallBuf[k].begin(), hallBuf[k].end(), 0.f);
+            hallWrite[k] = 0;
+            hallDamp[k] = 0.f;
+        }
+        std::fill(shimBufL.begin(), shimBufL.end(), 0.f);
+        std::fill(shimBufR.begin(), shimBufR.end(), 0.f);
+        shimWrite = 0; shimPhase = 0.f; shimDampL = shimDampR = 0.f;
+        std::fill(springBufL.begin(), springBufL.end(), 0.f);
+        std::fill(springBufR.begin(), springBufR.end(), 0.f);
+        springWrite = 0;
+        std::fill(std::begin(spApL), std::end(spApL), 0.f);
+        std::fill(std::begin(spApR), std::end(spApR), 0.f);
+        springDampL = springDampR = 0.f;
+        std::fill(gateBufL.begin(), gateBufL.end(), 0.f);
+        std::fill(gateBufR.begin(), gateBufR.end(), 0.f);
+        gateWrite = 0; gateEnv = 0.f; gateTimer = 0;
+        std::fill(ppDlyL.begin(), ppDlyL.end(), 0.f);
+        std::fill(ppDlyR.begin(), ppDlyR.end(), 0.f);
+        ppWriteL = ppWriteR = 0; ppDampL = ppDampR = 0.f;
+        std::fill(dubDlyL.begin(), dubDlyL.end(), 0.f);
+        std::fill(dubDlyR.begin(), dubDlyR.end(), 0.f);
+        dubWrite = 0; dubFiltL1 = dubFiltL2 = dubFiltR1 = dubFiltR2 = 0.f;
+        tubeToneL = tubeToneR = 0.f; foldSmL = foldSmR = 0.f;
+        std::fill(std::begin(hilb1_L), std::end(hilb1_L), 0.f);
+        std::fill(std::begin(hilb2_L), std::end(hilb2_L), 0.f);
+        std::fill(std::begin(hilb1_R), std::end(hilb1_R), 0.f);
+        std::fill(std::begin(hilb2_R), std::end(hilb2_R), 0.f);
+        freqShiftPhase = 0.f; fsFbL = fsFbR = 0.f;
+        std::fill(detuneBufL.begin(), detuneBufL.end(), 0.f);
+        std::fill(detuneBufR.begin(), detuneBufR.end(), 0.f);
+        detuneWrite = 0; detunePhaseL = detunePhaseR = 0.f;
     }
 
     if (fx == 2)
@@ -296,6 +391,81 @@ void PadChain::process(float* L, float* R, int n, const PadParams& p)
     const float rMix = p.ifx4;
     const float rShape = p.ifx2;
     const float rDrive = 1.0f + p.ifx3 * 3.0f;
+
+    // FX 12: Hall Reverb
+    const float hallFb = 0.40f + p.ifx1 * 0.48f;
+    const float hallDampAlpha = 1.0f - std::exp(-juce::MathConstants<float>::twoPi * (2000.f + (1.f - p.ifx2) * 11000.f) / (float) sampleRate);
+    const float hallMix = p.ifx4;
+
+    // FX 13: Shimmer Reverb
+    const float shimFb = 0.35f + p.ifx1 * 0.55f;
+    const float shimOctaveAmt = p.ifx2 * 0.75f;
+    const float shimDampAlpha = 1.0f - std::exp(-juce::MathConstants<float>::twoPi * (1500.f + (1.f - p.ifx3) * 9000.f) / (float) sampleRate);
+    const float shimMix = p.ifx4;
+    const float shimGrainRate = -1.0f / (0.04f * (float) sampleRate); // +1 octave
+    const float shimGrainSamples = 0.04f * (float) sampleRate;
+    const size_t sLen = shimBufL.size();
+
+    // FX 14: Spring Reverb
+    const float spTension = 0.4f + p.ifx1 * 0.52f;
+    const float spBoing = 0.2f + p.ifx2 * 0.6f;
+    const float spDampAlpha = 1.0f - std::exp(-juce::MathConstants<float>::twoPi * (800.f + (1.f - p.ifx3) * 6000.f) / (float) sampleRate);
+    const float spMix = p.ifx4;
+    const size_t spLen = springBufL.size();
+
+    // FX 15: Gated Reverb
+    const int gateDurationSamples = (int) ((0.035f + p.ifx1 * 0.38f) * (float) sampleRate);
+    const float gateToneAlpha = 1.0f - std::exp(-juce::MathConstants<float>::twoPi * (1000.f + p.ifx3 * 9000.f) / (float) sampleRate);
+    const float gateMix = p.ifx4;
+    const size_t gLen = gateBufL.size();
+
+    // FX 16: Ping-Pong Delay
+    const size_t ppSamples = (size_t) juce::jlimit(64.0, (double) ppDlyL.size() - 8.0, (0.02 + (double) p.ifx1 * 0.75) * sampleRate);
+    const float ppFb = juce::jlimit(0.f, 0.86f, p.ifx2);
+    const float ppDampAlpha = 1.0f - std::exp(-juce::MathConstants<float>::twoPi * (1500.f + (1.f - p.ifx3) * 12000.f) / (float) sampleRate);
+    const float ppMix = p.ifx4;
+    const size_t ppLen = ppDlyL.size();
+
+    // FX 17: Filtered Dub Delay
+    const size_t dubSamples = (size_t) juce::jlimit(64.0, (double) dubDlyL.size() - 8.0, (0.03 + (double) p.ifx1 * 0.85) * sampleRate);
+    const float dubFb = juce::jlimit(0.f, 0.94f, p.ifx2);
+    const float dubCut = juce::jlimit(120.f, 9000.f, 150.f + p.ifx3 * 8000.f);
+    const float dubF = 2.0f * std::sin(juce::MathConstants<float>::pi * dubCut / (float) sampleRate);
+    const float dubQ = 2.0f;
+    const float dubMix = p.ifx4;
+    const size_t dubLen = dubDlyL.size();
+
+    // FX 18: Tube Saturator
+    const float tubeGain = 1.0f + p.ifx1 * 22.0f;
+    const float tubeBias = p.ifx2 * 0.6f;
+    const float tubeToneCut = 1500.f + p.ifx3 * 10000.f;
+    const float tubeToneAlpha = 1.0f - std::exp(-juce::MathConstants<float>::twoPi * tubeToneCut / (float) sampleRate);
+    const float tubeMix = p.ifx4;
+
+    // FX 19: Wavefolder
+    const float foldGain = 1.0f + p.ifx1 * 14.0f;
+    const float foldSym = (p.ifx2 - 0.5f) * 0.4f;
+    const float foldSmoothAlpha = 1.0f - std::exp(-juce::MathConstants<float>::twoPi * (1000.f + (1.f - p.ifx3) * 12000.f) / (float) sampleRate);
+    const float foldMix = p.ifx4;
+
+    // FX 20: Frequency Shifter
+    const float shiftHz = (p.ifx1 - 0.5f) * 1000.0f; // -500 Hz to +500 Hz
+    const float fsInc = juce::MathConstants<float>::twoPi * shiftHz / (float) sampleRate;
+    const float fsFb = juce::jlimit(0.f, 0.85f, p.ifx2);
+    const float fsDir = p.ifx3;
+    const float fsMix = p.ifx4;
+
+    // FX 21: Stereo Detuner
+    const float detuneCents = 1.0f + p.ifx1 * 36.0f;
+    const float detRatioL = std::pow(2.0f, detuneCents / 1200.0f);
+    const float detRatioR = std::pow(2.0f, -detuneCents / 1200.0f);
+    const float grainSize = 0.03f * (float) sampleRate;
+    const float gRateL = (1.0f - detRatioL) / grainSize;
+    const float gRateR = (1.0f - detRatioR) / grainSize;
+    const float detSpreadSamples = (0.003f + p.ifx2 * 0.022f) * (float) sampleRate;
+    const float detFb = juce::jlimit(0.f, 0.70f, p.ifx3);
+    const float detMix = p.ifx4;
+    const size_t dLen = detuneBufL.size();
 
     for (int i = 0; i < n; ++i)
     {
@@ -502,6 +672,301 @@ void PadChain::process(float* L, float* R, int n, const PadParams& p)
                 y += (y * carrier - y) * rMix;
                 break;
             }
+            case 12: // Hall Reverb (8-delay FDN)
+            {
+                const float inSum = (x + y) * 0.5f;
+                float outs[8];
+                for (int k = 0; k < 8; ++k)
+                {
+                    outs[k] = hallBuf[k][(size_t) hallWrite[k]];
+                    hallDamp[k] += (outs[k] - hallDamp[k]) * hallDampAlpha;
+                }
+                // 8x8 Householder reflection matrix
+                float sumDamp = 0.f;
+                for (int k = 0; k < 8; ++k) sumDamp += hallDamp[k];
+                const float hSub = sumDamp * 0.25f;
+
+                for (int k = 0; k < 8; ++k)
+                {
+                    hallBuf[k][(size_t) hallWrite[k]] = inSum + (hallDamp[k] - hSub) * hallFb;
+                    hallWrite[k] = (hallWrite[k] + 1) % (int) hallBuf[k].size();
+                }
+                const float wetL = (outs[0] + outs[2] + outs[4] + outs[6]) * 0.25f;
+                const float wetR = (outs[1] + outs[3] + outs[5] + outs[7]) * 0.25f;
+                x += (wetL - x) * hallMix;
+                y += (wetR - y) * hallMix;
+                break;
+            }
+            case 13: // Shimmer Reverb (FDN with octave-up pitch in feedback)
+            {
+                const float inSum = (x + y) * 0.5f;
+                shimPhase += shimGrainRate;
+                while (shimPhase >= 1.0f) shimPhase -= 1.0f;
+                while (shimPhase < 0.0f)  shimPhase += 1.0f;
+                const float ph1 = shimPhase;
+                float ph2 = shimPhase + 0.5f;
+                if (ph2 >= 1.0f) ph2 -= 1.0f;
+                const float w1 = 1.0f - std::abs(2.0f * ph1 - 1.0f);
+                const float w2 = 1.0f - std::abs(2.0f * ph2 - 1.0f);
+
+                double rp1 = (double) shimWrite - (double) (ph1 * shimGrainSamples);
+                while (rp1 < 0.0) rp1 += (double) sLen;
+                double rp2 = (double) shimWrite - (double) (ph2 * shimGrainSamples);
+                while (rp2 < 0.0) rp2 += (double) sLen;
+
+                const size_t i0_1 = (size_t) rp1 % sLen;
+                const size_t i0_2 = (size_t) rp2 % sLen;
+                const float pitchOutL = shimBufL[i0_1] * w1 + shimBufL[i0_2] * w2;
+                const float pitchOutR = shimBufR[i0_1] * w1 + shimBufR[i0_2] * w2;
+
+                shimDampL += (pitchOutL - shimDampL) * shimDampAlpha;
+                shimDampR += (pitchOutR - shimDampR) * shimDampAlpha;
+
+                const float readL = shimBufL[(size_t) shimWrite];
+                const float readR = shimBufR[(size_t) shimWrite];
+
+                shimBufL[(size_t) shimWrite] = std::tanh(inSum + (readR * 0.35f + shimDampL * shimOctaveAmt) * shimFb);
+                shimBufR[(size_t) shimWrite] = std::tanh(inSum + (readL * 0.35f + shimDampR * shimOctaveAmt) * shimFb);
+                shimWrite = (shimWrite + 1) % (int) sLen;
+
+                x += (readL - x) * shimMix;
+                y += (readR - y) * shimMix;
+                break;
+            }
+            case 14: // Spring Reverb (Dispersive allpasses + dual tank)
+            {
+                const float inL = x, inR = y;
+                const float c1 = 0.6f * spBoing, c2 = 0.5f * spBoing, c3 = 0.4f * spBoing;
+                float apL1 = inL - c1 * spApL[0]; float outApL1 = spApL[0] + c1 * apL1; spApL[0] = apL1;
+                float apL2 = outApL1 - c2 * spApL[1]; float outApL2 = spApL[1] + c2 * apL2; spApL[1] = apL2;
+                float apL3 = outApL2 - c3 * spApL[2]; float outApL3 = spApL[2] + c3 * apL3; spApL[2] = apL3;
+
+                float apR1 = inR - c1 * spApR[0]; float outApR1 = spApR[0] + c1 * apR1; spApR[0] = apR1;
+                float apR2 = outApR1 - c2 * spApR[1]; float outApR2 = spApR[1] + c2 * apR2; spApR[1] = apR2;
+                float apR3 = outApR2 - c3 * spApR[2]; float outApR3 = spApR[2] + c3 * apR3; spApR[2] = apR3;
+
+                const size_t spDlyL = (size_t) (0.027 * sampleRate);
+                const size_t spDlyR = (size_t) (0.034 * sampleRate);
+                double rpL = (double) springWrite - (double) spDlyL;
+                while (rpL < 0.0) rpL += (double) spLen;
+                double rpR = (double) springWrite - (double) spDlyR;
+                while (rpR < 0.0) rpR += (double) spLen;
+
+                const float tankOutL = springBufL[(size_t) rpL % spLen];
+                const float tankOutR = springBufR[(size_t) rpR % spLen];
+
+                springDampL += (tankOutL - springDampL) * spDampAlpha;
+                springDampR += (tankOutR - springDampR) * spDampAlpha;
+
+                springBufL[(size_t) springWrite] = std::tanh(outApL3 + springDampR * spTension);
+                springBufR[(size_t) springWrite] = std::tanh(outApR3 + springDampL * spTension);
+                springWrite = (springWrite + 1) % (int) spLen;
+
+                x += (springDampL - x) * spMix;
+                y += (springDampR - y) * spMix;
+                break;
+            }
+            case 15: // Gated Reverb (Early reflections + timed gate envelope)
+            {
+                const float inSig = std::abs(x) + std::abs(y);
+                if (inSig > 0.04f)
+                    gateTimer = gateDurationSamples;
+                else if (gateTimer > 0)
+                    --gateTimer;
+
+                const float gateGain = gateTimer > 0 ? 1.0f : 0.0f;
+                gateEnv += (gateGain - gateEnv) * 0.05f;
+
+                const size_t gW = (size_t) gateWrite;
+                gateBufL[gW] = x;
+                gateBufR[gW] = y;
+
+                static const float gTaps[6] = { 0.012f, 0.027f, 0.045f, 0.068f, 0.092f, 0.125f };
+                float refL = 0.f, refR = 0.f;
+                for (int k = 0; k < 6; ++k)
+                {
+                    double rpL = (double) gW - (double) (gTaps[k] * sampleRate);
+                    while (rpL < 0.0) rpL += (double) gLen;
+                    double rpR = (double) gW - (double) ((gTaps[k] + 0.007f) * sampleRate);
+                    while (rpR < 0.0) rpR += (double) gLen;
+                    refL += gateBufL[(size_t) rpL % gLen] * (1.0f - (float) k * 0.12f);
+                    refR += gateBufR[(size_t) rpR % gLen] * (1.0f - (float) k * 0.12f);
+                }
+                gateWrite = (gateWrite + 1) % (int) gLen;
+                refL = std::tanh(refL * 0.8f) * gateEnv;
+                refR = std::tanh(refR * 0.8f) * gateEnv;
+
+                x += (refL - x) * gateMix;
+                y += (refR - y) * gateMix;
+                break;
+            }
+            case 16: // Ping-Pong Delay (Cross-feedback stereo delay)
+            {
+                double rpL = (double) ppWriteL - (double) ppSamples;
+                while (rpL < 0.0) rpL += (double) ppLen;
+                double rpR = (double) ppWriteR - (double) ppSamples;
+                while (rpR < 0.0) rpR += (double) ppLen;
+
+                const size_t iL0 = (size_t) rpL % ppLen;
+                const size_t iL1 = (iL0 + 1) % ppLen;
+                const float fracL = (float) (rpL - std::floor(rpL));
+                const float dlyOutL = ppDlyL[iL0] + fracL * (ppDlyL[iL1] - ppDlyL[iL0]);
+
+                const size_t iR0 = (size_t) rpR % ppLen;
+                const size_t iR1 = (iR0 + 1) % ppLen;
+                const float fracR = (float) (rpR - std::floor(rpR));
+                const float dlyOutR = ppDlyR[iR0] + fracR * (ppDlyR[iR1] - ppDlyR[iR0]);
+
+                ppDampL += (dlyOutL - ppDampL) * ppDampAlpha;
+                ppDampR += (dlyOutR - ppDampR) * ppDampAlpha;
+
+                ppDlyL[(size_t) ppWriteL] = std::tanh(x + ppDampR * ppFb);
+                ppDlyR[(size_t) ppWriteR] = std::tanh(y + ppDampL * ppFb);
+                ppWriteL = (ppWriteL + 1) % (int) ppLen;
+                ppWriteR = (ppWriteR + 1) % (int) ppLen;
+
+                x += (dlyOutL - x) * ppMix;
+                y += (dlyOutR - y) * ppMix;
+                break;
+            }
+            case 17: // Filtered Dub Delay (Resonant lowpass in feedback loop)
+            {
+                double rp = (double) dubWrite - (double) dubSamples;
+                while (rp < 0.0) rp += (double) dubLen;
+                const size_t i0 = (size_t) rp % dubLen;
+                const size_t i1 = (i0 + 1) % dubLen;
+                const float frac = (float) (rp - std::floor(rp));
+                const float dL = dubDlyL[i0] + frac * (dubDlyL[i1] - dubDlyL[i0]);
+                const float dR = dubDlyR[i0] + frac * (dubDlyR[i1] - dubDlyR[i0]);
+
+                dubFiltL1 += dubF * (dL - dubFiltL1 - dubFiltL2 / dubQ);
+                dubFiltL2 += dubF * dubFiltL1;
+                dubFiltR1 += dubF * (dR - dubFiltR1 - dubFiltR2 / dubQ);
+                dubFiltR2 += dubF * dubFiltR1;
+
+                const float fbL = std::tanh(dubFiltL2 * 1.1f);
+                const float fbR = std::tanh(dubFiltR2 * 1.1f);
+
+                dubDlyL[(size_t) dubWrite] = std::tanh(x + fbL * dubFb);
+                dubDlyR[(size_t) dubWrite] = std::tanh(y + fbR * dubFb);
+                dubWrite = (dubWrite + 1) % (int) dubLen;
+
+                x += (dL - x) * dubMix;
+                y += (dR - y) * dubMix;
+                break;
+            }
+            case 18: // Tube Saturator (Triode warm saturation)
+            {
+                const float inL_t = x * tubeGain;
+                const float inR_t = y * tubeGain;
+                float satL = (inL_t + tubeBias * inL_t * std::abs(inL_t)) / (1.0f + std::abs(inL_t));
+                float satR = (inR_t + tubeBias * inR_t * std::abs(inR_t)) / (1.0f + std::abs(inR_t));
+                tubeToneL += (satL - tubeToneL) * tubeToneAlpha;
+                tubeToneR += (satR - tubeToneR) * tubeToneAlpha;
+                x += (tubeToneL - x) * tubeMix;
+                y += (tubeToneR - y) * tubeMix;
+                break;
+            }
+            case 19: // Wavefolder (West-coast multi-stage wavefolding)
+            {
+                float sL = (x + foldSym) * foldGain;
+                float sR = (y + foldSym) * foldGain;
+                sL = std::sin(sL * 1.5707963f);
+                sL = std::sin(sL * 1.5707963f * (1.0f + p.ifx1 * 1.5f));
+                sR = std::sin(sR * 1.5707963f);
+                sR = std::sin(sR * 1.5707963f * (1.0f + p.ifx1 * 1.5f));
+
+                foldSmL += (sL - foldSmL) * foldSmoothAlpha;
+                foldSmR += (sR - foldSmR) * foldSmoothAlpha;
+                x += (foldSmL - x) * foldMix;
+                y += (foldSmR - y) * foldMix;
+                break;
+            }
+            case 20: // Frequency Shifter (Quadrature Hilbert Transform)
+            {
+                freqShiftPhase += fsInc;
+                if (freqShiftPhase > juce::MathConstants<float>::twoPi)  freqShiftPhase -= juce::MathConstants<float>::twoPi;
+                if (freqShiftPhase < -juce::MathConstants<float>::twoPi) freqShiftPhase += juce::MathConstants<float>::twoPi;
+
+                const float cosCar = std::cos(freqShiftPhase);
+                const float sinCar = std::sin(freqShiftPhase);
+
+                static const float c1[4] = { 0.161758f, 0.733029f, 0.945350f, 0.990598f };
+                static const float c2[4] = { 0.479401f, 0.876218f, 0.976599f, 0.997500f };
+
+                const float inL_fs = x + fsFbL * fsFb;
+                const float inR_fs = y + fsFbR * fsFb;
+
+                float x1L = inL_fs, x1R = inR_fs;
+                for (int k = 0; k < 4; ++k)
+                {
+                    float yL = c1[k] * (x1L - hilb1_L[k]) + hilb1_L[k];
+                    hilb1_L[k] = x1L; x1L = yL;
+                    float yR = c1[k] * (x1R - hilb1_R[k]) + hilb1_R[k];
+                    hilb1_R[k] = x1R; x1R = yR;
+                }
+                float x2L = inL_fs, x2R = inR_fs;
+                for (int k = 0; k < 4; ++k)
+                {
+                    float yL = c2[k] * (x2L - hilb2_L[k]) + hilb2_L[k];
+                    hilb2_L[k] = x2L; x2L = yL;
+                    float yR = c2[k] * (x2R - hilb2_R[k]) + hilb2_R[k];
+                    hilb2_R[k] = x2R; x2R = yR;
+                }
+
+                const float upL = x1L * cosCar - x2L * sinCar;
+                const float downL = x1L * cosCar + x2L * sinCar;
+                const float shiftL = downL * (1.0f - fsDir) + upL * fsDir;
+
+                const float upR = x1R * cosCar - x2R * sinCar;
+                const float downR = x1R * cosCar + x2R * sinCar;
+                const float shiftR = downR * (1.0f - fsDir) + upR * fsDir;
+
+                fsFbL = std::tanh(shiftL);
+                fsFbR = std::tanh(shiftR);
+
+                x += (shiftL - x) * fsMix;
+                y += (shiftR - y) * fsMix;
+                break;
+            }
+            case 21: // Stereo Detuner (Dual micro-pitch grains)
+            {
+                detunePhaseL += gRateL;
+                while (detunePhaseL >= 1.0f) detunePhaseL -= 1.0f;
+                while (detunePhaseL < 0.0f)  detunePhaseL += 1.0f;
+                detunePhaseR += gRateR;
+                while (detunePhaseR >= 1.0f) detunePhaseR -= 1.0f;
+                while (detunePhaseR < 0.0f)  detunePhaseR += 1.0f;
+
+                const float wL1 = 1.0f - std::abs(2.0f * detunePhaseL - 1.0f);
+                float phL2 = detunePhaseL + 0.5f; if (phL2 >= 1.0f) phL2 -= 1.0f;
+                const float wL2 = 1.0f - std::abs(2.0f * phL2 - 1.0f);
+
+                const float wR1 = 1.0f - std::abs(2.0f * detunePhaseR - 1.0f);
+                float phR2 = detunePhaseR + 0.5f; if (phR2 >= 1.0f) phR2 -= 1.0f;
+                const float wR2 = 1.0f - std::abs(2.0f * phR2 - 1.0f);
+
+                double rpL1 = (double) detuneWrite - (double) (detunePhaseL * grainSize);
+                while (rpL1 < 0.0) rpL1 += (double) dLen;
+                double rpL2 = (double) detuneWrite - (double) (phL2 * grainSize);
+                while (rpL2 < 0.0) rpL2 += (double) dLen;
+
+                double rpR1 = (double) detuneWrite - (double) (detunePhaseR * grainSize + detSpreadSamples);
+                while (rpR1 < 0.0) rpR1 += (double) dLen;
+                double rpR2 = (double) detuneWrite - (double) (phR2 * grainSize + detSpreadSamples);
+                while (rpR2 < 0.0) rpR2 += (double) dLen;
+
+                const float outL_det = detuneBufL[(size_t) rpL1 % dLen] * wL1 + detuneBufL[(size_t) rpL2 % dLen] * wL2;
+                const float outR_det = detuneBufR[(size_t) rpR1 % dLen] * wR1 + detuneBufR[(size_t) rpR2 % dLen] * wR2;
+
+                detuneBufL[(size_t) detuneWrite] = std::tanh(x + outL_det * detFb);
+                detuneBufR[(size_t) detuneWrite] = std::tanh(y + outR_det * detFb);
+                detuneWrite = (detuneWrite + 1) % (int) dLen;
+
+                x += (outL_det - x) * detMix;
+                y += (outR_det - y) * detMix;
+                break;
+            }
             default:
                 break;
         }
@@ -519,6 +984,21 @@ void PadChain::process(float* L, float* R, int n, const PadParams& p)
         juce::dsp::ProcessContextReplacing<float> ctx(block);
         if (fx == 2) chorus.process(ctx);
         else         phaser.process(ctx);
+    }
+
+    // Output 5 Hz DC blocker to cleanse sub-audible DC bias
+    const float R_dc = 1.0f - (float) (juce::MathConstants<double>::twoPi * 5.0 / sampleRate);
+    for (int i = 0; i < n; ++i)
+    {
+        const float inL = L[i];
+        dcY_L = inL - dcX_L + R_dc * dcY_L;
+        dcX_L = inL;
+        L[i] = dcY_L;
+
+        const float inR = R[i];
+        dcY_R = inR - dcX_R + R_dc * dcY_R;
+        dcX_R = inR;
+        R[i] = dcY_R;
     }
 }
 

@@ -214,12 +214,246 @@ public:
         int slot = 0;
     };
 
-    explicit SourceRow(ModPanel& o) : owner(o)
+    class MiniVisualizer : public juce::Component, public juce::SettableTooltipClient
+    {
+    public:
+        MiniVisualizer(ModMatrix& m, int s) : matrix(m), slot(s)
+        {
+            setInterceptsMouseClicks(true, false);
+            setTooltip("Click to open editor");
+        }
+
+        void setSlot(int s, juce::ValueTree tree)
+        {
+            slot = s;
+            st = tree;
+            repaint();
+        }
+
+        void mouseUp(const juce::MouseEvent&) override
+        {
+            if (auto* row = findParentComponentOfClass<SourceRow>())
+                row->openEditor();
+        }
+
+        void paint(juce::Graphics& g) override
+        {
+            auto bounds = getLocalBounds().toFloat().reduced(1.f, 2.f);
+            if (bounds.getWidth() < 12.f || bounds.getHeight() < 6.f)
+                return;
+
+            // Sleek inset plate
+            g.setColour(ui::panelHi().darker(0.2f));
+            g.fillRoundedRectangle(bounds, 3.f);
+            g.setColour(ui::line().withAlpha(0.55f));
+            g.drawRoundedRectangle(bounds, 3.f, 1.f);
+
+            const auto col = slotColour(slot);
+            const float liveVal = matrix.sourceAverage(slot);
+            const int sClass = slotClassOf(slot);
+            const float w = bounds.getWidth();
+            const float h = bounds.getHeight();
+            const float midY = bounds.getY() + h * 0.5f;
+
+            if (sClass == SC_LFO)
+            {
+                const int shape = (int) st.getProperty("shape", 0);
+                const bool uni = bool(st.getProperty("uni", false));
+                const float phaseOffset = (float) (double) st.getProperty("phase", 0.0);
+
+                if (! uni)
+                {
+                    g.setColour(ui::line().withAlpha(0.35f));
+                    g.drawHorizontalLine((int) midY, bounds.getX() + 2.f, bounds.getRight() - 2.f);
+                }
+
+                juce::Path p;
+                const int numPts = (int) w - 4;
+                for (int i = 0; i <= numPts; ++i)
+                {
+                    float t = (float) i / (float) juce::jmax(1, numPts) + phaseOffset;
+                    t = t - std::floor(t);
+                    float v = 0.f;
+                    switch (shape)
+                    {
+                        case 0: v = std::sin(t * juce::MathConstants<float>::twoPi); break;
+                        case 1: v = 1.0f - 4.0f * std::abs(std::round(t - 0.25f) - (t - 0.25f)); break;
+                        case 2: v = 1.0f - 2.0f * t; break;
+                        case 3: v = t < 0.5f ? 1.0f : -1.0f; break;
+                        case 4:
+                        {
+                            static const float shVals[8] = { 0.8f, -0.4f, 0.6f, -0.9f, 0.2f, 0.7f, -0.5f, 0.1f };
+                            v = shVals[int(t * 8.0f) % 8];
+                            break;
+                        }
+                        case 5:
+                        {
+                            float pos = t * 8.0f;
+                            int s0 = (int) pos;
+                            int s1 = (s0 + 1) % 8;
+                            float frac = pos - (float) s0;
+                            static const float shVals[8] = { 0.8f, -0.4f, 0.6f, -0.9f, 0.2f, 0.7f, -0.5f, 0.1f };
+                            v = shVals[s0 % 8] * (1.f - frac) + shVals[s1] * frac;
+                            break;
+                        }
+                        default: v = std::sin(t * juce::MathConstants<float>::twoPi); break;
+                    }
+
+                    float py = uni ? (bounds.getBottom() - 3.f - juce::jlimit(0.f, 1.f, 0.5f + 0.5f * v) * (h - 6.f))
+                                   : (midY - v * (h * 0.38f));
+                    float px = bounds.getX() + 2.f + (float) i;
+                    if (i == 0) p.startNewSubPath(px, py);
+                    else        p.lineTo(px, py);
+                }
+
+                juce::Path fillP = p;
+                fillP.lineTo(bounds.getRight() - 2.f, uni ? bounds.getBottom() - 3.f : midY);
+                fillP.lineTo(bounds.getX() + 2.f, uni ? bounds.getBottom() - 3.f : midY);
+                fillP.closeSubPath();
+                g.setColour(col.withAlpha(0.18f));
+                g.fillPath(fillP);
+
+                g.setColour(col.withAlpha(0.9f));
+                g.strokePath(p, juce::PathStrokeType(1.5f));
+
+                // Real-time animated indicator bead
+                float beadY = uni ? (bounds.getBottom() - 3.f - juce::jlimit(0.f, 1.f, liveVal) * (h - 6.f))
+                                  : (midY - juce::jlimit(-1.f, 1.f, liveVal) * (h * 0.38f));
+                float beadX = bounds.getX() + bounds.getWidth() * 0.5f;
+                g.setColour(juce::Colours::white);
+                g.fillEllipse(beadX - 2.5f, beadY - 2.5f, 5.f, 5.f);
+                g.setColour(col.withAlpha(0.7f));
+                g.drawEllipse(beadX - 4.f, beadY - 4.f, 8.f, 8.f, 1.2f);
+            }
+            else if (sClass == SC_RND)
+            {
+                const int kind = (int) st.getProperty("kind", 0);
+                juce::Path p;
+                static const float rndPts[10] = { 0.2f, -0.6f, 0.8f, -0.3f, 0.9f, -0.7f, 0.4f, -0.1f, 0.5f, -0.5f };
+                const int numPts = (int) w - 4;
+                for (int i = 0; i <= numPts; ++i)
+                {
+                    float t = (float) i / (float) juce::jmax(1, numPts);
+                    float v = 0.f;
+                    if (kind == 0)
+                    {
+                        int step = (int) (t * 6.0f);
+                        v = rndPts[step % 10];
+                    }
+                    else if (kind == 4)
+                    {
+                        v = std::sin(t * 12.0f) * 0.5f + std::cos(t * 7.5f) * 0.4f;
+                    }
+                    else
+                    {
+                        float pos = t * 6.0f;
+                        int s0 = (int) pos;
+                        int s1 = (s0 + 1) % 10;
+                        float frac = pos - (float) s0;
+                        v = rndPts[s0 % 10] * (1.f - frac) + rndPts[s1] * frac;
+                    }
+                    float py = midY - v * (h * 0.36f);
+                    float px = bounds.getX() + 2.f + (float) i;
+                    if (i == 0) p.startNewSubPath(px, py);
+                    else        p.lineTo(px, py);
+                }
+                g.setColour(col.withAlpha(0.85f));
+                g.strokePath(p, juce::PathStrokeType(1.4f));
+
+                float beadY = midY - juce::jlimit(-1.f, 1.f, liveVal) * (h * 0.36f);
+                float beadX = bounds.getX() + bounds.getWidth() * 0.5f;
+                g.setColour(juce::Colours::white);
+                g.fillEllipse(beadX - 2.5f, beadY - 2.5f, 5.f, 5.f);
+                g.setColour(col);
+                g.drawEllipse(beadX - 4.f, beadY - 4.f, 8.f, 8.f, 1.2f);
+            }
+            else if (sClass == SC_ENV)
+            {
+                const float a = juce::jlimit(0.05f, 0.4f, (float) (double) st.getProperty("atk", 0.05));
+                const float d = juce::jlimit(0.05f, 0.4f, (float) (double) st.getProperty("dec", 0.1));
+                const float s = juce::jlimit(0.0f, 1.0f, (float) (double) st.getProperty("sus", 0.7));
+                const float r = juce::jlimit(0.05f, 0.4f, (float) (double) st.getProperty("rel", 0.15));
+
+                juce::Path p;
+                const float startX = bounds.getX() + 2.f;
+                const float endX = bounds.getRight() - 2.f;
+                const float botY = bounds.getBottom() - 3.f;
+                const float topY = bounds.getY() + 3.f;
+                const float totalW = endX - startX;
+
+                const float aW = totalW * 0.25f;
+                const float dW = totalW * 0.25f;
+                const float sW = totalW * 0.25f;
+
+                p.startNewSubPath(startX, botY);
+                p.lineTo(startX + aW, topY);
+                const float susY = botY - s * (botY - topY);
+                p.lineTo(startX + aW + dW, susY);
+                p.lineTo(startX + aW + dW + sW, susY);
+                p.lineTo(startX + totalW, botY);
+
+                juce::Path fillP = p;
+                fillP.lineTo(endX, botY);
+                fillP.closeSubPath();
+                g.setColour(col.withAlpha(0.2f));
+                g.fillPath(fillP);
+
+                g.setColour(col);
+                g.strokePath(p, juce::PathStrokeType(1.5f));
+
+                float beadY = botY - juce::jlimit(0.f, 1.f, liveVal) * (botY - topY);
+                g.setColour(juce::Colours::white);
+                g.fillEllipse(startX + aW * 0.5f - 2.5f, beadY - 2.5f, 5.f, 5.f);
+            }
+            else if (sClass == SC_SEQ)
+            {
+                const int numSteps = juce::jlimit(1, 16, (int) st.getProperty("len", 8));
+                const float barW = (w - 4.f) / (float) numSteps;
+                const float botY = bounds.getBottom() - 3.f;
+                const float availH = h - 6.f;
+
+                for (int step = 0; step < numSteps; ++step)
+                {
+                    float v = (float) (double) st.getProperty("s" + juce::String(step), 0.5);
+                    float barH = juce::jlimit(1.f, availH, v * availH);
+                    float bx = bounds.getX() + 2.f + (float) step * barW;
+
+                    g.setColour(col.withAlpha(0.6f));
+                    g.fillRect(bx + 1.f, botY - barH, barW - 1.5f, barH);
+                }
+                g.setColour(juce::Colours::white.withAlpha(0.7f));
+                float liveH = juce::jlimit(0.f, availH, liveVal * availH);
+                g.drawHorizontalLine((int) (botY - liveH), bounds.getX() + 2.f, bounds.getRight() - 2.f);
+            }
+            else if (sClass == SC_MIDI || sClass == SC_MACRO)
+            {
+                const float botY = bounds.getBottom() - 3.f;
+                const float topY = bounds.getY() + 3.f;
+                const float availH = botY - topY;
+                const float fillW = juce::jlimit(0.f, 1.f, (liveVal + 1.f) * 0.5f) * (w - 6.f);
+
+                g.setColour(col.withAlpha(0.35f));
+                g.fillRoundedRectangle(bounds.getX() + 2.f, topY, fillW, availH, 2.f);
+
+                g.setColour(juce::Colours::white);
+                g.fillRect(bounds.getX() + 2.f + fillW - 2.f, topY, 2.5f, availH);
+            }
+        }
+
+    private:
+        ModMatrix& matrix;
+        int slot = 0;
+        juce::ValueTree st;
+    };
+
+    explicit SourceRow(ModPanel& o) : owner(o), visualizer(o.matrixRef, 0)
     {
         addAndMakeVisible(badge);
-        name.setFont(uiFont(11.5f));
+        name.setFont(uiFont(10.5f));
         name.setColour(juce::Label::textColourId, ui::txt());
         addAndMakeVisible(name);
+
+        addAndMakeVisible(visualizer);
 
         ui::styleToggle(enable);
         enable.onClick = [this]
@@ -230,8 +464,13 @@ public:
 
         edit.setButtonText(">");
         ui::styleButton(edit);
-        edit.onClick = [this] { owner.openSourceEditor(slot, &edit); };
+        edit.onClick = [this] { openEditor(); };
         addAndMakeVisible(edit);
+    }
+
+    void openEditor()
+    {
+        owner.openSourceEditor(slot, &edit);
     }
 
     void setSlot(int s)
@@ -245,17 +484,21 @@ public:
         edit.setVisible(hasState);
         if (hasState)
             enable.setToggleState(bool(st.getProperty("enabled", false)), juce::dontSendNotification);
+        visualizer.setSlot(s, st);
         repaint();
     }
 
     void resized() override
     {
-        auto r = getLocalBounds().reduced(3, 3);
+        auto r = getLocalBounds().reduced(3, 2);
         badge.setBounds(r.removeFromLeft(18));
-        edit.setBounds(r.removeFromRight(22));
-        enable.setBounds(r.removeFromRight(24));
+        edit.setBounds(r.removeFromRight(20));
+        enable.setBounds(r.removeFromRight(22));
         r.removeFromLeft(4);
-        name.setBounds(r);
+        name.setBounds(r.removeFromLeft(52));
+        r.removeFromLeft(4);
+        r.removeFromRight(4);
+        visualizer.setBounds(r);
     }
 
     void paint(juce::Graphics& g) override
@@ -269,6 +512,7 @@ private:
     int slot = 0;
     Badge badge;
     juce::Label name;
+    MiniVisualizer visualizer;
     juce::ToggleButton enable;
     juce::TextButton edit;
 };
@@ -1020,12 +1264,20 @@ ModPanel::ModPanel(ModMatrix& m, juce::ValueTree, juce::ValueTree matTree, Forge
 
     conns = std::make_unique<ConnectionList>(m, matTree);
     addAndMakeVisible(conns.get());
+
+    startTimerHz(30);
 }
 
 ModPanel::~ModPanel()
 {
+    stopTimer();
     inspector.reset();
     sourceList.setModel(nullptr);
+}
+
+void ModPanel::timerCallback()
+{
+    sourceList.repaint();
 }
 
 void ModPanel::resized()
