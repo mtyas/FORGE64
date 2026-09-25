@@ -18,6 +18,7 @@ constexpr int kNumPads      = kNumBanks * kPadsPerBank;
 constexpr int kNumBuses     = 16;
 constexpr int kNumChokes    = 16;
 constexpr int kMaxVoices    = 64;
+constexpr int kMaxPolyphony = 24;
 constexpr int kEnvInstances = 16;
 
 constexpr int kNumLFO = 10, kNumRnd = 10, kNumEnv = 10, kNumSeq = 10;

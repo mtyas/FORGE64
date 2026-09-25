@@ -27,6 +27,8 @@ public:
     bool renderPad(int pad, float* L, float* R, int n, double sr, const PadParams& pp,
                    const std::vector<TimedEvent>& events);
 
+    static constexpr int kMaxPolyphony = f64::kMaxPolyphony;
+
     bool padActive(int pad) const { return (activeMask & (1ull << pad)) != 0; }
     void allNotesOff();
     int  activeCount() const;

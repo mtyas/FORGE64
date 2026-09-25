@@ -72,6 +72,7 @@ public:
 
     void triggerAudition(int pad, float velocity = 0.9f);
     void triggerStepAudition(int pad, float velocity, const StepData& stepData);
+    void allNotesOff() { voices.allNotesOff(); }
     int getLastTriggeredPad() const { return lastTriggeredPad.load(); }
 
     float getMasterPeakL() const { return masterPeakL.load(); }
@@ -142,6 +143,7 @@ private:
     std::vector<float> scratchL, scratchR;
     std::array<std::vector<VoicePool::TimedEvent>, kNumPads> padEvents;
     std::array<int, kNumPads> padTailHold {};
+    float dynamicSummingGain = 1.0f;
     std::array<std::vector<int>, 128> noteMap;
     std::array<int, 17> chromMap {};
     std::vector<RawMidiEv> rawEvents;

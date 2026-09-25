@@ -276,6 +276,7 @@ void Forge64Processor::prepareToPlay(double sr, int maxBlock)
     voices.prepare(sr, maxBlock);
     sequencer.prepare(sr);
     padTailHold.fill(0);
+    dynamicSummingGain = 1.0f;
 
     busScratch.setSize(2 * kNumBuses, maxBlock, false, false, true);
     auxA.setSize(2, maxBlock, false, false, true);
@@ -674,6 +675,95 @@ void Forge64Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::Midi
         }
     }
 
+    // Polyphony Guard & Simultaneous Burst Limiter:
+    // If a burst of pad triggers arrives in a single block (e.g. hitting all pads simultaneously),
+    // prioritize the most musically significant pads up to kMaxPolyphony so the audio engine
+    // doesn't attempt to start 64 simultaneous voices, avoiding CPU underrun and chaotic voice stealing.
+    int totalNewPadHits = 0;
+    for (int p = 0; p < kNumPads; ++p)
+    {
+        for (const auto& te : padEvents[(size_t) p])
+        {
+            if (! te.ev.isOff)
+            {
+                ++totalNewPadHits;
+                break;
+            }
+        }
+    }
+
+    if (totalNewPadHits > VoicePool::kMaxPolyphony)
+    {
+        struct TriggerCandidate
+        {
+            int pad;
+            float priority;
+        };
+        std::vector<TriggerCandidate> candidates;
+        candidates.reserve((size_t) totalNewPadHits);
+
+        for (int p = 0; p < kNumPads; ++p)
+        {
+            float maxVel = 0.f;
+            bool hasTrig = false;
+            for (const auto& te : padEvents[(size_t) p])
+            {
+                if (! te.ev.isOff)
+                {
+                    hasTrig = true;
+                    if (te.ev.vel > maxVel) maxVel = te.ev.vel;
+                }
+            }
+            if (hasTrig)
+            {
+                // Score: velocity + core drum hierarchy (Bank A: core acoustic/electronic, Bank B: heavy drums, Bank C: perc)
+                float prio = maxVel * 10.f;
+                if (p < 16)      prio += 25.f; // Bank A: Kick, Snare, Hats, Toms, Cymbals
+                else if (p < 32) prio += 15.f; // Bank B: 909, Hardstyle, Claps
+                else if (p < 48) prio += 5.f;  // Bank C: World percussion
+                candidates.push_back({ p, prio });
+            }
+        }
+
+        std::sort(candidates.begin(), candidates.end(), [](const TriggerCandidate& a, const TriggerCandidate& b) {
+            return a.priority > b.priority;
+        });
+
+        std::array<bool, kNumPads> keepPad {};
+        keepPad.fill(false);
+        const int keepCount = juce::jmin((int) candidates.size(), VoicePool::kMaxPolyphony);
+        for (int i = 0; i < keepCount; ++i)
+            keepPad[(size_t) candidates[(size_t) i].pad] = true;
+
+        for (int p = 0; p < kNumPads; ++p)
+        {
+            if (! keepPad[(size_t) p])
+            {
+                auto& evs = padEvents[(size_t) p];
+                evs.erase(std::remove_if(evs.begin(), evs.end(), [](const VoicePool::TimedEvent& te) {
+                    return ! te.ev.isOff;
+                }), evs.end());
+            }
+        }
+    }
+
+    // Dynamic Equal-Power Summing Scaler:
+    // When multiple pads sound simultaneously, scale headroom smoothly using the acoustic
+    // power-sum law (1/sqrt(N)) so summing 8, 16, or 24 pads never blows through the ceiling (+25 dBFS)
+    // into harsh square-wave clipping, while single drum hits maintain 100% full punch and volume.
+    int activeSoundingPads = 0;
+    for (int p = 0; p < kNumPads; ++p)
+    {
+        if (voices.padActive(p) || ! padEvents[(size_t) p].empty() || padTailHold[(size_t) p] > 0)
+            ++activeSoundingPads;
+    }
+
+    const float targetSumGain = (activeSoundingPads <= 1) ? 1.0f
+        : (1.0f / std::sqrt(1.0f + (float) (activeSoundingPads - 1) * 0.38f));
+
+    const float sumSmoothRate = (targetSumGain < dynamicSummingGain) ? 0.30f : 0.08f;
+    dynamicSummingGain += (targetSumGain - dynamicSummingGain) * sumSmoothRate;
+
     for (int p = 0; p < kNumPads; ++p)
     {
         const bool hasEvents = ! padEvents[(size_t) p].empty();
@@ -781,7 +871,8 @@ void Forge64Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::Midi
 
         voices.renderPad(p, scratchL.data(), scratchR.data(), n, sr, pp, padEvents[(size_t) p]);
 
-        if (rt.scriptOn.load() || pp.srcType != SRC_SAMPLE)
+        const bool padIsSounding = voices.padActive(p);
+        if (padIsSounding && (rt.scriptOn.load() || pp.srcType != SRC_SAMPLE))
         {
             const int64_t hit = rt.lastHitStamp.load();
             const double age = hit > 0 ? (double) (clockNow - hit) / sr : 0.0;
@@ -793,6 +884,12 @@ void Forge64Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::Midi
             luaEngine.process(p, scratchL.data(), scratchR.data(), n, sr,
                               rt.lastVel.load(), juce::jmax(0.0, age), ppLua, isNewTrig,
                               rt.lastNote.load());
+        }
+
+        if (! padIsSounding && ! hasEvents)
+        {
+            // If the voice was stolen or decayed away, quickly finish tail
+            padTailHold[(size_t) p] = juce::jmin(padTailHold[(size_t) p], 4);
         }
 
         const float gt = rt.gainTrim.load();
@@ -814,7 +911,7 @@ void Forge64Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::Midi
             }
         }
 
-        const float lvl = pp.level * master * gt * 0.75f; // Nominal -2.5 dB summing headroom
+        const float lvl = pp.level * master * gt * 0.75f * dynamicSummingGain; // Equal-power dynamic summing headroom
         const float pan = clampRange(pp.pan, -1.0f, 1.0f);
         const float panAngle = (pan + 1.0f) * 0.25f * 3.14159265358979323846f;
         const float panL = std::cos(panAngle) * 1.41421356f;

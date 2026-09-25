@@ -85,39 +85,128 @@ void VoicePool::applyEvent(const VoiceEvent& e, double sr, const PadParams& pp, 
         smp = rt.sample;
     }
 
-    Voice* t = nullptr;
-    int oldestIdx = -1, oldestSame = -1, sameCount = 0;
-    uint64_t oldestTick = UINT64_MAX, oldestSameTick = UINT64_MAX;
+    // Count active voices and find candidates for voice stealing
+    int totalActive = 0;
+    int samePadCount = 0;
+    int oldestSamePadIdx = -1;
+    uint64_t oldestSameTick = UINT64_MAX;
+    Voice* freeSlot = nullptr;
 
     for (int i = 0; i < kMaxVoices; ++i)
     {
         auto& v = voices[i];
         if (! v.active)
         {
-            if (t == nullptr)
-                t = &v;
+            if (freeSlot == nullptr)
+                freeSlot = &v;
             continue;
         }
-        if (v.tick < oldestTick)
-        {
-            oldestTick = v.tick;
-            oldestIdx = i;
-        }
+
+        ++totalActive;
         if (v.pad == pad)
         {
-            ++sameCount;
+            ++samePadCount;
             if (v.tick < oldestSameTick)
             {
                 oldestSameTick = v.tick;
-                oldestSame = i;
+                oldestSamePadIdx = i;
             }
         }
     }
 
-    if (sameCount >= 8 && oldestSame >= 0)
-        t = &voices[oldestSame];        // per-pad polyphony cap: steal from same pad
-    else if (t == nullptr && oldestIdx >= 0)
-        t = &voices[oldestIdx];         // global steal-oldest
+    // 1. Per-pad polyphony cap: A single drum pad should not hold more than 2 voices.
+    // If retriggering the same pad while 2 voices are already ringing, smoothly steal the oldest hit of this pad.
+    if (samePadCount >= 2 && oldestSamePadIdx >= 0)
+    {
+        auto& v = voices[oldestSamePadIdx];
+        if (v.env > 0.005f)
+            killVoice(v, sr, 2.5f);
+        else
+            deactivate(v);
+    }
+
+    // 2. Global polyphony cap (kMaxPolyphony = 24):
+    // If active voice count exceeds budget, find the best voice to steal across the engine.
+    if (totalActive >= kMaxPolyphony)
+    {
+        int stealIdx = -1;
+        float bestScore = -1e9f;
+
+        for (int i = 0; i < kMaxVoices; ++i)
+        {
+            auto& v = voices[i];
+            if (! v.active)
+                continue;
+
+            float score = 0.f;
+
+            // Choked or already fading out
+            if (v.choked || v.fade < 0.99f)
+                score += 3000.f;
+
+            // In release stage
+            if (v.inRelease || v.stage == 3)
+                score += 2000.f;
+
+            // Same pad hit
+            if (v.pad == pad)
+                score += 1500.f;
+
+            // Envelope level: quietest voices get stolen first
+            score += (1.0f - juce::jlimit(0.f, 1.f, v.env)) * 1000.f;
+
+            // Protect brand new hits under 30ms; older hits scored higher
+            if (v.ageSec > 0.03f)
+                score += juce::jmin(500.f, v.ageSec * 200.f);
+
+            if (score > bestScore)
+            {
+                bestScore = score;
+                stealIdx = i;
+            }
+        }
+
+        if (stealIdx >= 0)
+        {
+            auto& v = voices[stealIdx];
+            if (freeSlot == nullptr)
+            {
+                // Immediate reuse if completely out of physical slots
+                deactivate(v);
+                freeSlot = &v;
+            }
+            else
+            {
+                // Smooth click-free micro-fadeout (2.5ms) for the stolen voice
+                if (v.env > 0.005f)
+                    killVoice(v, sr, 2.5f);
+                else
+                    deactivate(v);
+            }
+        }
+    }
+
+    Voice* t = freeSlot;
+    if (t == nullptr)
+    {
+        // Fallback: steal oldest active voice
+        int oldestIdx = -1;
+        uint64_t oldestTick = UINT64_MAX;
+        for (int i = 0; i < kMaxVoices; ++i)
+        {
+            if (voices[i].active && voices[i].tick < oldestTick)
+            {
+                oldestTick = voices[i].tick;
+                oldestIdx = i;
+            }
+        }
+        if (oldestIdx >= 0)
+        {
+            deactivate(voices[oldestIdx]);
+            t = &voices[oldestIdx];
+        }
+    }
+
     if (t == nullptr)
         return;
 

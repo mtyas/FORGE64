@@ -101,6 +101,7 @@ void AuxBusManager::reset()
     masterCompEnv = 0.f;
     masterCompGain = 1.f;
     masterCompGR.store(0.f);
+    masterLimiterEnv = 0.f;
 }
 
 void AuxBusManager::processAux(int b, float* L, float* R, int n, const AuxBusParams& p)
@@ -759,7 +760,7 @@ void AuxBusManager::processMasterChain(float* L, float* R, int n, const MasterFX
     // 3. Master Tape Drive & Ceiling Limiter
     if (p.driveOn && p.drive > 0.001f)
     {
-        const float k = 1.0f + p.drive * 2.2f;
+        const float k = 1.0f + p.drive * 1.8f;
         for (int i = 0; i < n; ++i)
         {
             L[i] = std::tanh(L[i] * k) / k;
@@ -770,21 +771,35 @@ void AuxBusManager::processMasterChain(float* L, float* R, int n, const MasterFX
     if (p.limiterOn)
     {
         const float ceilLin = std::pow(10.f, p.ceiling / 20.f);
-        const float thresh = ceilLin * 0.707f; // completely linear up to -3 dBFS
-        const float margin = ceilLin - thresh;
+        const float atkCoef = 1.f - std::exp(-1.f / (0.0008f * (float) sampleRate)); // Fast 0.8ms attack
+        const float relCoef = 1.f - std::exp(-1.f / (0.060f * (float) sampleRate));   // Musical 60ms release
+
         for (int i = 0; i < n; ++i)
         {
-            auto softLimit = [thresh, margin, ceilLin](float x) -> float
+            const float pk = std::max(std::abs(L[i]), std::abs(R[i]));
+            if (pk > masterLimiterEnv)
+                masterLimiterEnv += (pk - masterLimiterEnv) * atkCoef;
+            else
+                masterLimiterEnv += (pk - masterLimiterEnv) * relCoef;
+
+            float gain = 1.f;
+            if (masterLimiterEnv > ceilLin)
+                gain = ceilLin / masterLimiterEnv;
+
+            L[i] *= gain;
+            R[i] *= gain;
+
+            // Safety soft-curve at ceiling to prevent digital overshoot
+            auto softCeil = [ceilLin](float x) -> float
             {
                 const float ax = std::abs(x);
-                if (ax <= thresh)
+                if (ax <= ceilLin * 0.96f)
                     return x;
-                const float excess = ax - thresh;
-                const float sat = thresh + margin * std::tanh(excess / margin);
-                return (x > 0.f ? std::min(sat, ceilLin) : -std::min(sat, ceilLin));
+                const float s = std::tanh(ax / ceilLin) * ceilLin;
+                return x > 0.f ? std::min(s, ceilLin) : -std::min(s, ceilLin);
             };
-            L[i] = softLimit(L[i]);
-            R[i] = softLimit(R[i]);
+            L[i] = softCeil(L[i]);
+            R[i] = softCeil(R[i]);
         }
     }
 }

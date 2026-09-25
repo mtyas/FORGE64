@@ -351,6 +351,7 @@ private:
 
     // --- Master Bus FX ---
     float masterCompEnv = 0.f, masterCompGain = 1.f;
+    float masterLimiterEnv = 0.f;
     std::atomic<float> masterCompGR { 0.f };
     juce::dsp::IIR::Filter<float> masterEqL[4], masterEqR[4];
     std::atomic<float> auxMeters[4];

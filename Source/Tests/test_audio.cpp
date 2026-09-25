@@ -231,6 +231,59 @@ int main(int argc, char* argv[])
         if (! pitchPassed) failedPads++;
     }
 
+    // 10. Simultaneous All-64-Pads Strike & Clean Summing Verification
+    {
+        proc->allNotesOff();
+        juce::MidiBuffer chordMidi;
+        for (int p = 0; p < 64; ++p)
+        {
+            // All 64 notes triggered simultaneously on sample 0
+            chordMidi.addEvent(juce::MidiMessage::noteOn(1, 36 + p, (juce::uint8) 120), 0);
+        }
+
+        juce::AudioBuffer<float> buf(2, 512);
+        buf.clear();
+        proc->processBlock(buf, chordMidi);
+
+        float maxPeak = 0.f;
+        bool hasNaN = false;
+        for (int ch = 0; ch < 2; ++ch)
+        {
+            const float* rd = buf.getReadPointer(ch);
+            for (int i = 0; i < 512; ++i)
+            {
+                if (std::isnan(rd[i]) || std::isinf(rd[i]))
+                    hasNaN = true;
+                maxPeak = std::max(maxPeak, std::abs(rd[i]));
+            }
+        }
+
+        // Process another 10 blocks to verify decay and limiter stability
+        for (int b = 0; b < 10; ++b)
+        {
+            buf.clear();
+            juce::MidiBuffer emptyMidi;
+            proc->processBlock(buf, emptyMidi);
+            for (int ch = 0; ch < 2; ++ch)
+            {
+                const float* rd = buf.getReadPointer(ch);
+                for (int i = 0; i < 512; ++i)
+                {
+                    if (std::isnan(rd[i]) || std::isinf(rd[i]))
+                        hasNaN = true;
+                    maxPeak = std::max(maxPeak, std::abs(rd[i]));
+                }
+            }
+        }
+
+        // Must be clean: non-zero, healthy audio, no NaNs, and cleanly contained within ceiling (<= 1.05)
+        bool allPadsPassed = (! hasNaN && maxPeak > 0.05f && maxPeak <= 1.05f);
+        std::cout << "[10] All-64-Pads Simultaneous Strike Test: "
+                  << (allPadsPassed ? "PASSED" : "FAILED")
+                  << " (peak=" << maxPeak << ", hasNaN=" << (hasNaN ? "YES" : "NO") << ")" << std::endl;
+        if (! allPadsPassed) failedPads++;
+    }
+
     std::cout << "All tests completed with " << failedPads << " errors." << std::endl;
     return (failedPads == 0) ? 0 : 1;
 }
