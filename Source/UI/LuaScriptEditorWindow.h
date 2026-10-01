@@ -14,8 +14,10 @@ public:
     void setPad(int newPad);
     int  getPad() const { return pad; }
     void closeButtonPressed() override;
+    void compileCurrentScript();
 
     std::function<void()> onScriptChanged;
+    std::function<void()> onSavePreset;
 
 private:
     class EditorContent : public juce::Component
@@ -42,6 +44,7 @@ private:
         std::unique_ptr<juce::Label> titleLabel;
         std::unique_ptr<juce::Label> statusLabel;
         std::unique_ptr<juce::TextButton> compileBtn;
+        std::unique_ptr<juce::TextButton> savePresetBtn;
         std::unique_ptr<juce::TextButton> revertBtn;
         std::unique_ptr<juce::TextButton> clearBtn;
         std::unique_ptr<juce::TextButton> exportBtn;

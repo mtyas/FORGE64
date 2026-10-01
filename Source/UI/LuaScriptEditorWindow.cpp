@@ -32,6 +32,12 @@ void LuaScriptEditorWindow::closeButtonPressed()
     setVisible(false);
 }
 
+void LuaScriptEditorWindow::compileCurrentScript()
+{
+    if (content != nullptr)
+        content->compileAndApply();
+}
+
 // ---------------------------------------------------------------------------
 // EditorContent Implementation
 // ---------------------------------------------------------------------------
@@ -51,7 +57,19 @@ LuaScriptEditorWindow::EditorContent::EditorContent(Forge64Processor& p, int pad
     compileBtn->onClick = [this] { compileAndApply(); };
     addAndMakeVisible(compileBtn.get());
 
-    revertBtn = std::make_unique<juce::TextButton>("REVERT SCRIPT");
+    savePresetBtn = std::make_unique<juce::TextButton>("SAVE PRESET");
+    ui::styleButton(*savePresetBtn);
+    savePresetBtn->setColour(juce::TextButton::buttonColourId, ui::accent().darker(0.15f));
+    savePresetBtn->setTooltip("Save current compiled script and pad settings as a sound preset");
+    savePresetBtn->onClick = [this]
+    {
+        compileAndApply();
+        if (ownerWindow.onSavePreset)
+            ownerWindow.onSavePreset();
+    };
+    addAndMakeVisible(savePresetBtn.get());
+
+    revertBtn = std::make_unique<juce::TextButton>("REVERT");
     ui::styleButton(*revertBtn);
     revertBtn->onClick = [this] { revertToFactory(); };
     addAndMakeVisible(revertBtn.get());
@@ -61,17 +79,17 @@ LuaScriptEditorWindow::EditorContent::EditorContent(Forge64Processor& p, int pad
     clearBtn->onClick = [this] { clearScript(); };
     addAndMakeVisible(clearBtn.get());
 
-    exportBtn = std::make_unique<juce::TextButton>("EXPORT...");
+    exportBtn = std::make_unique<juce::TextButton>("EXPORT");
     ui::styleButton(*exportBtn);
     exportBtn->onClick = [this] { exportScript(); };
     addAndMakeVisible(exportBtn.get());
 
-    importBtn = std::make_unique<juce::TextButton>("IMPORT...");
+    importBtn = std::make_unique<juce::TextButton>("IMPORT");
     ui::styleButton(*importBtn);
     importBtn->onClick = [this] { importScript(); };
     addAndMakeVisible(importBtn.get());
 
-    aiPromptBtn = std::make_unique<juce::TextButton>("AI AGENT PROMPT");
+    aiPromptBtn = std::make_unique<juce::TextButton>("AI PROMPT");
     ui::styleButton(*aiPromptBtn);
     aiPromptBtn->setColour(juce::TextButton::buttonColourId, juce::Colour(0xFF6E3600));
     aiPromptBtn->setTooltip("Copy prompt & API guide to feed into Claude, ChatGPT, or Antigravity to generate new drum DSP scripts");
@@ -108,7 +126,7 @@ void LuaScriptEditorWindow::EditorContent::setPad(int newPad)
     const char bankChar = (char) ('A' + bankIdx);
     const juce::String padCoord = juce::String::charToString(bankChar) + juce::String::formatted("%02d", (pad % 16) + 1);
 
-    titleLabel->setText("PAD " + padCoord + " // LUA DSP ALGORITHM", juce::dontSendNotification);
+    titleLabel->setText("PAD " + padCoord + " // LUA DSP", juce::dontSendNotification);
 
     auto st = proc.grid().padState(pad);
     juce::String curCode = st.getProperty("script", "").toString();
@@ -236,8 +254,8 @@ void LuaScriptEditorWindow::EditorContent::resized()
     const int w = getWidth();
     const int h = getHeight();
 
-    titleLabel->setBounds(12, 8, 320, 24);
-    statusLabel->setBounds(14, 34, 260, 20);
+    titleLabel->setBounds(12, 8, 200, 24);
+    statusLabel->setBounds(14, 34, 200, 20);
 
     int bx = w - 10;
     auto placeBtn = [&](std::unique_ptr<juce::TextButton>& b, int bw)
@@ -246,12 +264,13 @@ void LuaScriptEditorWindow::EditorContent::resized()
         if (b) b->setBounds(bx, 10, bw, 28);
     };
 
-    placeBtn(compileBtn, 126);
-    placeBtn(revertBtn, 102);
-    placeBtn(exportBtn, 74);
-    placeBtn(importBtn, 74);
-    placeBtn(clearBtn, 58);
-    placeBtn(aiPromptBtn, 130);
+    placeBtn(compileBtn, 116);
+    placeBtn(savePresetBtn, 94);
+    placeBtn(revertBtn, 68);
+    placeBtn(exportBtn, 60);
+    placeBtn(importBtn, 60);
+    placeBtn(clearBtn, 50);
+    placeBtn(aiPromptBtn, 84);
 
     const int consoleH = 92;
     codeEditor->setBounds(10, 60, w - 20, h - 60 - consoleH - 12);

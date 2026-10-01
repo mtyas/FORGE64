@@ -45,6 +45,14 @@ struct SoundPreset
     float vcfCut = 20000.f;
     float vcfRes = 0.707f;
     float vcfEnv = 0.0f;
+    juce::String category;
+    juce::String scriptCode;
+    juce::String p1Label;
+    juce::String p2Label;
+    juce::String p3Label;
+    juce::String p4Label;
+    juce::String p5Label;
+    bool  isUserPreset = false;
 
     SoundPreset() = default;
 

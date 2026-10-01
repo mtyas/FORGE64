@@ -61,6 +61,7 @@ private:
     void populateCategorySounds(const juce::String& category);
     void loadCategorySound(int soundIndex);
     void showSavePresetDialog();
+    void saveCurrentSoundPreset(const juce::String& name, const juce::String& category);
 
     // Detached Lua Editor
     void openScriptEditorWindow();

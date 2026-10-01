@@ -1,5 +1,6 @@
 #include <JuceHeader.h>
 #include "../PluginProcessor.h"
+#include "../Presets/ModulePresetManager.h"
 #include <iostream>
 
 int main(int argc, char* argv[])
@@ -338,6 +339,86 @@ int main(int argc, char* argv[])
                   << (allPadsPassed ? "PASSED" : "FAILED")
                   << " (peak=" << maxPeak << ", hasNaN=" << (hasNaN ? "YES" : "NO") << ")" << std::endl;
         if (! allPadsPassed) failedPads++;
+    }
+
+    // 11. Custom Lua Preset & Category Persistence Test
+    {
+        bool p11Passed = true;
+        const juce::String testScript1 = "-- Test Custom Lua Algorithm 1\nfunction process()\nend\n";
+        const juce::String testScript2 = "-- Test Custom Lua Algorithm 2\nfunction process()\nend\n";
+
+        // Test 1: Save module & preset to "Custom" category
+        f64::ModuleInfo m1;
+        m1.id = "user_test_lua_custom";
+        m1.name = "Test Custom Sound";
+        m1.category = "Custom";
+        m1.scriptCode = testScript1;
+        m1.p1Label = "CUSTOM1";
+        if (! f64::ModulePresetManager::saveUserModule(m1))
+            p11Passed = false;
+
+        f64::SoundPreset sp1;
+        sp1.name = "Test Custom Sound";
+        sp1.moduleId = "user_test_lua_custom";
+        sp1.category = "Custom";
+        sp1.scriptCode = testScript1;
+        sp1.p1Label = "CUSTOM1";
+        if (! f64::ModulePresetManager::saveSoundPreset(sp1))
+            p11Passed = false;
+
+        // Test 2: Save module & preset to "Kicks" category
+        f64::ModuleInfo m2;
+        m2.id = "user_test_lua_kick";
+        m2.name = "Test Lua Kick";
+        m2.category = "Kicks";
+        m2.scriptCode = testScript2;
+        m2.p1Label = "KICK_P1";
+        if (! f64::ModulePresetManager::saveUserModule(m2))
+            p11Passed = false;
+
+        f64::SoundPreset sp2;
+        sp2.name = "Test Lua Kick";
+        sp2.moduleId = "user_test_lua_kick";
+        sp2.category = "Kicks";
+        sp2.scriptCode = testScript2;
+        sp2.p1Label = "KICK_P1";
+        if (! f64::ModulePresetManager::saveSoundPreset(sp2))
+            p11Passed = false;
+
+        // Verify retrieval in "Custom" category (should contain BOTH m1 and m2)
+        auto customSounds = f64::ModulePresetManager::getSoundsForCategory("Custom");
+        bool foundM1InCustom = false;
+        bool foundM2InCustom = false;
+        for (const auto& cs : customSounds)
+        {
+            if (cs.moduleId == "user_test_lua_custom" && cs.preset.scriptCode == testScript1)
+                foundM1InCustom = true;
+            if (cs.moduleId == "user_test_lua_kick" && cs.preset.scriptCode == testScript2)
+                foundM2InCustom = true;
+        }
+
+        // Verify retrieval in "Kicks" category (should contain m2)
+        auto kickSounds = f64::ModulePresetManager::getSoundsForCategory("Kicks");
+        bool foundM2InKicks = false;
+        for (const auto& ks : kickSounds)
+        {
+            if (ks.moduleId == "user_test_lua_kick" && ks.preset.scriptCode == testScript2)
+                foundM2InKicks = true;
+        }
+
+        if (! foundM1InCustom || ! foundM2InCustom || ! foundM2InKicks)
+            p11Passed = false;
+
+        // Clean up test files
+        f64::ModulePresetManager::deleteSoundPreset("user_test_lua_custom", "Test Custom Sound");
+        f64::ModulePresetManager::deleteSoundPreset("user_test_lua_kick", "Test Lua Kick");
+
+        std::cout << "[11] Custom Lua Preset & Category Persistence Test: "
+                  << (p11Passed ? "PASSED" : "FAILED")
+                  << " (foundM1Custom=" << foundM1InCustom
+                  << ", foundM2Custom=" << foundM2InCustom
+                  << ", foundM2Kicks=" << foundM2InKicks << ")" << std::endl;
+        if (! p11Passed) failedPads++;
     }
 
     std::cout << "All tests completed with " << failedPads << " errors." << std::endl;

@@ -964,22 +964,34 @@ void PadEditor::loadCategorySound(int soundIndex)
     currentModuleId = entry.moduleId;
     auto mod = ModulePresetManager::getModuleById(entry.moduleId);
 
-    // Update labels
-    if (p1Knob) p1Knob->setLabel(mod.p1Label.isNotEmpty() ? mod.p1Label : "P1");
-    if (p2Knob) p2Knob->setLabel(mod.p2Label.isNotEmpty() ? mod.p2Label : "P2");
-    if (p3Knob) p3Knob->setLabel(mod.p3Label.isNotEmpty() ? mod.p3Label : "P3");
-    if (p4Knob) p4Knob->setLabel(mod.p4Label.isNotEmpty() ? mod.p4Label : "P4");
-    if (p5Knob) p5Knob->setLabel(mod.p5Label.isNotEmpty() ? mod.p5Label : "P5");
+    // Update labels: prefer preset labels, fallback to module labels, fallback to "P1".."P5"
+    auto getLabel = [](const juce::String& pVal, const juce::String& mVal, const char* defVal) -> juce::String
+    {
+        if (pVal.isNotEmpty()) return pVal;
+        if (mVal.isNotEmpty()) return mVal;
+        return defVal;
+    };
+
+    if (p1Knob) p1Knob->setLabel(getLabel(entry.preset.p1Label, mod.p1Label, "P1"));
+    if (p2Knob) p2Knob->setLabel(getLabel(entry.preset.p2Label, mod.p2Label, "P2"));
+    if (p3Knob) p3Knob->setLabel(getLabel(entry.preset.p3Label, mod.p3Label, "P3"));
+    if (p4Knob) p4Knob->setLabel(getLabel(entry.preset.p4Label, mod.p4Label, "P4"));
+    if (p5Knob) p5Knob->setLabel(getLabel(entry.preset.p5Label, mod.p5Label, "P5"));
 
     // Save moduleId to pad state
-    proc.grid().padState(pad).setProperty("moduleId", mod.id, nullptr);
+    proc.grid().padState(pad).setProperty("moduleId", entry.moduleId, nullptr);
+
+    // Determine script to use: prefer preset's scriptCode, fallback to mod's scriptCode
+    juce::String scriptToUse = entry.preset.scriptCode;
+    if (scriptToUse.trim().isEmpty())
+        scriptToUse = mod.scriptCode;
 
     // Push Lua script to pad
-    if (! mod.scriptCode.isEmpty())
+    if (! scriptToUse.isEmpty())
     {
-        proc.grid().padState(pad).setProperty("script", mod.scriptCode, nullptr);
+        proc.grid().padState(pad).setProperty("script", scriptToUse, nullptr);
         proc.grid().padState(pad).setProperty("scriptOn", true, nullptr);
-        proc.lua().setScript(pad, mod.scriptCode, true);
+        proc.lua().setScript(pad, scriptToUse, true);
     }
 
     // Switch generator source to Lua engine
@@ -1003,18 +1015,65 @@ void PadEditor::loadCategorySound(int soundIndex)
     setAPVTSParam("vcfr", sp.vcfRes);
     setAPVTSParam("vcfe", sp.vcfEnv);
 
+    if (scriptStatusBadge != nullptr)
+    {
+        const auto err = proc.lua().errorFor(pad);
+        scriptStatusBadge->setText(err.isEmpty() ? "LUA: COMPILED OK" : "LUA ERR: " + err, juce::dontSendNotification);
+        scriptStatusBadge->setColour(juce::Label::textColourId, err.isEmpty() ? juce::Colour(0xFF70E000) : juce::Colour(0xFFFF5252));
+    }
+
     if (scriptWindow != nullptr)
         scriptWindow->setPad(pad);
 }
 
 void PadEditor::showSavePresetDialog()
 {
+    // If Lua script editor is open, ensure any typed changes are compiled first
+    if (scriptWindow != nullptr)
+        scriptWindow->compileCurrentScript();
+
     auto* w = new juce::AlertWindow("Save Sound Preset",
-                                    "Enter a preset name for this " + (categoryCombo ? categoryCombo->getText() : "Lua") + " sound:",
+                                    "Save current sound parameters and Lua DSP algorithm:",
                                     juce::AlertWindow::NoIcon);
-    w->addTextEditor("name", "Custom Sound");
+
+    juce::String defaultName = "Custom Sound";
+    if (soundPresetCombo && soundPresetCombo->getText().isNotEmpty())
+    {
+        auto curText = soundPresetCombo->getText();
+        if (curText.contains(" - "))
+            defaultName = curText.fromLastOccurrenceOf(" - ", false, false);
+        else
+            defaultName = curText;
+    }
+    w->addTextEditor("name", defaultName, "Preset Name:");
+
+    const auto categories = ModulePresetManager::getModuleCategories();
+    w->addComboBox("category", categories, "Category:");
+    if (auto* cb = w->getComboBoxComponent("category"))
+    {
+        int selIdx = 1;
+        juce::String curCat = categoryCombo ? categoryCombo->getText() : "Custom";
+
+        auto curMod = ModulePresetManager::getModuleById(currentModuleId);
+        auto curScript = proc.grid().padState(pad).getProperty("script", "").toString();
+        bool isCustomScript = (curScript.trim().isNotEmpty() && curScript.trim() != curMod.scriptCode.trim());
+        if (isCustomScript && (curCat.isEmpty() || curCat == "All Categories"))
+            curCat = "Custom";
+
+        for (int i = 0; i < categories.size(); ++i)
+        {
+            if (categories[i].equalsIgnoreCase(curCat))
+            {
+                selIdx = i + 1;
+                break;
+            }
+        }
+        cb->setSelectedId(selIdx, juce::dontSendNotification);
+    }
+
     w->addButton("Save", 1, juce::KeyPress(juce::KeyPress::returnKey));
     w->addButton("Cancel", 0, juce::KeyPress(juce::KeyPress::escapeKey));
+    w->toFront(true);
 
     juce::Component::SafePointer<PadEditor> safe(this);
     w->enterModalState(true, juce::ModalCallbackFunction::create(
@@ -1026,26 +1085,132 @@ void PadEditor::showSavePresetDialog()
         auto name = w->getTextEditorContents("name").trim();
         if (name.isEmpty()) return;
 
-        SoundPreset sp;
-        sp.name = name;
-        sp.moduleId = safe->currentModuleId;
-        sp.tune = safe->getAPVTSParam("tune");
-        sp.decay = safe->getAPVTSParam("dec");
-        sp.drive = safe->getAPVTSParam("drv");
-        sp.p1 = safe->getAPVTSParam("fx1");
-        sp.p2 = safe->getAPVTSParam("fx2");
-        sp.p3 = safe->getAPVTSParam("fx3");
-        sp.p4 = safe->getAPVTSParam("fx4");
-        sp.p5 = safe->getAPVTSParam("fx5");
-        sp.vcfType = (int) safe->getAPVTSParam("vcft");
-        sp.vcfCut = safe->getAPVTSParam("vcfc");
-        sp.vcfRes = safe->getAPVTSParam("vcfr");
-        sp.vcfEnv = safe->getAPVTSParam("vcfe");
+        juce::String chosenCat = "Custom";
+        if (auto* cb = w->getComboBoxComponent("category"))
+            chosenCat = cb->getText().trim();
+        if (chosenCat.isEmpty())
+            chosenCat = "Custom";
 
-        ModulePresetManager::saveSoundPreset(sp);
-        if (safe->categoryCombo)
-            safe->populateCategorySounds(safe->categoryCombo->getText());
+        safe->saveCurrentSoundPreset(name, chosenCat);
     }));
+}
+
+void PadEditor::saveCurrentSoundPreset(const juce::String& name, const juce::String& category)
+{
+    // 1. Current script
+    auto st = proc.grid().padState(pad);
+    juce::String curScript = st.getProperty("script", "").toString();
+    if (curScript.trim().isEmpty())
+    {
+        auto curMod = ModulePresetManager::getModuleById(currentModuleId);
+        curScript = curMod.scriptCode;
+    }
+
+    // 2. Knob labels
+    juce::String p1 = p1Knob ? p1Knob->getLabel() : "P1";
+    juce::String p2 = p2Knob ? p2Knob->getLabel() : "P2";
+    juce::String p3 = p3Knob ? p3Knob->getLabel() : "P3";
+    juce::String p4 = p4Knob ? p4Knob->getLabel() : "P4";
+    juce::String p5 = p5Knob ? p5Knob->getLabel() : "P5";
+
+    // 3. Generate unique user module ID
+    juce::String safeName = juce::File::createLegalFileName(name).toLowerCase().replace(" ", "_");
+    if (safeName.isEmpty()) safeName = "custom_sound";
+    juce::String userModId = "user_" + safeName;
+
+    // 4. Save User Module (Tier 1)
+    ModuleInfo mod;
+    mod.id = userModId;
+    mod.name = name;
+    mod.category = category.isNotEmpty() ? category : "Custom";
+    mod.author = "User";
+    mod.description = "User Preset: " + name;
+    mod.p1Label = p1;
+    mod.p2Label = p2;
+    mod.p3Label = p3;
+    mod.p4Label = p4;
+    mod.p5Label = p5;
+    mod.defTune = getAPVTSParam("tune");
+    mod.defDecay = getAPVTSParam("dec");
+    mod.defDrive = getAPVTSParam("drv");
+    mod.defP1 = getAPVTSParam("fx1");
+    mod.defP2 = getAPVTSParam("fx2");
+    mod.defP3 = getAPVTSParam("fx3");
+    mod.defP4 = getAPVTSParam("fx4");
+    mod.defP5 = getAPVTSParam("fx5");
+    mod.defVcfType = (int) getAPVTSParam("vcft");
+    mod.defVcfCut = getAPVTSParam("vcfc");
+    mod.defVcfRes = getAPVTSParam("vcfr");
+    mod.scriptCode = curScript;
+    ModulePresetManager::saveUserModule(mod);
+
+    // 5. Save Sound Preset (Tier 2)
+    SoundPreset sp;
+    sp.name = name;
+    sp.moduleId = userModId;
+    sp.category = category.isNotEmpty() ? category : "Custom";
+    sp.tune = mod.defTune;
+    sp.decay = mod.defDecay;
+    sp.drive = mod.defDrive;
+    sp.p1 = mod.defP1;
+    sp.p2 = mod.defP2;
+    sp.p3 = mod.defP3;
+    sp.p4 = mod.defP4;
+    sp.p5 = mod.defP5;
+    sp.vcfType = mod.defVcfType;
+    sp.vcfCut = mod.defVcfCut;
+    sp.vcfRes = mod.defVcfRes;
+    sp.vcfEnv = getAPVTSParam("vcfe");
+    sp.p1Label = p1;
+    sp.p2Label = p2;
+    sp.p3Label = p3;
+    sp.p4Label = p4;
+    sp.p5Label = p5;
+    sp.scriptCode = curScript;
+    sp.isUserPreset = true;
+    ModulePresetManager::saveSoundPreset(sp);
+
+    // 6. Update current pad state
+    proc.grid().padState(pad).setProperty("moduleId", userModId, nullptr);
+    proc.grid().padState(pad).setProperty("script", curScript, nullptr);
+    proc.grid().padState(pad).setProperty("scriptOn", true, nullptr);
+    currentModuleId = userModId;
+
+    // 7. Update category combo and populate sounds
+    if (categoryCombo != nullptr)
+    {
+        for (int i = 0; i < categoryCombo->getNumItems(); ++i)
+        {
+            if (categoryCombo->getItemText(i).equalsIgnoreCase(category))
+            {
+                categoryCombo->setSelectedId(i + 1, juce::dontSendNotification);
+                break;
+            }
+        }
+    }
+
+    currentCategorySounds = ModulePresetManager::getSoundsForCategory(category);
+    if (soundPresetCombo != nullptr)
+    {
+        soundPresetCombo->clear(juce::dontSendNotification);
+        int selIdx = 1;
+        for (int i = 0; i < (int) currentCategorySounds.size(); ++i)
+        {
+            soundPresetCombo->addItem(currentCategorySounds[(size_t) i].displayName, i + 1);
+            if (currentCategorySounds[(size_t) i].moduleId == userModId ||
+                currentCategorySounds[(size_t) i].preset.name == name)
+            {
+                selIdx = i + 1;
+            }
+        }
+        soundPresetCombo->setSelectedId(selIdx, juce::dontSendNotification);
+    }
+
+    if (scriptStatusBadge != nullptr)
+    {
+        scriptStatusBadge->setText("SAVED AS PRESET", juce::dontSendNotification);
+        scriptStatusBadge->setColour(juce::Label::textColourId, juce::Colour(0xFF70E000));
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1069,6 +1234,10 @@ void PadEditor::openScriptEditorWindow()
             scriptStatusBadge->setText(err.isEmpty() ? "LUA: COMPILED OK" : "LUA ERR: " + err, juce::dontSendNotification);
             scriptStatusBadge->setColour(juce::Label::textColourId, err.isEmpty() ? juce::Colour(0xFF70E000) : juce::Colour(0xFFFF5252));
         }
+    };
+    scriptWindow->onSavePreset = [this]
+    {
+        showSavePresetDialog();
     };
     scriptWindow->setVisible(true);
 }

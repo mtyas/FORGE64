@@ -31,6 +31,11 @@ juce::StringArray ModulePresetManager::getModuleCategories()
 void ModulePresetManager::initializeOnDisk()
 {
     getModulesDir();
+    auto dir = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
+                   .getChildFile("Forge64")
+                   .getChildFile("SoundPresets");
+    if (! dir.exists())
+        dir.createDirectory();
 }
 
 const std::vector<ModuleInfo>& ModulePresetManager::getFactoryModules()
@@ -2024,6 +2029,9 @@ std::vector<ModuleInfo> ModulePresetManager::getAllModules()
             m.defP3 = json.hasProperty("defP3") ? (float) (double) json["defP3"] : 0.5f;
             m.defP4 = json.hasProperty("defP4") ? (float) (double) json["defP4"] : 0.5f;
             m.defP5 = json.hasProperty("defP5") ? (float) (double) json["defP5"] : 0.5f;
+            m.defVcfType = json.hasProperty("defVcfType") ? (int) json["defVcfType"] : 0;
+            m.defVcfCut  = json.hasProperty("defVcfCut")  ? (float) (double) json["defVcfCut"] : 20000.f;
+            m.defVcfRes  = json.hasProperty("defVcfRes")  ? (float) (double) json["defVcfRes"] : 0.707f;
             all.push_back(m);
         }
     }
@@ -2043,14 +2051,30 @@ std::vector<ModuleInfo> ModulePresetManager::getModulesForCategory(const juce::S
 {
     std::vector<ModuleInfo> res;
     for (const auto& m : getAllModules())
-        if (cat.isEmpty() || cat == "All Categories" || m.category == cat)
+    {
+        if (cat.isEmpty() || cat.equalsIgnoreCase("All Categories"))
+        {
             res.push_back(m);
+        }
+        else if (cat.equalsIgnoreCase("Custom"))
+        {
+            if (m.category.equalsIgnoreCase("Custom") || m.id.startsWith("user_") || m.id.startsWith("custom_"))
+                res.push_back(m);
+        }
+        else
+        {
+            if (m.category.equalsIgnoreCase(cat))
+                res.push_back(m);
+        }
+    }
     return res;
 }
 
 bool ModulePresetManager::saveUserModule(const ModuleInfo& mod)
 {
     auto dir = getModulesDir();
+    if (! dir.exists())
+        dir.createDirectory();
     auto f = dir.getChildFile(mod.id + ".f64mod");
     auto* obj = new juce::DynamicObject();
     obj->setProperty("id", mod.id);
@@ -2070,6 +2094,9 @@ bool ModulePresetManager::saveUserModule(const ModuleInfo& mod)
     obj->setProperty("defP3", mod.defP3);
     obj->setProperty("defP4", mod.defP4);
     obj->setProperty("defP5", mod.defP5);
+    obj->setProperty("defVcfType", mod.defVcfType);
+    obj->setProperty("defVcfCut", mod.defVcfCut);
+    obj->setProperty("defVcfRes", mod.defVcfRes);
     obj->setProperty("scriptCode", mod.scriptCode);
 
     juce::var v(obj);
@@ -2302,6 +2329,10 @@ std::vector<SoundPreset> ModulePresetManager::getSoundPresetsForModule(const juc
         list.push_back({ "Deep Nylon Bass", moduleId, -12.f, 0.80f, 0.12f, 0.35f, 0.45f, 0.85f, 0.35f, 0.30f, 0, 20000.f, 0.707f, 0.f });
         list.push_back({ "Harp Transient Pluck", moduleId, 12.f, 0.35f, 0.06f, 0.80f, 0.70f, 0.40f, 0.60f, 0.60f, 0, 20000.f, 0.707f, 0.f });
     }
+    else if (moduleId.startsWith("user_") || moduleId.startsWith("custom_"))
+    {
+        // For user modules, scan disk below and avoid duplicate "Default"
+    }
     else
     {
         auto mod = getModuleById(moduleId);
@@ -2321,6 +2352,7 @@ std::vector<SoundPreset> ModulePresetManager::getSoundPresetsForModule(const juc
             SoundPreset sp;
             sp.name = json["name"].toString();
             sp.moduleId = moduleId;
+            sp.category = json.hasProperty("category") ? json["category"].toString() : "";
             sp.tune  = (float) (double) json["tune"];
             sp.decay = (float) (double) json["decay"];
             sp.drive = (float) (double) json["drive"];
@@ -2333,8 +2365,41 @@ std::vector<SoundPreset> ModulePresetManager::getSoundPresetsForModule(const juc
             sp.vcfCut  = (float) (double) json["vcfCut"];
             sp.vcfRes  = (float) (double) json["vcfRes"];
             sp.vcfEnv  = (float) (double) json["vcfEnv"];
+            sp.p1Label = json.hasProperty("p1Label") ? json["p1Label"].toString() : "";
+            sp.p2Label = json.hasProperty("p2Label") ? json["p2Label"].toString() : "";
+            sp.p3Label = json.hasProperty("p3Label") ? json["p3Label"].toString() : "";
+            sp.p4Label = json.hasProperty("p4Label") ? json["p4Label"].toString() : "";
+            sp.p5Label = json.hasProperty("p5Label") ? json["p5Label"].toString() : "";
+            sp.scriptCode = json.hasProperty("scriptCode") ? json["scriptCode"].toString() : "";
+            sp.isUserPreset = true;
+
+            auto mod = getModuleById(moduleId);
+            if (sp.scriptCode.isEmpty()) sp.scriptCode = mod.scriptCode;
+            if (sp.p1Label.isEmpty()) sp.p1Label = mod.p1Label;
+            if (sp.p2Label.isEmpty()) sp.p2Label = mod.p2Label;
+            if (sp.p3Label.isEmpty()) sp.p3Label = mod.p3Label;
+            if (sp.p4Label.isEmpty()) sp.p4Label = mod.p4Label;
+            if (sp.p5Label.isEmpty()) sp.p5Label = mod.p5Label;
+
             list.push_back(sp);
         }
+    }
+
+    if (list.empty())
+    {
+        auto mod = getModuleById(moduleId);
+        SoundPreset sp(mod.name, moduleId, mod.defTune, mod.defDecay, mod.defDrive,
+                       mod.defP1, mod.defP2, mod.defP3, mod.defP4, mod.defP5,
+                       mod.defVcfType, mod.defVcfCut, mod.defVcfRes, 0.f);
+        sp.category = mod.category;
+        sp.scriptCode = mod.scriptCode;
+        sp.p1Label = mod.p1Label;
+        sp.p2Label = mod.p2Label;
+        sp.p3Label = mod.p3Label;
+        sp.p4Label = mod.p4Label;
+        sp.p5Label = mod.p5Label;
+        sp.isUserPreset = moduleId.startsWith("user_") || moduleId.startsWith("custom_");
+        list.push_back(sp);
     }
 
     return list;
@@ -2343,11 +2408,14 @@ std::vector<SoundPreset> ModulePresetManager::getSoundPresetsForModule(const juc
 bool ModulePresetManager::saveSoundPreset(const SoundPreset& preset)
 {
     auto dir = getSoundPresetsDir(preset.moduleId);
+    if (! dir.exists())
+        dir.createDirectory();
     auto f = dir.getChildFile(preset.name + ".f64snd");
 
     auto* obj = new juce::DynamicObject();
     obj->setProperty("name", preset.name);
     obj->setProperty("moduleId", preset.moduleId);
+    obj->setProperty("category", preset.category);
     obj->setProperty("tune", preset.tune);
     obj->setProperty("decay", preset.decay);
     obj->setProperty("drive", preset.drive);
@@ -2360,6 +2428,12 @@ bool ModulePresetManager::saveSoundPreset(const SoundPreset& preset)
     obj->setProperty("vcfCut", preset.vcfCut);
     obj->setProperty("vcfRes", preset.vcfRes);
     obj->setProperty("vcfEnv", preset.vcfEnv);
+    obj->setProperty("p1Label", preset.p1Label);
+    obj->setProperty("p2Label", preset.p2Label);
+    obj->setProperty("p3Label", preset.p3Label);
+    obj->setProperty("p4Label", preset.p4Label);
+    obj->setProperty("p5Label", preset.p5Label);
+    obj->setProperty("scriptCode", preset.scriptCode);
 
     juce::var v(obj);
     return f.replaceWithText(juce::JSON::toString(v, true));
@@ -2367,19 +2441,30 @@ bool ModulePresetManager::saveSoundPreset(const SoundPreset& preset)
 
 bool ModulePresetManager::deleteSoundPreset(const juce::String& moduleId, const juce::String& presetName)
 {
+    bool ok = false;
     auto dir = getSoundPresetsDir(moduleId);
     auto f = dir.getChildFile(presetName + ".f64snd");
     if (f.existsAsFile())
-        return f.deleteFile();
-    return false;
+        ok = f.deleteFile();
+
+    if (moduleId.startsWith("user_") || moduleId.startsWith("custom_"))
+    {
+        auto modFile = getModulesDir().getChildFile(moduleId + ".f64mod");
+        if (modFile.existsAsFile())
+            ok = modFile.deleteFile() || ok;
+    }
+    return ok;
 }
 
 std::vector<ModulePresetManager::CategorySoundEntry> ModulePresetManager::getSoundsForCategory(const juce::String& cat)
 {
     std::vector<CategorySoundEntry> result;
     const auto modules = getModulesForCategory(cat);
+    std::vector<juce::String> seenModuleIds;
+
     for (const auto& m : modules)
     {
+        seenModuleIds.push_back(m.id);
         const auto presets = getSoundPresetsForModule(m.id);
         if (presets.empty())
         {
@@ -2389,6 +2474,14 @@ std::vector<ModulePresetManager::CategorySoundEntry> ModulePresetManager::getSou
             e.preset = { m.name, m.id, m.defTune, m.defDecay, m.defDrive,
                          m.defP1, m.defP2, m.defP3, m.defP4, m.defP5,
                          m.defVcfType, m.defVcfCut, m.defVcfRes, 0.0f };
+            e.preset.category = m.category;
+            e.preset.scriptCode = m.scriptCode;
+            e.preset.p1Label = m.p1Label;
+            e.preset.p2Label = m.p2Label;
+            e.preset.p3Label = m.p3Label;
+            e.preset.p4Label = m.p4Label;
+            e.preset.p5Label = m.p5Label;
+            e.preset.isUserPreset = m.id.startsWith("user_") || m.id.startsWith("custom_");
             result.push_back(e);
         }
         else
@@ -2396,13 +2489,110 @@ std::vector<ModulePresetManager::CategorySoundEntry> ModulePresetManager::getSou
             for (const auto& sp : presets)
             {
                 CategorySoundEntry e;
-                e.displayName = m.name + " - " + sp.name;
+                if (m.id.startsWith("user_") || m.id.startsWith("custom_"))
+                {
+                    e.displayName = (sp.name == m.name || sp.name == "Default") ? m.name : (m.name + " - " + sp.name);
+                }
+                else
+                {
+                    e.displayName = m.name + " - " + sp.name;
+                }
                 e.moduleId = m.id;
                 e.preset = sp;
+                if (e.preset.scriptCode.isEmpty()) e.preset.scriptCode = m.scriptCode;
+                if (e.preset.p1Label.isEmpty()) e.preset.p1Label = m.p1Label;
+                if (e.preset.p2Label.isEmpty()) e.preset.p2Label = m.p2Label;
+                if (e.preset.p3Label.isEmpty()) e.preset.p3Label = m.p3Label;
+                if (e.preset.p4Label.isEmpty()) e.preset.p4Label = m.p4Label;
+                if (e.preset.p5Label.isEmpty()) e.preset.p5Label = m.p5Label;
                 result.push_back(e);
             }
         }
     }
+
+    // If viewing "Custom", also scan all SoundPresets subdirectories for user presets
+    if (cat.equalsIgnoreCase("Custom"))
+    {
+        auto spBaseDir = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
+                            .getChildFile("Forge64")
+                            .getChildFile("SoundPresets");
+        if (spBaseDir.exists())
+        {
+            auto subDirs = spBaseDir.findChildFiles(juce::File::findDirectories, false);
+            for (const auto& subDir : subDirs)
+            {
+                auto fModId = subDir.getFileName();
+                bool alreadySeen = false;
+                for (const auto& seenId : seenModuleIds)
+                {
+                    if (seenId == fModId && (fModId.startsWith("user_") || fModId.startsWith("custom_")))
+                    {
+                        alreadySeen = true;
+                        break;
+                    }
+                }
+                if (alreadySeen) continue;
+
+                auto fFiles = subDir.findChildFiles(juce::File::findFiles, false, "*.f64snd;*.json");
+                for (const auto& f : fFiles)
+                {
+                    auto json = juce::JSON::parse(f.loadFileAsString());
+                    if (json.isObject())
+                    {
+                        SoundPreset sp;
+                        sp.name = json["name"].toString();
+                        sp.moduleId = fModId;
+                        sp.category = json.hasProperty("category") ? json["category"].toString() : "Custom";
+                        sp.tune  = (float) (double) json["tune"];
+                        sp.decay = (float) (double) json["decay"];
+                        sp.drive = (float) (double) json["drive"];
+                        sp.p1    = (float) (double) json["p1"];
+                        sp.p2    = (float) (double) json["p2"];
+                        sp.p3    = (float) (double) json["p3"];
+                        sp.p4    = (float) (double) json["p4"];
+                        sp.p5    = json.hasProperty("p5") ? (float) (double) json["p5"] : 0.5f;
+                        sp.vcfType = (int) json["vcfType"];
+                        sp.vcfCut  = (float) (double) json["vcfCut"];
+                        sp.vcfRes  = (float) (double) json["vcfRes"];
+                        sp.vcfEnv  = (float) (double) json["vcfEnv"];
+                        sp.p1Label = json.hasProperty("p1Label") ? json["p1Label"].toString() : "";
+                        sp.p2Label = json.hasProperty("p2Label") ? json["p2Label"].toString() : "";
+                        sp.p3Label = json.hasProperty("p3Label") ? json["p3Label"].toString() : "";
+                        sp.p4Label = json.hasProperty("p4Label") ? json["p4Label"].toString() : "";
+                        sp.p5Label = json.hasProperty("p5Label") ? json["p5Label"].toString() : "";
+                        sp.scriptCode = json.hasProperty("scriptCode") ? json["scriptCode"].toString() : "";
+                        sp.isUserPreset = true;
+
+                        auto mod = getModuleById(fModId);
+                        if (sp.scriptCode.isEmpty()) sp.scriptCode = mod.scriptCode;
+                        if (sp.p1Label.isEmpty()) sp.p1Label = mod.p1Label;
+                        if (sp.p2Label.isEmpty()) sp.p2Label = mod.p2Label;
+                        if (sp.p3Label.isEmpty()) sp.p3Label = mod.p3Label;
+                        if (sp.p4Label.isEmpty()) sp.p4Label = mod.p4Label;
+                        if (sp.p5Label.isEmpty()) sp.p5Label = mod.p5Label;
+
+                        CategorySoundEntry e;
+                        e.displayName = mod.name + " - " + sp.name;
+                        e.moduleId = fModId;
+                        e.preset = sp;
+
+                        bool dup = false;
+                        for (const auto& r : result)
+                        {
+                            if (r.moduleId == e.moduleId && r.preset.name == e.preset.name)
+                            {
+                                dup = true;
+                                break;
+                            }
+                        }
+                        if (! dup)
+                            result.push_back(e);
+                    }
+                }
+            }
+        }
+    }
+
     return result;
 }
 
