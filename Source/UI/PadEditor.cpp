@@ -921,12 +921,24 @@ void PadEditor::syncModuleSelectionQuiet()
         soundPresetCombo->setSelectedId(selectedIdx, juce::dontSendNotification);
     }
 
-    // Update variable knob labels to match module without overwriting parameter values!
-    if (p1Knob) p1Knob->setLabel(mod.p1Label.isNotEmpty() ? mod.p1Label : "P1");
-    if (p2Knob) p2Knob->setLabel(mod.p2Label.isNotEmpty() ? mod.p2Label : "P2");
-    if (p3Knob) p3Knob->setLabel(mod.p3Label.isNotEmpty() ? mod.p3Label : "P3");
-    if (p4Knob) p4Knob->setLabel(mod.p4Label.isNotEmpty() ? mod.p4Label : "P4");
-    if (p5Knob) p5Knob->setLabel(mod.p5Label.isNotEmpty() ? mod.p5Label : "P5");
+    // Update variable knob labels to match module / custom script without overwriting parameter values!
+    auto padSt = proc.grid().padState(pad);
+    auto sCode = padSt.getProperty("script", "").toString();
+    auto sLabels = parseMacroLabelsFromScript(sCode);
+
+    auto getQuietLabel = [](const juce::String& stVal, const juce::String& sVal, const juce::String& mVal, const char* defVal) -> juce::String
+    {
+        if (stVal.isNotEmpty()) return stVal;
+        if (sVal.isNotEmpty()) return sVal;
+        if (mVal.isNotEmpty()) return mVal;
+        return defVal;
+    };
+
+    if (p1Knob) p1Knob->setLabel(getQuietLabel(padSt.getProperty("p1Label", "").toString(), sLabels.p1, mod.p1Label, "P1"));
+    if (p2Knob) p2Knob->setLabel(getQuietLabel(padSt.getProperty("p2Label", "").toString(), sLabels.p2, mod.p2Label, "P2"));
+    if (p3Knob) p3Knob->setLabel(getQuietLabel(padSt.getProperty("p3Label", "").toString(), sLabels.p3, mod.p3Label, "P3"));
+    if (p4Knob) p4Knob->setLabel(getQuietLabel(padSt.getProperty("p4Label", "").toString(), sLabels.p4, mod.p4Label, "P4"));
+    if (p5Knob) p5Knob->setLabel(getQuietLabel(padSt.getProperty("p5Label", "").toString(), sLabels.p5, mod.p5Label, "P5"));
 
     // Sync srcCombo
     int curSrc = 0;
@@ -964,33 +976,47 @@ void PadEditor::loadCategorySound(int soundIndex)
     currentModuleId = entry.moduleId;
     auto mod = ModulePresetManager::getModuleById(entry.moduleId);
 
-    // Update labels: prefer preset labels, fallback to module labels, fallback to "P1".."P5"
-    auto getLabel = [](const juce::String& pVal, const juce::String& mVal, const char* defVal) -> juce::String
-    {
-        if (pVal.isNotEmpty()) return pVal;
-        if (mVal.isNotEmpty()) return mVal;
-        return defVal;
-    };
-
-    if (p1Knob) p1Knob->setLabel(getLabel(entry.preset.p1Label, mod.p1Label, "P1"));
-    if (p2Knob) p2Knob->setLabel(getLabel(entry.preset.p2Label, mod.p2Label, "P2"));
-    if (p3Knob) p3Knob->setLabel(getLabel(entry.preset.p3Label, mod.p3Label, "P3"));
-    if (p4Knob) p4Knob->setLabel(getLabel(entry.preset.p4Label, mod.p4Label, "P4"));
-    if (p5Knob) p5Knob->setLabel(getLabel(entry.preset.p5Label, mod.p5Label, "P5"));
-
-    // Save moduleId to pad state
-    proc.grid().padState(pad).setProperty("moduleId", entry.moduleId, nullptr);
-
     // Determine script to use: prefer preset's scriptCode, fallback to mod's scriptCode
     juce::String scriptToUse = entry.preset.scriptCode;
     if (scriptToUse.trim().isEmpty())
         scriptToUse = mod.scriptCode;
 
+    auto scriptLabels = parseMacroLabelsFromScript(scriptToUse);
+    auto getLabel = [](const juce::String& pVal, const juce::String& sVal, const juce::String& mVal, const char* defVal) -> juce::String
+    {
+        if (pVal.isNotEmpty()) return pVal;
+        if (sVal.isNotEmpty()) return sVal;
+        if (mVal.isNotEmpty()) return mVal;
+        return defVal;
+    };
+
+    juce::String l1 = getLabel(entry.preset.p1Label, scriptLabels.p1, mod.p1Label, "P1");
+    juce::String l2 = getLabel(entry.preset.p2Label, scriptLabels.p2, mod.p2Label, "P2");
+    juce::String l3 = getLabel(entry.preset.p3Label, scriptLabels.p3, mod.p3Label, "P3");
+    juce::String l4 = getLabel(entry.preset.p4Label, scriptLabels.p4, mod.p4Label, "P4");
+    juce::String l5 = getLabel(entry.preset.p5Label, scriptLabels.p5, mod.p5Label, "P5");
+
+    if (p1Knob) p1Knob->setLabel(l1);
+    if (p2Knob) p2Knob->setLabel(l2);
+    if (p3Knob) p3Knob->setLabel(l3);
+    if (p4Knob) p4Knob->setLabel(l4);
+    if (p5Knob) p5Knob->setLabel(l5);
+
+    // Save moduleId and labels to pad state
+    auto padSt = proc.grid().padState(pad);
+    padSt.setProperty("moduleId", entry.moduleId, nullptr);
+    padSt.setProperty("p1Label", l1, nullptr);
+    padSt.setProperty("p2Label", l2, nullptr);
+    padSt.setProperty("p3Label", l3, nullptr);
+    padSt.setProperty("p4Label", l4, nullptr);
+    padSt.setProperty("p5Label", l5, nullptr);
+
     // Push Lua script to pad
     if (! scriptToUse.isEmpty())
     {
-        proc.grid().padState(pad).setProperty("script", scriptToUse, nullptr);
-        proc.grid().padState(pad).setProperty("scriptOn", true, nullptr);
+        padSt.setProperty("script", scriptToUse, nullptr);
+        padSt.setProperty("scriptOn", true, nullptr);
+        proc.grid().runtime(pad).scriptOn.store(true);
         proc.lua().setScript(pad, scriptToUse, true);
     }
 
@@ -1098,20 +1124,55 @@ void PadEditor::showSavePresetDialog()
 void PadEditor::saveCurrentSoundPreset(const juce::String& name, const juce::String& category)
 {
     // 1. Current script
-    auto st = proc.grid().padState(pad);
-    juce::String curScript = st.getProperty("script", "").toString();
+    juce::String curScript;
+    if (scriptWindow != nullptr)
+        curScript = scriptWindow->getCurrentScriptCode();
+    if (curScript.trim().isEmpty())
+    {
+        auto st = proc.grid().padState(pad);
+        curScript = st.getProperty("script", "").toString();
+    }
     if (curScript.trim().isEmpty())
     {
         auto curMod = ModulePresetManager::getModuleById(currentModuleId);
         curScript = curMod.scriptCode;
     }
+    if (curScript.trim().isEmpty())
+    {
+        int srcType = SRC_KICK;
+        if (auto* p = proc.getAPVTS().getRawParameterValue(padParamId(pad, "src")))
+            srcType = (int) p->load();
+        curScript = ModuleScripts::scriptFor(srcType);
+    }
+    if (curScript.trim().isEmpty())
+    {
+        curScript = ModuleScripts::scriptFor(SRC_KICK);
+    }
 
-    // 2. Knob labels
-    juce::String p1 = p1Knob ? p1Knob->getLabel() : "P1";
-    juce::String p2 = p2Knob ? p2Knob->getLabel() : "P2";
-    juce::String p3 = p3Knob ? p3Knob->getLabel() : "P3";
-    juce::String p4 = p4Knob ? p4Knob->getLabel() : "P4";
-    juce::String p5 = p5Knob ? p5Knob->getLabel() : "P5";
+    // 2. Knob labels: prefer current knob label if user-defined, fallback to parsed from script, fallback to "P1".."P5"
+    auto parsedLabels = parseMacroLabelsFromScript(curScript);
+    auto getFinalLabel = [](ModRingKnob* k, const juce::String& parsed, const char* defVal) -> juce::String
+    {
+        if (k != nullptr)
+        {
+            auto l = k->getLabel().trim();
+            if (l.isNotEmpty() && l != "P1" && l != "P2" && l != "P3" && l != "P4" && l != "P5")
+                return l;
+        }
+        if (parsed.isNotEmpty()) return parsed;
+        return defVal;
+    };
+    juce::String p1 = getFinalLabel(p1Knob, parsedLabels.p1, "P1");
+    juce::String p2 = getFinalLabel(p2Knob, parsedLabels.p2, "P2");
+    juce::String p3 = getFinalLabel(p3Knob, parsedLabels.p3, "P3");
+    juce::String p4 = getFinalLabel(p4Knob, parsedLabels.p4, "P4");
+    juce::String p5 = getFinalLabel(p5Knob, parsedLabels.p5, "P5");
+
+    if (p1Knob) p1Knob->setLabel(p1);
+    if (p2Knob) p2Knob->setLabel(p2);
+    if (p3Knob) p3Knob->setLabel(p3);
+    if (p4Knob) p4Knob->setLabel(p4);
+    if (p5Knob) p5Knob->setLabel(p5);
 
     // 3. Generate unique user module ID
     juce::String safeName = juce::File::createLegalFileName(name).toLowerCase().replace(" ", "_");
@@ -1171,9 +1232,17 @@ void PadEditor::saveCurrentSoundPreset(const juce::String& name, const juce::Str
     ModulePresetManager::saveSoundPreset(sp);
 
     // 6. Update current pad state
-    proc.grid().padState(pad).setProperty("moduleId", userModId, nullptr);
-    proc.grid().padState(pad).setProperty("script", curScript, nullptr);
-    proc.grid().padState(pad).setProperty("scriptOn", true, nullptr);
+    auto st = proc.grid().padState(pad);
+    st.setProperty("moduleId", userModId, nullptr);
+    st.setProperty("script", curScript, nullptr);
+    st.setProperty("scriptOn", true, nullptr);
+    st.setProperty("p1Label", p1, nullptr);
+    st.setProperty("p2Label", p2, nullptr);
+    st.setProperty("p3Label", p3, nullptr);
+    st.setProperty("p4Label", p4, nullptr);
+    st.setProperty("p5Label", p5, nullptr);
+    proc.grid().runtime(pad).scriptOn.store(true);
+    proc.lua().setScript(pad, curScript, true);
     currentModuleId = userModId;
 
     // 7. Update category combo and populate sounds
@@ -1228,6 +1297,23 @@ void PadEditor::openScriptEditorWindow()
     scriptWindow = std::make_unique<LuaScriptEditorWindow>(proc, pad);
     scriptWindow->onScriptChanged = [this]
     {
+        auto padSt = proc.grid().padState(pad);
+        auto sCode = padSt.getProperty("script", "").toString();
+        auto parsed = parseMacroLabelsFromScript(sCode);
+
+        auto getL = [](const juce::String& sVal, const juce::String& pVal, const char* defVal) -> juce::String
+        {
+            if (sVal.isNotEmpty()) return sVal;
+            if (pVal.isNotEmpty()) return pVal;
+            return juce::String(defVal);
+        };
+
+        if (p1Knob) p1Knob->setLabel(getL(padSt.getProperty("p1Label", "").toString(), parsed.p1, "P1"));
+        if (p2Knob) p2Knob->setLabel(getL(padSt.getProperty("p2Label", "").toString(), parsed.p2, "P2"));
+        if (p3Knob) p3Knob->setLabel(getL(padSt.getProperty("p3Label", "").toString(), parsed.p3, "P3"));
+        if (p4Knob) p4Knob->setLabel(getL(padSt.getProperty("p4Label", "").toString(), parsed.p4, "P4"));
+        if (p5Knob) p5Knob->setLabel(getL(padSt.getProperty("p5Label", "").toString(), parsed.p5, "P5"));
+
         if (scriptStatusBadge != nullptr)
         {
             const auto err = proc.lua().errorFor(pad);

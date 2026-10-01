@@ -798,17 +798,45 @@ public:
             auto* seq = dynamic_cast<SeqSource*>(matrix.sourceAt(slot));
             if (seq == nullptr)
                 return;
-            const int N = clampRange(seq->numSteps.load(), 4, 32);
+            const int N = clampRange(seq->numSteps.load(), 1, 32);
             const float w = (float) getWidth() / (float) N;
             const float h = (float) getHeight();
+            const bool isQuantized = seq->quantize.load();
+            const int octs = clampRange(seq->octaves.load(), 1, 4);
+            const uint16_t mask = (uint16_t) seq->noteMask.load();
 
             g.fillAll(ui::bg());
+
+            if (isQuantized)
+            {
+                const int totalSemis = octs * 12;
+                for (int s = 0; s <= totalSemis; ++s)
+                {
+                    if ((mask & (1 << (s % 12))) != 0)
+                    {
+                        const float yLine = h - (float) s / (float) totalSemis * (h - 4.f) - 2.f;
+                        g.setColour(s % 12 == 0 ? ui::line().brighter(0.3f) : ui::line().withAlpha(0.2f));
+                        g.drawHorizontalLine((int) yLine, 0.f, (float) getWidth());
+                    }
+                }
+            }
+
             for (int i = 0; i < N; ++i)
             {
-                const float v = juce::jlimit(0.f, 1.f, seq->steps[(size_t) i].load());
+                float v = juce::jlimit(0.f, 1.f, seq->steps[(size_t) i].load());
+                if (isQuantized)
+                    v = quantizeValue(v, mask, octs);
                 const float bh = juce::jmax(2.f, v * (h - 4.f));
                 g.setColour(slotColour(slot).withAlpha(0.35f + 0.6f * v));
                 g.fillRect(w * (float) i + 1.f, h - bh - 2.f, w - 2.f, bh);
+
+                if (isQuantized && w >= 14.f && v > 0.04f)
+                {
+                    g.setColour(ui::txt().withAlpha(0.85f));
+                    g.setFont(uiFont(juce::jmin(9.0f, w * 0.45f)));
+                    auto noteStr = noteNameForValue(v, octs);
+                    g.drawText(noteStr, (int) (w * (float) i), (int) (h - bh - 2.f), (int) w, 12, juce::Justification::centred, false);
+                }
             }
             g.setColour(ui::line());
             g.drawRect(getLocalBounds(), 1);
@@ -823,14 +851,178 @@ public:
             auto* seq = dynamic_cast<SeqSource*>(matrix.sourceAt(slot));
             if (seq == nullptr)
                 return;
-            const int N = clampRange(seq->numSteps.load(), 4, 32);
+            const int N = clampRange(seq->numSteps.load(), 1, 32);
             const int idx = clampRange((int) ((float) e.x / (float) juce::jmax(1, getWidth()) * (float) N), 0, N - 1);
-            const float v = 1.f - (float) e.y / (float) juce::jmax(1, getHeight());
+            float v = 1.f - (float) e.y / (float) juce::jmax(1, getHeight());
+            if (seq->quantize.load())
+            {
+                const int octs = clampRange(seq->octaves.load(), 1, 4);
+                v = quantizeValue(v, (uint16_t) seq->noteMask.load(), octs);
+            }
             matrix.setSeqStep(slot, idx, v);
             repaint();
         }
         ModMatrix& matrix;
         int slot;
+    };
+
+    class OctaveKeyboardSelector : public juce::Component
+    {
+    public:
+        OctaveKeyboardSelector(ModMatrix& m, int slot_, juce::ValueTree stateTree)
+            : matrix(m), slot(slot_), st(stateTree) {}
+
+        void paint(juce::Graphics& g) override
+        {
+            const auto bounds = getLocalBounds().toFloat();
+            const float w = bounds.getWidth();
+            const float h = bounds.getHeight();
+            const float kw = w / 7.0f;
+            const float bw = kw * 0.62f;
+            const float bh = h * 0.60f;
+
+            auto* seq = dynamic_cast<SeqSource*>(matrix.sourceAt(slot));
+            const int mask = seq != nullptr ? seq->noteMask.load() : (int) st.getProperty("noteMask", 0x0FFF);
+            const auto activeCol = slotColour(slot);
+
+            static const int whiteNotes[7] = { 0, 2, 4, 5, 7, 9, 11 };
+            static const char* whiteNames[7] = { "C", "D", "E", "F", "G", "A", "B" };
+
+            // Draw 7 white keys
+            for (int i = 0; i < 7; ++i)
+            {
+                const float kx = (float) i * kw;
+                juce::Rectangle<float> kRect(kx + 0.5f, 0.5f, kw - 1.0f, h - 1.0f);
+                const bool on = (mask & (1 << whiteNotes[i])) != 0;
+
+                if (on)
+                {
+                    g.setColour(activeCol.withAlpha(0.70f));
+                    g.fillRoundedRectangle(kRect, 2.0f);
+                    g.setColour(ui::line());
+                    g.drawRoundedRectangle(kRect, 2.0f, 1.0f);
+                    g.setColour(ui::bg().darker(0.8f));
+                    g.setFont(uiFont(9.5f).boldened());
+                    g.drawText(whiteNames[i], kRect.removeFromBottom(14.0f), juce::Justification::centred, false);
+                }
+                else
+                {
+                    g.setColour(juce::Colour(0xFF1E1A18));
+                    g.fillRoundedRectangle(kRect, 2.0f);
+                    g.setColour(ui::line().withAlpha(0.6f));
+                    g.drawRoundedRectangle(kRect, 2.0f, 1.0f);
+                    g.setColour(ui::dim().withAlpha(0.45f));
+                    g.setFont(uiFont(9.0f));
+                    g.drawText(whiteNames[i], kRect.removeFromBottom(14.0f), juce::Justification::centred, false);
+                }
+            }
+
+            // Draw 5 black keys
+            struct BlackKeyDef { int note; const char* name; float centreXRatio; };
+            const BlackKeyDef blackKeys[5] = {
+                { 1,  "C#", 1.0f },
+                { 3,  "D#", 2.0f },
+                { 6,  "F#", 4.0f },
+                { 8,  "G#", 5.0f },
+                { 10, "A#", 6.0f }
+            };
+
+            for (int i = 0; i < 5; ++i)
+            {
+                const float cx = blackKeys[i].centreXRatio * kw;
+                juce::Rectangle<float> bkRect(cx - bw * 0.5f, 0.5f, bw, bh);
+                const bool on = (mask & (1 << blackKeys[i].note)) != 0;
+
+                if (on)
+                {
+                    g.setColour(activeCol);
+                    g.fillRoundedRectangle(bkRect, 2.0f);
+                    g.setColour(ui::line());
+                    g.drawRoundedRectangle(bkRect, 2.0f, 1.0f);
+                    g.setColour(ui::bg().darker(0.9f));
+                    g.setFont(uiFont(8.0f).boldened());
+                    g.drawText(blackKeys[i].name, bkRect.removeFromBottom(12.0f), juce::Justification::centred, false);
+                }
+                else
+                {
+                    g.setColour(juce::Colour(0xFF0C0A09));
+                    g.fillRoundedRectangle(bkRect, 2.0f);
+                    g.setColour(ui::line().withAlpha(0.8f));
+                    g.drawRoundedRectangle(bkRect, 2.0f, 1.0f);
+                    g.setColour(ui::dim().withAlpha(0.45f));
+                    g.setFont(uiFont(7.5f));
+                    g.drawText(blackKeys[i].name, bkRect.removeFromBottom(12.0f), juce::Justification::centred, false);
+                }
+            }
+        }
+
+        void mouseDown(const juce::MouseEvent& e) override
+        {
+            const float w = (float) getWidth();
+            const float h = (float) getHeight();
+            const float kw = w / 7.0f;
+            const float bw = kw * 0.62f;
+            const float bh = h * 0.60f;
+
+            auto* seq = dynamic_cast<SeqSource*>(matrix.sourceAt(slot));
+            int mask = seq != nullptr ? seq->noteMask.load() : (int) st.getProperty("noteMask", 0x0FFF);
+
+            int clickedNote = -1;
+
+            if (e.position.y <= bh)
+            {
+                struct BlackKeyDef { int note; float centreXRatio; };
+                const BlackKeyDef blackKeys[5] = {
+                    { 1, 1.0f }, { 3, 2.0f }, { 6, 4.0f }, { 8, 5.0f }, { 10, 6.0f }
+                };
+                for (int i = 0; i < 5; ++i)
+                {
+                    const float cx = blackKeys[i].centreXRatio * kw;
+                    if (e.position.x >= cx - bw * 0.5f && e.position.x <= cx + bw * 0.5f)
+                    {
+                        clickedNote = blackKeys[i].note;
+                        break;
+                    }
+                }
+            }
+
+            if (clickedNote < 0)
+            {
+                static const int whiteNotes[7] = { 0, 2, 4, 5, 7, 9, 11 };
+                int wi = clampRange((int) (e.position.x / kw), 0, 6);
+                clickedNote = whiteNotes[wi];
+            }
+
+            if (clickedNote >= 0)
+            {
+                if (e.mods.isPopupMenu())
+                {
+                    if (mask == (1 << clickedNote))
+                        mask = 0x0FFF;
+                    else
+                        mask = (1 << clickedNote);
+                }
+                else
+                {
+                    mask ^= (1 << clickedNote);
+                    if ((mask & 0x0FFF) == 0)
+                        mask = 0x0FFF;
+                }
+
+                st.setProperty("noteMask", mask, nullptr);
+                matrix.setSourceParam(slot, "noteMask", mask);
+                repaint();
+                if (onMaskChanged)
+                    onMaskChanged();
+            }
+        }
+
+        std::function<void()> onMaskChanged;
+
+    private:
+        ModMatrix& matrix;
+        int slot;
+        juce::ValueTree st;
     };
 
     SourceEditorContent(ModMatrix& m, int slot_, Forge64Processor* proc)
@@ -875,8 +1067,11 @@ public:
         }
         else if (cls == SC_SEQ)
         {
-            addNumStepsCombo();
+            addNumStepsSlider();
             addStepGridRow();
+            addQuantizeToggle();
+            addOctavesSlider();
+            addKeyboardSelectorRow();
             addSlider("rate", "Rate Hz", 0.01, 40.0, 0.01, 0.4);
             addToggle("sync", "Tempo Sync");
             addDivCombo();
@@ -889,6 +1084,11 @@ public:
         }
 
         setSize(330, layoutHeight());
+    }
+
+    ~SourceEditorContent() override
+    {
+        deleteAllChildren();
     }
 
     int layoutHeight() const
@@ -905,20 +1105,32 @@ public:
         const int w = getWidth();
         for (const auto& r : rows)
         {
-            if (r.l != nullptr)
+            if (r.fullWidth)
+            {
+                if (r.l != nullptr)
+                    r.l->setBounds(6, y + 2, 88, r.h - 6);
+                r.c->setBounds(6, y + 2, w - 12, r.h - 6);
+            }
+            else if (r.l != nullptr)
+            {
                 r.l->setBounds(6, y + 2, 88, r.h - 6);
-            r.c->setBounds(98, y + 2, w - 104, r.h - 6);
+                r.c->setBounds(98, y + 2, w - 104, r.h - 6);
+            }
+            else
+            {
+                r.c->setBounds(98, y + 2, w - 104, r.h - 6);
+            }
             y += r.h;
         }
     }
 
 private:
-    void addRow(juce::Label* l, juce::Component* c, int h)
+    void addRow(juce::Label* l, juce::Component* c, int h, bool fullWidth = false)
     {
         if (l != nullptr)
             addAndMakeVisible(l);
         addAndMakeVisible(c);
-        rows.push_back({ l, c, h });
+        rows.push_back({ l, c, h, fullWidth });
     }
 
     void addSlider(const juce::String& key, const juce::String& text,
@@ -967,31 +1179,92 @@ private:
         addCombo("div", "Sync Div", divs);
     }
 
-    void addNumStepsCombo()
+    void addNumStepsSlider()
     {
         auto* l = new juce::Label();
-        l->setText("Steps", juce::dontSendNotification);
+        l->setText("Steps (1-32)", juce::dontSendNotification);
         l->setFont(uiFont(11.f));
         l->setColour(juce::Label::textColourId, ui::dim());
 
-        auto* cb = new juce::ComboBox();
-        ui::styleCombo(*cb);
-        cb->addItem("16 Steps", 1);
-        cb->addItem("32 Steps", 2);
-        cb->setSelectedId((int) st.getProperty("numSteps", 16) >= 32 ? 2 : 1, juce::dontSendNotification);
-        cb->onChange = [this, cb]
+        auto* s = new juce::Slider();
+        s->setSliderStyle(juce::Slider::LinearHorizontal);
+        s->setTextBoxStyle(juce::Slider::TextBoxRight, false, 52, 18);
+        s->setNormalisableRange(juce::NormalisableRange<double>(1.0, 32.0, 1.0, 1.0));
+        s->setValue((double) st.getProperty("numSteps", 16), juce::dontSendNotification);
+        s->setColour(juce::Slider::backgroundColourId, ui::panelHi());
+        s->setColour(juce::Slider::trackColourId, ui::line());
+        s->setColour(juce::Slider::thumbColourId, slotColour(slot));
+        s->setColour(juce::Slider::textBoxTextColourId, ui::txt());
+        s->setColour(juce::Slider::textBoxBackgroundColourId, ui::panelHi());
+        s->onValueChange = [this, s]
         {
-            matrix.setSourceParam(slot, "numSteps", cb->getSelectedId() == 2 ? 32 : 16);
+            matrix.setSourceParam(slot, "numSteps", (int) s->getValue());
             if (stepGrid != nullptr)
                 stepGrid->repaint();
         };
-        addRow(l, cb, 26);
+        addRow(l, s, 26);
+    }
+
+    void addQuantizeToggle()
+    {
+        auto* tb = new juce::ToggleButton("Melodic Quantize");
+        ui::styleToggle(*tb);
+        tb->setToggleState(bool(st.getProperty("quantize", false)), juce::dontSendNotification);
+        tb->onClick = [this, tb]
+        {
+            matrix.setSourceParam(slot, "quantize", tb->getToggleState());
+            if (stepGrid != nullptr)
+                stepGrid->repaint();
+        };
+        addRow(nullptr, tb, 24);
+    }
+
+    void addOctavesSlider()
+    {
+        auto* l = new juce::Label();
+        l->setText("Octaves (1-4)", juce::dontSendNotification);
+        l->setFont(uiFont(11.f));
+        l->setColour(juce::Label::textColourId, ui::dim());
+
+        auto* s = new juce::Slider();
+        s->setSliderStyle(juce::Slider::LinearHorizontal);
+        s->setTextBoxStyle(juce::Slider::TextBoxRight, false, 52, 18);
+        s->setNormalisableRange(juce::NormalisableRange<double>(1.0, 4.0, 1.0, 1.0));
+        s->setValue((double) st.getProperty("octaves", 2), juce::dontSendNotification);
+        s->setColour(juce::Slider::backgroundColourId, ui::panelHi());
+        s->setColour(juce::Slider::trackColourId, ui::line());
+        s->setColour(juce::Slider::thumbColourId, slotColour(slot));
+        s->setColour(juce::Slider::textBoxTextColourId, ui::txt());
+        s->setColour(juce::Slider::textBoxBackgroundColourId, ui::panelHi());
+        s->onValueChange = [this, s]
+        {
+            matrix.setSourceParam(slot, "octaves", (int) s->getValue());
+            if (stepGrid != nullptr)
+                stepGrid->repaint();
+        };
+        addRow(l, s, 26);
+    }
+
+    void addKeyboardSelectorRow()
+    {
+        auto* l = new juce::Label();
+        l->setText("Scale Notes", juce::dontSendNotification);
+        l->setFont(uiFont(11.f));
+        l->setColour(juce::Label::textColourId, ui::dim());
+
+        keyboardSelector = new OctaveKeyboardSelector(matrix, slot, st);
+        keyboardSelector->onMaskChanged = [this]
+        {
+            if (stepGrid != nullptr)
+                stepGrid->repaint();
+        };
+        addRow(l, keyboardSelector, 38);
     }
 
     void addStepGridRow()
     {
         stepGrid = new StepGrid(matrix, slot);
-        addRow(nullptr, stepGrid, 92);
+        addRow(nullptr, stepGrid, 96, true);
     }
 
     void addToggle(const juce::String& key, const juce::String& text)
@@ -1120,13 +1393,14 @@ private:
         addRow(l, learner, 28);
     }
 
-    struct RowSpec { juce::Label* l; juce::Component* c; int h; };
+    struct RowSpec { juce::Label* l; juce::Component* c; int h; bool fullWidth = false; };
 
     ModMatrix& matrix;
     int slot;
     juce::ValueTree st;
     std::vector<RowSpec> rows;
     StepGrid* stepGrid = nullptr;
+    OctaveKeyboardSelector* keyboardSelector = nullptr;
 };
 
 // ---------------------------------------------------------------------------

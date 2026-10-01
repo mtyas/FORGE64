@@ -2,6 +2,7 @@
 #include "UICommon.h"
 #include "../Scripting/ModuleScripts.h"
 #include "../Scripting/AIPromptHelper.h"
+#include "../Presets/ModulePresetManager.h"
 
 namespace f64 {
 
@@ -36,6 +37,11 @@ void LuaScriptEditorWindow::compileCurrentScript()
 {
     if (content != nullptr)
         content->compileAndApply();
+}
+
+juce::String LuaScriptEditorWindow::getCurrentScriptCode() const
+{
+    return content != nullptr ? content->getCode() : juce::String();
 }
 
 // ---------------------------------------------------------------------------
@@ -140,12 +146,22 @@ void LuaScriptEditorWindow::EditorContent::setPad(int newPad)
 
     codeEditor->setText(curCode, juce::dontSendNotification);
 
+    auto labels = parseMacroLabelsFromScript(curCode);
+    if (labels.hasAny())
+    {
+        if (labels.p1.isNotEmpty() && ! st.hasProperty("p1Label")) st.setProperty("p1Label", labels.p1, nullptr);
+        if (labels.p2.isNotEmpty() && ! st.hasProperty("p2Label")) st.setProperty("p2Label", labels.p2, nullptr);
+        if (labels.p3.isNotEmpty() && ! st.hasProperty("p3Label")) st.setProperty("p3Label", labels.p3, nullptr);
+        if (labels.p4.isNotEmpty() && ! st.hasProperty("p4Label")) st.setProperty("p4Label", labels.p4, nullptr);
+        if (labels.p5.isNotEmpty() && ! st.hasProperty("p5Label")) st.setProperty("p5Label", labels.p5, nullptr);
+    }
+
     const auto err = proc.lua().errorFor(pad);
     if (err.isEmpty())
     {
         statusLabel->setText("READY / ACTIVE", juce::dontSendNotification);
         statusLabel->setColour(juce::Label::textColourId, juce::Colour(0xFF70E000));
-        consoleOutput->setText("Lua DSP engine running cleanly.\nAPI: outL(i,v), outR(i,v), inL(i), inR(i), param(\"tune\"|\"decay\"|\"drive\"|\"fx1\"..\"fx4\"), rnd(), vel, age, trig, n, sr",
+        consoleOutput->setText("Lua DSP engine running cleanly.\nAPI: outL(i,v), outR(i,v), inL(i), inR(i), param(\"tune\"|\"decay\"|\"drive\"|\"p1\"..\"p5\"), rnd(), vel, age, trig, n, sr",
                               juce::dontSendNotification);
     }
     else
@@ -156,12 +172,28 @@ void LuaScriptEditorWindow::EditorContent::setPad(int newPad)
     }
 }
 
+juce::String LuaScriptEditorWindow::EditorContent::getCode() const
+{
+    return codeEditor != nullptr ? codeEditor->getText() : juce::String();
+}
+
 void LuaScriptEditorWindow::EditorContent::compileAndApply()
 {
     const auto code = codeEditor->getText();
     proc.grid().padState(pad).setProperty("script", code, nullptr);
     proc.grid().padState(pad).setProperty("scriptOn", true, nullptr);
     proc.grid().runtime(pad).scriptOn.store(true);
+
+    auto labels = parseMacroLabelsFromScript(code);
+    if (labels.hasAny())
+    {
+        auto st = proc.grid().padState(pad);
+        if (labels.p1.isNotEmpty()) st.setProperty("p1Label", labels.p1, nullptr);
+        if (labels.p2.isNotEmpty()) st.setProperty("p2Label", labels.p2, nullptr);
+        if (labels.p3.isNotEmpty()) st.setProperty("p3Label", labels.p3, nullptr);
+        if (labels.p4.isNotEmpty()) st.setProperty("p4Label", labels.p4, nullptr);
+        if (labels.p5.isNotEmpty()) st.setProperty("p5Label", labels.p5, nullptr);
+    }
 
     proc.lua().setScript(pad, code, true);
 

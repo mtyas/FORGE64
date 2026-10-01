@@ -421,6 +421,95 @@ int main(int argc, char* argv[])
         if (! p11Passed) failedPads++;
     }
 
+    // 12. Dynamic Macro Labels Extraction Test
+    {
+        juce::String testScript =
+            "-- Custom Snare DSP\n"
+            "-- @p1: SNAP\n"
+            "-- @p2: RATIO\n"
+            "-- @p3: NOISE COLOR\n"
+            "-- @p4: TENSION\n"
+            "-- @p5: BLEED\n\n"
+            "function process() outL(0, 0) end\n";
+
+        auto labels = f64::parseMacroLabelsFromScript(testScript);
+        bool p12Passed = (labels.p1 == "SNAP" &&
+                          labels.p2 == "RATIO" &&
+                          labels.p3 == "NOISE COLOR" &&
+                          labels.p4 == "TENSION" &&
+                          labels.p5 == "BLEED");
+
+        // Test alternative @labels format
+        juce::String altScript = "-- @labels: ATTACK, BODY, CLICK, WARMTH, TAIL\n";
+        auto altLabels = f64::parseMacroLabelsFromScript(altScript);
+        if (altLabels.p1 != "ATTACK" || altLabels.p2 != "BODY" || altLabels.p3 != "CLICK" ||
+            altLabels.p4 != "WARMTH" || altLabels.p5 != "TAIL")
+            p12Passed = false;
+
+        std::cout << "[12] Dynamic Script Macro Labels Test: "
+                  << (p12Passed ? "PASSED" : "FAILED")
+                  << " (p1=" << labels.p1 << ", p2=" << labels.p2 << ", p3=" << labels.p3
+                  << ", p4=" << labels.p4 << ", p5=" << labels.p5 << ")" << std::endl;
+        if (! p12Passed) failedPads++;
+    }
+
+    // 13. Modulation Step Sequencer Arbitrary Steps (1-32) & Melodic Quantization Test
+    {
+        bool p13Passed = true;
+        // Test quantizeValue helper: C Major Pentatonic (C=0, D=2, E=4, G=7, A=9)
+        const uint16_t pentatonicMask = (1 << 0) | (1 << 2) | (1 << 4) | (1 << 7) | (1 << 9);
+        const int octaves = 1; // 12 semitones
+
+        // If continuous pitch is at semitone 1 (C#), closest allowed pentatonic note is either 0 (C) or 2 (D)
+        float vCsharp = 1.0f / 12.0f;
+        float qVal = f64::quantizeValue(vCsharp, pentatonicMask, octaves);
+        int quantizedSemitone = (int) std::round(qVal * 12.0f);
+        if (quantizedSemitone != 0 && quantizedSemitone != 2)
+            p13Passed = false;
+
+        // Test noteNameForValue
+        auto noteNameC = f64::noteNameForValue(0.0f, octaves);
+        auto noteNameTop = f64::noteNameForValue(1.0f, octaves);
+        if (noteNameC != "C1" || noteNameTop != "C2")
+            p13Passed = false;
+
+        // Test SeqSource with 7 steps and rendering
+        f64::SeqSource seq;
+        seq.enabled = true;
+        seq.numSteps = 7;
+        seq.quantize = true;
+        seq.noteMask = pentatonicMask;
+        seq.octaves = 2; // 24 semitones
+        seq.rate = 100.0f; // fast rate
+        seq.sync = false;
+        seq.gate = 1.0f;
+        seq.slew = 0.0f;
+        for (int i = 0; i < 7; ++i)
+            seq.steps[(size_t) i] = (float) i / 7.0f;
+
+        float outBuf[128];
+        seq.prepare(44100.0, 128);
+        seq.render(outBuf, 128);
+
+        // Check that rendered values strictly adhere to pentatonic notes
+        for (int i = 0; i < 128; ++i)
+        {
+            float v = juce::jlimit(0.f, 1.f, outBuf[i]);
+            int semi = (int) std::round(v * 24.0f);
+            int noteInOctave = semi % 12;
+            if ((pentatonicMask & (1 << noteInOctave)) == 0)
+            {
+                p13Passed = false;
+                break;
+            }
+        }
+
+        std::cout << "[13] Mod Seq 1-32 Steps & Melodic Quantization Test: "
+                  << (p13Passed ? "PASSED" : "FAILED")
+                  << " (C1=" << noteNameC << ", Top=" << noteNameTop << ", qSemi=" << quantizedSemitone << ")" << std::endl;
+        if (! p13Passed) failedPads++;
+    }
+
     std::cout << "All tests completed with " << failedPads << " errors." << std::endl;
     return (failedPads == 0) ? 0 : 1;
 }

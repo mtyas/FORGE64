@@ -336,6 +336,9 @@ juce::ValueTree SeqSource::makeDefault()
     t.setProperty("swing", 0.0, nullptr);
     t.setProperty("dir", 0, nullptr);
     t.setProperty("uni", true, nullptr);
+    t.setProperty("quantize", false, nullptr);
+    t.setProperty("noteMask", 0x0FFF, nullptr);
+    t.setProperty("octaves", 2, nullptr);
     t.setProperty("steps", "0.9 0 0.3 0 0.7 0 0.3 0.2 0.9 0 0.3 0 0.7 0.1 0.3 0.45 "
                            "0.9 0 0.3 0 0.7 0 0.3 0.2 0.9 0 0.3 0 0.7 0.1 0.3 0.45", nullptr);
     return t;
@@ -345,7 +348,7 @@ void SeqSource::syncFromState()
 {
     if (! state.isValid()) return;
     enabled  = bool(state.getProperty("enabled", false));
-    numSteps = (int) state.getProperty("numSteps", 16);
+    numSteps = clampRange((int) state.getProperty("numSteps", 16), 1, 32);
     rate     = (float) (double) state.getProperty("rate", 4.0);
     sync     = bool(state.getProperty("sync", true));
     div      = (int) state.getProperty("div", 9);
@@ -354,6 +357,9 @@ void SeqSource::syncFromState()
     swing    = (float) (double) state.getProperty("swing", 0.0);
     dir      = (int) state.getProperty("dir", 0);
     uni      = bool(state.getProperty("uni", true));
+    quantize = bool(state.getProperty("quantize", false));
+    noteMask = (int) state.getProperty("noteMask", 0x0FFF);
+    octaves  = clampRange((int) state.getProperty("octaves", 2), 1, 4);
 
     juce::StringArray toks;
     toks.addTokens(state.getProperty("steps", "").toString(), " ", "");
@@ -392,7 +398,7 @@ void SeqSource::render(float* out, int n)
         return;
     }
 
-    const int    N = clampRange(numSteps.load(), 4, 32);
+    const int    N = clampRange(numSteps.load(), 1, 32);
     const double hz = rateHz(rate.load(), sync.load(), div.load());
     const double stepDur = 1.0 / hz;
     const float  g  = juce::jlimit(0.05f, 1.f, gate.load());
@@ -400,6 +406,10 @@ void SeqSource::render(float* out, int n)
     const float  sw = juce::jlimit(0.f, 0.6f, swing.load());
     const bool   un = uni.load();
     const int    d  = clampRange(dir.load(), 0, 3);
+    const bool   isQuant = quantize.load();
+    const uint16_t qMask = (uint16_t) noteMask.load();
+    const int    qOcts = clampRange(octaves.load(), 1, 4);
+
     const float  coef = sl < 0.001f ? 1.f
         : 1.f - std::exp(-1.f / (juce::jmax(0.0005f, sl * 0.05f) * (float) sampleRate));
     const float inv = 1.f / (float) sampleRate;
@@ -432,8 +442,12 @@ void SeqSource::render(float* out, int n)
                 stepLen = stepDur;
         }
 
+        float effectiveCur = cur;
+        if (isQuant)
+            effectiveCur = quantizeValue(cur, qMask, qOcts);
+
         const float local = (float) ((t - stepStart) / stepLen);
-        const float target = (local >= 0.f && local < g) ? cur : 0.f;
+        const float target = (local >= 0.f && local < g) ? effectiveCur : 0.f;
         mem += (target - mem) * coef;
         out[i] = un ? mem : mem * 2.f - 1.f;
     }

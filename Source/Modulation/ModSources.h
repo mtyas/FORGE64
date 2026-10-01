@@ -124,6 +124,39 @@ private:
     std::array<Instance, kEnvInstances> inst;
 };
 
+inline float quantizeValue(float v, uint16_t noteMask, int octaves)
+{
+    const int mask = (noteMask & 0x0FFF) != 0 ? (noteMask & 0x0FFF) : 0x0FFF;
+    const int totalSemitones = clampRange(octaves, 1, 4) * 12;
+    const float stFloat = juce::jlimit(0.f, 1.f, v) * (float) totalSemitones;
+
+    int bestSemitone = 0;
+    float bestDist = 1e9f;
+    for (int s = 0; s <= totalSemitones; ++s)
+    {
+        if ((mask & (1 << (s % 12))) != 0)
+        {
+            float dist = std::abs((float) s - stFloat);
+            if (dist < bestDist)
+            {
+                bestDist = dist;
+                bestSemitone = s;
+            }
+        }
+    }
+    return (float) bestSemitone / (float) totalSemitones;
+}
+
+inline juce::String noteNameForValue(float v, int octaves)
+{
+    static const char* kNotes[] = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
+    const int totalSemitones = clampRange(octaves, 1, 4) * 12;
+    const int s = clampRange((int) std::round(juce::jlimit(0.f, 1.f, v) * (float) totalSemitones), 0, totalSemitones);
+    const int noteIdx = s % 12;
+    const int octIdx = s / 12 + 1;
+    return juce::String(kNotes[noteIdx]) + juce::String(octIdx);
+}
+
 // ---------------------------------------------------------------------------
 class SeqSource final : public ModSource
 {
@@ -141,6 +174,9 @@ public:
     std::atomic<float> gate { 0.8f }, slew { 0.1f }, swing { 0.f };
     std::atomic<int>   dir { 0 }; // 0 fwd, 1 rev, 2 pingpong, 3 random
     std::atomic<bool>  uni { true };
+    std::atomic<bool>  quantize { false };
+    std::atomic<int>   noteMask { 0x0FFF };
+    std::atomic<int>   octaves { 2 };
     std::array<std::atomic<float>, 32> steps;
 
 private:

@@ -1,6 +1,6 @@
 # FORGE64 User Manual
 
-**Version 0.91 (Beta)** | Created by **Matthew Tyas (mtyas)**  
+**Version 0.92 (Beta)** | Created by **Matthew Tyas (mtyas)**  
 Support the project: [![Ko-fi](https://img.shields.io/badge/Ko--fi-Support%20My%20Work-ff5e5b?logo=ko-fi&logoColor=white)](https://ko-fi.com/mtyas)
 
 ---
@@ -297,7 +297,7 @@ The right side panel displays live real-time visualizers for all modulation sour
 - **10 Multi-Wave LFOs**: Live sinusoidal/sawtooth oscilloscope traces.
 - **4 Chaos & Random Generators**: Live chaotic step and smoothed random traces (including Lorenz 3D Attractor dynamics).
 - **10 DAHDSR Envelopes**: Live attack-hold-decay envelope plots.
-- **10 Modulation Sequencers**: Live 16-step sequence plots.
+- **10 Modulation Step Sequencers**: Live 1 to 32-step sequence plots with polymetric step lengths (1 to 32 steps) and Melodic Quantization with an interactive 1-octave piano keyboard scale selector (C to B).
 - **8 Global Macros & MIDI Sources**: Live level bars.
 
 ### Drag-and-Drop Modulation Routing

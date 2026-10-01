@@ -15,6 +15,7 @@ public:
     int  getPad() const { return pad; }
     void closeButtonPressed() override;
     void compileCurrentScript();
+    juce::String getCurrentScriptCode() const;
 
     std::function<void()> onScriptChanged;
     std::function<void()> onSavePreset;
@@ -27,6 +28,7 @@ private:
         ~EditorContent() override = default;
 
         void setPad(int newPad);
+        juce::String getCode() const;
         void resized() override;
         void paint(juce::Graphics& g) override;
 

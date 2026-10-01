@@ -104,4 +104,125 @@ public:
     static juce::File getSoundPresetsDir(const juce::String& moduleId);
 };
 
+// ===========================================================================
+// Dynamic Script Macro Knob Labels Parser
+// ===========================================================================
+struct ScriptMacroLabels
+{
+    juce::String p1, p2, p3, p4, p5;
+    bool hasAny() const { return p1.isNotEmpty() || p2.isNotEmpty() || p3.isNotEmpty() || p4.isNotEmpty() || p5.isNotEmpty(); }
+};
+
+inline ScriptMacroLabels parseMacroLabelsFromScript(const juce::String& scriptCode)
+{
+    ScriptMacroLabels labels;
+    juce::StringArray lines;
+    lines.addLines(scriptCode);
+
+    auto cleanLabel = [](juce::String s) -> juce::String
+    {
+        s = s.trim();
+        while (s.startsWithChar(':') || s.startsWithChar('-') || s.startsWithChar('=') || s.startsWithChar(' '))
+            s = s.substring(1).trim();
+        if (s.containsChar('('))
+            s = s.upToFirstOccurrenceOf("(", false, false).trim();
+        if (s.containsChar(','))
+            s = s.upToFirstOccurrenceOf(",", false, false).trim();
+        if (s.startsWithIgnoreCase("Macro"))
+        {
+            int colon = s.indexOfChar(':');
+            if (colon >= 0) s = s.substring(colon + 1).trim();
+            else
+            {
+                int dash = s.indexOfChar('-');
+                if (dash >= 0) s = s.substring(dash + 1).trim();
+            }
+        }
+        s = s.retainCharacters("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 _+-/").trim();
+        if (s.length() > 12)
+        {
+            auto words = juce::StringArray::fromTokens(s, " ", "");
+            if (words.size() > 0)
+            {
+                s = words[0];
+                if (words.size() > 1 && (s.length() + 1 + words[1].length() <= 12))
+                    s += " " + words[1];
+            }
+            else
+            {
+                s = s.substring(0, 12).trim();
+            }
+        }
+        return s.toUpperCase();
+    };
+
+    for (const auto& rawLine : lines)
+    {
+        auto line = rawLine.trim();
+
+        // 1. Check for -- @labels: P1, P2, P3, P4, P5
+        if (line.startsWithIgnoreCase("--") && line.containsIgnoreCase("@labels"))
+        {
+            auto after = line.fromFirstOccurrenceOf(":", false, false).trim();
+            juce::StringArray parts;
+            parts.addTokens(after, ",", "\"");
+            if (parts.size() >= 1 && labels.p1.isEmpty()) labels.p1 = cleanLabel(parts[0]);
+            if (parts.size() >= 2 && labels.p2.isEmpty()) labels.p2 = cleanLabel(parts[1]);
+            if (parts.size() >= 3 && labels.p3.isEmpty()) labels.p3 = cleanLabel(parts[2]);
+            if (parts.size() >= 4 && labels.p4.isEmpty()) labels.p4 = cleanLabel(parts[3]);
+            if (parts.size() >= 5 && labels.p5.isEmpty()) labels.p5 = cleanLabel(parts[4]);
+            continue;
+        }
+
+        // 2. Check for @pX, @macroX, pX:, macro X:
+        for (int pIdx = 1; pIdx <= 5; ++pIdx)
+        {
+            juce::String& target = (pIdx == 1 ? labels.p1 :
+                                   (pIdx == 2 ? labels.p2 :
+                                   (pIdx == 3 ? labels.p3 :
+                                   (pIdx == 4 ? labels.p4 : labels.p5))));
+            if (target.isNotEmpty())
+                continue;
+
+            juce::String tag1 = "@p" + juce::String(pIdx);
+            juce::String tag2 = "@macro" + juce::String(pIdx);
+            juce::String tag3 = "-- p" + juce::String(pIdx) + ":";
+            juce::String tag4 = "-- macro " + juce::String(pIdx) + ":";
+
+            int pos = -1;
+            int prefixLen = 0;
+            if ((pos = line.indexOfIgnoreCase(tag1)) >= 0) { prefixLen = tag1.length(); }
+            else if ((pos = line.indexOfIgnoreCase(tag2)) >= 0) { prefixLen = tag2.length(); }
+            else if ((pos = line.indexOfIgnoreCase(tag3)) >= 0) { prefixLen = tag3.length(); }
+            else if ((pos = line.indexOfIgnoreCase(tag4)) >= 0) { prefixLen = tag4.length(); }
+            else
+            {
+                juce::String pStr = "\"p" + juce::String(pIdx) + "\"";
+                juce::String fxStr = "\"fx" + juce::String(pIdx) + "\"";
+                int pPos = line.indexOfIgnoreCase(pStr);
+                if (pPos < 0) pPos = line.indexOfIgnoreCase(fxStr);
+                if (pPos >= 0)
+                {
+                    int cpos = line.indexOfIgnoreCase("--");
+                    if (cpos > pPos)
+                    {
+                        pos = cpos;
+                        prefixLen = 2;
+                    }
+                }
+            }
+
+            if (pos >= 0)
+            {
+                juce::String rem = line.substring(pos + prefixLen);
+                juce::String cl = cleanLabel(rem);
+                if (cl.isNotEmpty())
+                    target = cl;
+            }
+        }
+    }
+
+    return labels;
+}
+
 } // namespace f64
