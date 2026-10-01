@@ -60,8 +60,23 @@ PadEditor::PadEditor(Forge64Processor& p, ModRingKnob::Services& s, int globalPa
 
     const auto st = proc.grid().padState(pad);
 
-    // ---- P-Lock Banner (shown when editing a sequencer step's locks) -------
-    pLockBanner = std::make_unique<juce::Component>();
+    // ---- P-Lock Bottom Bar (shown docked at bottom when editing a step's locks) -------
+    class PLockBarComponent : public juce::Component
+    {
+    public:
+        void paint(juce::Graphics& g) override
+        {
+            auto r = getLocalBounds().toFloat();
+            g.setColour(juce::Colour(0xFF1E1715));
+            g.fillRoundedRectangle(r, 4.f);
+            g.setColour(juce::Colour(0xFFFF9A3C).withAlpha(0.18f));
+            g.fillRoundedRectangle(r.reduced(1.f), 3.f);
+            g.setColour(juce::Colour(0xFFFF9A3C).withAlpha(0.65f));
+            g.drawRoundedRectangle(r.reduced(0.5f), 4.f, 1.2f);
+        }
+    };
+
+    pLockBanner = std::make_unique<PLockBarComponent>();
     pLockBannerTitle = ui::makeLabel("P-LOCK EDIT MODE", 12.f, juce::Colour(0xFFFFD166)).release();
     pLockBannerTitle->setFont(uiFont(12.f, true));
     pLockBanner->addAndMakeVisible(pLockBannerTitle);
@@ -69,7 +84,7 @@ PadEditor::PadEditor(Forge64Processor& p, ModRingKnob::Services& s, int globalPa
     pLockSaveBtn = new juce::TextButton("SAVE TO STEP");
     ui::styleButton(*pLockSaveBtn);
     pLockSaveBtn->setColour(juce::TextButton::buttonColourId, juce::Colour(0xFF7A3E00));
-    pLockSaveBtn->onClick = [this] { saveCurrentParamsAsPLock(true); };
+    pLockSaveBtn->onClick = [this] { saveCurrentParamsAsPLock(false); };
     pLockBanner->addAndMakeVisible(pLockSaveBtn);
 
     pLockClearBtn = new juce::TextButton("CLEAR LOCKS");
@@ -83,7 +98,7 @@ PadEditor::PadEditor(Forge64Processor& p, ModRingKnob::Services& s, int globalPa
     pLockBanner->addAndMakeVisible(pLockExitBtn);
 
     pLockBanner->setVisible(false);
-    content->addAndMakeVisible(pLockBanner.get());
+    addAndMakeVisible(pLockBanner.get());
 
     // ---- header -------------------------------------------------------
     prevPadBtn = new juce::TextButton("<");
@@ -338,7 +353,7 @@ PadEditor::PadEditor(Forge64Processor& p, ModRingKnob::Services& s, int globalPa
     ifxCombo = makeCombo("ifx", { "Off", "Flanger", "Chorus", "Crusher", "Phaser",
                                   "Overdrive", "Fuzz", "Tape Echo", "Plate Reverb",
                                   "Pitch Shift", "Formant", "Ring Mod",
-                                  "Hall Reverb", "Shimmer Reverb", "Spring Reverb", "Gated Reverb",
+                                  "Hall Reverb", "Chamber Reverb", "Spring Reverb", "Gated Reverb",
                                   "Ping-Pong Delay", "Dub Delay", "Tube Saturator", "Wavefolder",
                                   "Freq Shifter", "Stereo Detuner" });
     ifxCombo->setTooltip("Dedicated pad insert multi-effect");
@@ -458,46 +473,10 @@ void PadEditor::enterPLockMode(int trackIdx, int stepIdx)
     // 1. Snapshot pad base parameters ONLY when first entering P-Lock mode from normal mode!
     if (! inPLockMode)
     {
-        preLockParams.tune   = getAPVTSParam("tune");
-        preLockParams.decay  = getAPVTSParam("dec");
-        preLockParams.drive  = getAPVTSParam("drv");
-        preLockParams.fx1    = getAPVTSParam("fx1");
-        preLockParams.fx2    = getAPVTSParam("fx2");
-        preLockParams.fx3    = getAPVTSParam("fx3");
-        preLockParams.fx4    = getAPVTSParam("fx4");
-        preLockParams.fx5    = getAPVTSParam("fx5");
-        preLockParams.sendA  = getAPVTSParam("snda");
-        preLockParams.sendB  = getAPVTSParam("sndb");
-        preLockParams.sendC  = getAPVTSParam("sndc");
-        preLockParams.sendD  = getAPVTSParam("sndd");
-        preLockParams.level  = getAPVTSParam("lvl");
-        preLockParams.pan    = getAPVTSParam("pan");
-
-        preLockParams.vcfType = (int) getAPVTSParam("vcft");
-        preLockParams.vcfCut  = getAPVTSParam("vcfc");
-        preLockParams.vcfRes  = getAPVTSParam("vcfr");
-        preLockParams.vcfEnv  = getAPVTSParam("vcfe");
-
-        preLockParams.eqLF = getAPVTSParam("eqlf");
-        preLockParams.eqLG = getAPVTSParam("eqlg");
-        preLockParams.eqMF = getAPVTSParam("eqmf");
-        preLockParams.eqMG = getAPVTSParam("eqmg");
-        preLockParams.eqHF = getAPVTSParam("eqhf");
-        preLockParams.eqHG = getAPVTSParam("eqhg");
-
-        preLockParams.cThr = getAPVTSParam("cthr");
-        preLockParams.cRat = getAPVTSParam("crat");
-        preLockParams.cAtk = getAPVTSParam("catk");
-        preLockParams.cRel = getAPVTSParam("crel");
-
-        preLockParams.ifxType = (int) getAPVTSParam("ifx");
-        preLockParams.ifx1    = getAPVTSParam("ifx1");
-        preLockParams.ifx2    = getAPVTSParam("ifx2");
-        preLockParams.ifx3    = getAPVTSParam("ifx3");
-        preLockParams.ifx4    = getAPVTSParam("ifx4");
-
+        proc.fillPadParams(pad, preLockParams, 0.0f);
         inPLockMode = true;
     }
+    proc.setPadPLockPreviewActive(pad, true, preLockParams);
 
     pLockTrack = trackIdx;
     pLockStep = stepIdx;
@@ -588,12 +567,18 @@ void PadEditor::enterPLockMode(int trackIdx, int stepIdx)
         setAPVTSParam("ifx2", preLockParams.ifx2);
         setAPVTSParam("ifx3", preLockParams.ifx3);
         setAPVTSParam("ifx4", preLockParams.ifx4);
+
+        setAPVTSParam("satk", preLockParams.smplAtk);
+        setAPVTSParam("sdec", preLockParams.smplDec);
+        setAPVTSParam("ssus", preLockParams.smplSus);
+        setAPVTSParam("srel", preLockParams.smplRel);
     }
 
     isSyncingPLockUI = false;
 
-    // Audition this specific step with its current sound parameters!
-    proc.triggerStepAudition(pad, sd.velocity > 0.05f ? sd.velocity : 0.85f, sd);
+    // Audition this specific step with its current sound parameters (only if preview mode is ON)!
+    if (auditionOnTouchEnabled)
+        proc.triggerStepAudition(pad, sd.velocity > 0.05f ? sd.velocity : 0.85f, sd);
 
     if (pLockBanner != nullptr)
     {
@@ -614,6 +599,7 @@ void PadEditor::exitPLockMode()
 {
     if (inPLockMode)
     {
+        proc.setPadPLockPreviewActive(pad, false, preLockParams);
         isSyncingPLockUI = true;
         // Restore pre-lock pad base parameters
         setAPVTSParam("tune", preLockParams.tune);
@@ -668,6 +654,12 @@ void PadEditor::exitPLockMode()
     repaint();
 }
 
+void PadEditor::visibilityChanged()
+{
+    if (! isVisible() && inPLockMode)
+        exitPLockMode();
+}
+
 void PadEditor::saveCurrentParamsAsPLock(bool shouldAudition)
 {
     if (pLockTrack < 0 || pLockStep < 0) return;
@@ -675,7 +667,6 @@ void PadEditor::saveCurrentParamsAsPLock(bool shouldAudition)
     auto sd = seq.currentPattern().tracks[(size_t) pLockTrack].steps[(size_t) pLockStep];
 
     sd.active = true;
-    sd.hasLocks = true;
     if (sd.padOverride < 0 && pad != seq.currentPattern().tracks[(size_t) pLockTrack].defaultPad)
         sd.padOverride = pad;
     sd.pLockPitch  = getAPVTSParam("tune");
@@ -716,14 +707,61 @@ void PadEditor::saveCurrentParamsAsPLock(bool shouldAudition)
     sd.pLockIfx3    = getAPVTSParam("ifx3");
     sd.pLockIfx4    = getAPVTSParam("ifx4");
 
-    seq.setStepData(pLockTrack, pLockStep, sd);
-    hadLocksOnEntry = true;
+    uint64_t mask = 0;
+    if (std::abs(sd.pLockPitch - preLockParams.tune) > 0.01f) mask |= StepLockFlags::LOCK_FLAG_PITCH;
+    if (std::abs(sd.pLockDecay - preLockParams.decay) > 0.01f) mask |= StepLockFlags::LOCK_FLAG_DECAY;
+    if (std::abs(sd.pLockDrive - preLockParams.drive) > 0.01f) mask |= StepLockFlags::LOCK_FLAG_DRIVE;
+    if (std::abs(sd.pLockTone - preLockParams.fx1) > 0.01f) mask |= StepLockFlags::LOCK_FLAG_TONE;
+    if (std::abs(sd.pLockP2 - preLockParams.fx2) > 0.01f) mask |= StepLockFlags::LOCK_FLAG_P2;
+    if (std::abs(sd.pLockP3 - preLockParams.fx3) > 0.01f) mask |= StepLockFlags::LOCK_FLAG_P3;
+    if (std::abs(sd.pLockP4 - preLockParams.fx4) > 0.01f) mask |= StepLockFlags::LOCK_FLAG_P4;
+    if (std::abs(sd.pLockP5 - preLockParams.fx5) > 0.01f) mask |= StepLockFlags::LOCK_FLAG_P5;
+    if (std::abs(sd.pLockSendA - preLockParams.sendA) > 0.01f) mask |= StepLockFlags::LOCK_FLAG_SEND_A;
+    if (std::abs(sd.pLockSendB - preLockParams.sendB) > 0.01f) mask |= StepLockFlags::LOCK_FLAG_SEND_B;
+    if (std::abs(sd.pLockSendC - preLockParams.sendC) > 0.01f) mask |= StepLockFlags::LOCK_FLAG_SEND_C;
+    if (std::abs(sd.pLockSendD - preLockParams.sendD) > 0.01f) mask |= StepLockFlags::LOCK_FLAG_SEND_D;
+    if (std::abs(sd.pLockLevel - preLockParams.level) > 0.01f) mask |= StepLockFlags::LOCK_FLAG_LEVEL;
+    if (std::abs(sd.pLockPan - preLockParams.pan) > 0.01f) mask |= StepLockFlags::LOCK_FLAG_PAN;
+    if (sd.pLockVcfType != preLockParams.vcfType) mask |= StepLockFlags::LOCK_FLAG_VCF_TYPE;
+    if (std::abs(sd.pLockVcfCut - preLockParams.vcfCut) > 10.f) mask |= StepLockFlags::LOCK_FLAG_VCF_CUT;
+    if (std::abs(sd.pLockVcfRes - preLockParams.vcfRes) > 0.01f) mask |= StepLockFlags::LOCK_FLAG_VCF_RES;
+    if (std::abs(sd.pLockVcfEnv - preLockParams.vcfEnv) > 0.01f) mask |= StepLockFlags::LOCK_FLAG_VCF_ENV;
+    if (std::abs(sd.pLockEqLF - preLockParams.eqLF) > 5.f) mask |= StepLockFlags::LOCK_FLAG_EQ_LF;
+    if (std::abs(sd.pLockEqLG - preLockParams.eqLG) > 0.01f) mask |= StepLockFlags::LOCK_FLAG_EQ_LG;
+    if (std::abs(sd.pLockEqMF - preLockParams.eqMF) > 10.f) mask |= StepLockFlags::LOCK_FLAG_EQ_MF;
+    if (std::abs(sd.pLockEqMG - preLockParams.eqMG) > 0.01f) mask |= StepLockFlags::LOCK_FLAG_EQ_MG;
+    if (std::abs(sd.pLockEqHF - preLockParams.eqHF) > 20.f) mask |= StepLockFlags::LOCK_FLAG_EQ_HF;
+    if (std::abs(sd.pLockEqHG - preLockParams.eqHG) > 0.01f) mask |= StepLockFlags::LOCK_FLAG_EQ_HG;
+    if (std::abs(sd.pLockCThr - preLockParams.cThr) > 0.1f) mask |= StepLockFlags::LOCK_FLAG_COMP_THR;
+    if (std::abs(sd.pLockCRat - preLockParams.cRat) > 0.05f) mask |= StepLockFlags::LOCK_FLAG_COMP_RAT;
+    if (std::abs(sd.pLockCAtk - preLockParams.cAtk) > 0.1f) mask |= StepLockFlags::LOCK_FLAG_COMP_ATK;
+    if (std::abs(sd.pLockCRel - preLockParams.cRel) > 1.0f) mask |= StepLockFlags::LOCK_FLAG_COMP_REL;
+    if (sd.pLockIfxType != preLockParams.ifxType) mask |= StepLockFlags::LOCK_FLAG_IFX_TYPE;
+    if (std::abs(sd.pLockIfx1 - preLockParams.ifx1) > 0.01f) mask |= StepLockFlags::LOCK_FLAG_IFX1;
+    if (std::abs(sd.pLockIfx2 - preLockParams.ifx2) > 0.01f) mask |= StepLockFlags::LOCK_FLAG_IFX2;
+    if (std::abs(sd.pLockIfx3 - preLockParams.ifx3) > 0.01f) mask |= StepLockFlags::LOCK_FLAG_IFX3;
+    if (std::abs(sd.pLockIfx4 - preLockParams.ifx4) > 0.01f) mask |= StepLockFlags::LOCK_FLAG_IFX4;
 
-    if (shouldAudition)
+    const uint64_t paramLockMask = mask;
+    if (sd.padOverride >= 0 && sd.padOverride != seq.currentPattern().tracks[(size_t) pLockTrack].defaultPad)
+        mask |= StepLockFlags::LOCK_FLAG_PAD_OVERRIDE;
+    sd.lockMask = mask;
+    sd.hasLocks = (paramLockMask != 0 || sd.ratchet > 1);
+
+    seq.setStepData(pLockTrack, pLockStep, sd);
+    seq.bumpPatternVersion();
+    hadLocksOnEntry = sd.hasLocks;
+
+    if (shouldAudition && auditionOnTouchEnabled)
         proc.triggerStepAudition(pad, sd.velocity > 0.05f ? sd.velocity : 0.85f, sd);
 
     if (pLockSaveBtn != nullptr)
-        pLockSaveBtn->setButtonText("LOCKED");
+        pLockSaveBtn->setButtonText(sd.hasLocks ? "LOCKED" : "SAVE TO STEP");
+
+    if (auto* top = getTopLevelComponent())
+        top->repaint();
+    else
+        repaint();
 }
 
 void PadEditor::clearPLocksForStep()
@@ -731,8 +769,9 @@ void PadEditor::clearPLocksForStep()
     if (pLockTrack < 0 || pLockStep < 0) return;
     auto& seq = proc.getSequencer();
     auto sd = seq.currentPattern().tracks[(size_t) pLockTrack].steps[(size_t) pLockStep];
-    sd.hasLocks = false;
+    sd.clearLocks();
     seq.setStepData(pLockTrack, pLockStep, sd);
+    seq.bumpPatternVersion();
     hadLocksOnEntry = false;
 
     isSyncingPLockUI = true;
@@ -775,12 +814,23 @@ void PadEditor::clearPLocksForStep()
     setAPVTSParam("ifx3", preLockParams.ifx3);
     setAPVTSParam("ifx4", preLockParams.ifx4);
 
+    setAPVTSParam("satk", preLockParams.smplAtk);
+    setAPVTSParam("sdec", preLockParams.smplDec);
+    setAPVTSParam("ssus", preLockParams.smplSus);
+    setAPVTSParam("srel", preLockParams.smplRel);
+
     isSyncingPLockUI = false;
 
-    proc.triggerStepAudition(pad, sd.velocity > 0.05f ? sd.velocity : 0.85f, sd);
+    if (auditionOnTouchEnabled)
+        proc.triggerStepAudition(pad, sd.velocity > 0.05f ? sd.velocity : 0.85f, sd);
 
     if (pLockSaveBtn != nullptr)
         pLockSaveBtn->setButtonText("SAVE TO STEP");
+
+    if (auto* top = getTopLevelComponent())
+        top->repaint();
+    else
+        repaint();
 }
 
 void PadEditor::triggerAuditionForCurrentStep()
@@ -1238,10 +1288,10 @@ void PadEditor::updateIfxLabels(int ifxType)
             ifxKnobs[2]->setLabel("PRE-DLY");
             ifxKnobs[3]->setLabel("MIX");
             break;
-        case 13: // Shimmer Reverb
+        case 13: // Chamber Reverb
             ifxKnobs[0]->setLabel("DECAY");
-            ifxKnobs[1]->setLabel("SHIMMER");
-            ifxKnobs[2]->setLabel("TONE");
+            ifxKnobs[1]->setLabel("SIZE");
+            ifxKnobs[2]->setLabel("DAMP");
             ifxKnobs[3]->setLabel("MIX");
             break;
         case 14: // Spring Reverb
@@ -1303,13 +1353,28 @@ void PadEditor::updateIfxLabels(int ifxType)
 
 void PadEditor::resized()
 {
-    if (viewport != nullptr)
-        viewport->setBounds(getLocalBounds());
-    if (content != nullptr)
+    auto r = getLocalBounds();
+    auto bannerBounds = r.removeFromBottom(34);
+    if (pLockBanner != nullptr)
     {
-        const int topOffset = inPLockMode ? 40 : 0;
-        content->setSize(getWidth(), 836 + topOffset);
+        pLockBanner->setBounds(bannerBounds.reduced(6, 2));
+        auto pb = pLockBanner->getLocalBounds().reduced(4);
+        if (pLockBannerTitle) pLockBannerTitle->setBounds(pb.removeFromLeft(280));
+        if (pLockExitBtn)     pLockExitBtn->setBounds(pb.removeFromRight(60));
+        pb.removeFromRight(8);
+        if (pLockClearBtn)    pLockClearBtn->setBounds(pb.removeFromRight(96));
+        pb.removeFromRight(8);
+        if (pLockSaveBtn)     pLockSaveBtn->setBounds(pb.removeFromRight(106));
+
+        pLockBanner->setVisible(inPLockMode);
+        if (inPLockMode)
+            pLockBanner->toFront(false);
     }
+
+    if (viewport != nullptr)
+        viewport->setBounds(r);
+    if (content != nullptr)
+        content->setSize(r.getWidth(), 836);
 }
 
 void PadEditor::paint(juce::Graphics& g)
@@ -1321,20 +1386,6 @@ void PadEditor::Content::resized()
 {
     const int w = getWidth();
     int curY = 6;
-
-    // P-Lock Banner
-    if (owner.inPLockMode && owner.pLockBanner != nullptr)
-    {
-        owner.pLockBanner->setBounds(6, curY, w - 12, 32);
-        auto pb = owner.pLockBanner->getLocalBounds().reduced(4);
-        if (owner.pLockBannerTitle) owner.pLockBannerTitle->setBounds(pb.removeFromLeft(280));
-        if (owner.pLockExitBtn) owner.pLockExitBtn->setBounds(pb.removeFromRight(60));
-        pb.removeFromRight(8);
-        if (owner.pLockClearBtn) owner.pLockClearBtn->setBounds(pb.removeFromRight(96));
-        pb.removeFromRight(8);
-        if (owner.pLockSaveBtn) owner.pLockSaveBtn->setBounds(pb.removeFromRight(106));
-        curY += 38;
-    }
 
     // Header row
     auto hr = juce::Rectangle<int>(8, curY, w - 16, 28);

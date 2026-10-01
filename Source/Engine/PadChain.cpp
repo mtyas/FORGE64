@@ -397,13 +397,11 @@ void PadChain::process(float* L, float* R, int n, const PadParams& p)
     const float hallDampAlpha = 1.0f - std::exp(-juce::MathConstants<float>::twoPi * (2000.f + (1.f - p.ifx2) * 11000.f) / (float) sampleRate);
     const float hallMix = p.ifx4;
 
-    // FX 13: Shimmer Reverb
-    const float shimFb = 0.30f + p.ifx1 * 0.48f; // Max 0.78
-    const float shimOctaveAmt = p.ifx2 * 0.70f;
-    const float shimDampAlpha = 1.0f - std::exp(-juce::MathConstants<float>::twoPi * (1500.f + (1.f - p.ifx3) * 9000.f) / (float) sampleRate);
-    const float shimMix = p.ifx4;
-    const float shimGrainSamples = 0.070f * (float) sampleRate;
-    const float shimGrainRate = -1.0f / shimGrainSamples; // +1 octave
+    // FX 13: Chamber Reverb
+    const float chambFb = 0.35f + p.ifx1 * 0.52f; // Max 0.87
+    const float chambSize = 0.5f + p.ifx2 * 0.5f;
+    const float chambDampAlpha = 1.0f - std::exp(-juce::MathConstants<float>::twoPi * (1500.f + (1.f - p.ifx3) * 9000.f) / (float) sampleRate);
+    const float chambMix = p.ifx4;
     const size_t sLen = shimBufL.size();
 
     // FX 14: Spring Reverb
@@ -697,54 +695,43 @@ void PadChain::process(float* L, float* R, int n, const PadParams& p)
                 y += (wetR - y) * hallMix;
                 break;
             }
-            case 13: // Shimmer Reverb (FDN with octave-up pitch in feedback)
+            case 13: // Chamber Reverb (Lush diffuse acoustic room/chamber)
             {
                 const float inSum = (x + y) * 0.5f;
-                shimPhase += shimGrainRate;
-                while (shimPhase >= 1.0f) shimPhase -= 1.0f;
-                while (shimPhase < 0.0f)  shimPhase += 1.0f;
-                const float ph1 = shimPhase;
-                float ph2 = shimPhase + 0.5f;
-                const float w1 = 0.5f * (1.0f - std::cos(ph1 * juce::MathConstants<float>::twoPi));
-                const float w2 = 0.5f * (1.0f - std::cos(ph2 * juce::MathConstants<float>::twoPi));
 
-                double rp1 = (double) shimWrite - (double) (ph1 * shimGrainSamples);
+                const size_t d1 = (size_t) (0.019 * (double) chambSize * sampleRate);
+                const size_t d2 = (size_t) (0.029 * (double) chambSize * sampleRate);
+                const size_t d3 = (size_t) (0.037 * (double) chambSize * sampleRate);
+                const size_t d4 = (size_t) (0.047 * (double) chambSize * sampleRate);
+
+                double rp1 = (double) shimWrite - (double) d1;
                 while (rp1 < 0.0) rp1 += (double) sLen;
-                size_t i0_1 = (size_t) rp1 % sLen;
-                size_t i1_1 = (i0_1 + 1) % sLen;
-                float f1 = (float) (rp1 - std::floor(rp1));
-                float rL1 = shimBufL[i0_1] + f1 * (shimBufL[i1_1] - shimBufL[i0_1]);
-                float rR1 = shimBufR[i0_1] + f1 * (shimBufR[i1_1] - shimBufR[i0_1]);
-
-                double rp2 = (double) shimWrite - (double) (ph2 * shimGrainSamples);
+                double rp2 = (double) shimWrite - (double) d2;
                 while (rp2 < 0.0) rp2 += (double) sLen;
-                size_t i0_2 = (size_t) rp2 % sLen;
-                size_t i1_2 = (i0_2 + 1) % sLen;
-                float f2 = (float) (rp2 - std::floor(rp2));
-                float rL2 = shimBufL[i0_2] + f2 * (shimBufL[i1_2] - shimBufL[i0_2]);
-                float rR2 = shimBufR[i0_2] + f2 * (shimBufR[i1_2] - shimBufR[i0_2]);
+                double rp3 = (double) shimWrite - (double) d3;
+                while (rp3 < 0.0) rp3 += (double) sLen;
+                double rp4 = (double) shimWrite - (double) d4;
+                while (rp4 < 0.0) rp4 += (double) sLen;
 
-                const float pitchOutL = rL1 * w1 + rL2 * w2;
-                const float pitchOutR = rR1 * w2 + rR2 * w1;
+                const float t1 = shimBufL[(size_t) rp1 % sLen];
+                const float t2 = shimBufR[(size_t) rp2 % sLen];
+                const float t3 = shimBufL[(size_t) rp3 % sLen];
+                const float t4 = shimBufR[(size_t) rp4 % sLen];
 
-                shimDampL += (pitchOutL - shimDampL) * shimDampAlpha;
-                shimDampR += (pitchOutR - shimDampR) * shimDampAlpha;
+                const float tankL = (t1 + t4) * 0.5f;
+                const float tankR = (t2 + t3) * 0.5f;
+
+                shimDampL += (tankL - shimDampL) * chambDampAlpha;
+                shimDampR += (tankR - shimDampR) * chambDampAlpha;
                 if (std::abs(shimDampL) < 1e-7f) shimDampL = 0.f;
                 if (std::abs(shimDampR) < 1e-7f) shimDampR = 0.f;
 
-                const float readL = shimBufL[(size_t) shimWrite];
-                const float readR = shimBufR[(size_t) shimWrite];
-
-                const float octMix = shimOctaveAmt * 0.5f;
-                const float loopL = (readR * (1.0f - octMix) + shimDampL * octMix) * shimFb;
-                const float loopR = (readL * (1.0f - octMix) + shimDampR * octMix) * shimFb;
-
-                shimBufL[(size_t) shimWrite] = std::tanh(inSum + loopL);
-                shimBufR[(size_t) shimWrite] = std::tanh(inSum + loopR);
+                shimBufL[(size_t) shimWrite] = std::tanh(inSum + shimDampR * chambFb);
+                shimBufR[(size_t) shimWrite] = std::tanh(inSum + shimDampL * chambFb);
                 shimWrite = (shimWrite + 1) % (int) sLen;
 
-                x += (readL - x) * shimMix;
-                y += (readR - y) * shimMix;
+                x += (tankL - x) * chambMix;
+                y += (tankR - y) * chambMix;
                 break;
             }
             case 14: // Spring Reverb (Dispersive allpasses + dual tank)

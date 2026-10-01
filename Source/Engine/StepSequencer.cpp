@@ -27,7 +27,11 @@ void StepSequencer::reset()
     currentSongBlockIdx.store(0);
     currentBlockRepeatsCount = 0;
     for (size_t i = 0; i < 8; ++i)
+    {
+        trackSamplesRemaining[i] = 0.0;
+        trackCurrentSteps[i] = 0;
         trackStepIndices[i].store(0);
+    }
     pendingTriggers.clear();
 }
 
@@ -80,6 +84,21 @@ void StepSequencer::setTrackPad(int trackIdx, int pad)
         currentPattern().tracks[(size_t) trackIdx].defaultPad = clampRange(pad, 0, kNumPads - 1);
 }
 
+void StepSequencer::setTrackSpeed(int trackIdx, float speedMultiplier)
+{
+    std::lock_guard<std::mutex> lock(seqMutex);
+    if (trackIdx >= 0 && trackIdx < 8)
+        currentPattern().tracks[(size_t) trackIdx].speedMultiplier = juce::jlimit(0.125f, 8.0f, speedMultiplier);
+}
+
+float StepSequencer::getTrackSpeed(int trackIdx) const
+{
+    std::lock_guard<std::mutex> lock(seqMutex);
+    if (trackIdx >= 0 && trackIdx < 8)
+        return currentPattern().tracks[(size_t) trackIdx].speedMultiplier;
+    return 1.0f;
+}
+
 void StepSequencer::setTrackSwing(int trackIdx, float swing)
 {
     std::lock_guard<std::mutex> lock(seqMutex);
@@ -113,7 +132,18 @@ void StepSequencer::setStepActive(int trackIdx, int stepIdx, bool active)
 {
     std::lock_guard<std::mutex> lock(seqMutex);
     if (trackIdx >= 0 && trackIdx < 8 && stepIdx >= 0 && stepIdx < 64)
-        currentPattern().tracks[(size_t) trackIdx].steps[(size_t) stepIdx].active = active;
+    {
+        auto& s = currentPattern().tracks[(size_t) trackIdx].steps[(size_t) stepIdx];
+        s.active = active;
+        if (! active)
+        {
+            s.resetStep();
+        }
+        else if ((s.lockMask & StepLockFlags::LOCK_FLAG_PAD_OVERRIDE) == 0)
+        {
+            s.padOverride = -1;
+        }
+    }
 }
 
 void StepSequencer::setStepVelocity(int trackIdx, int stepIdx, float vel)
@@ -144,6 +174,7 @@ void StepSequencer::setStepPitch(int trackIdx, int stepIdx, float pitchSemi)
     {
         auto& s = currentPattern().tracks[(size_t) trackIdx].steps[(size_t) stepIdx];
         s.pLockPitch = clampRange(pitchSemi, -24.0f, 24.0f);
+        s.lockMask |= LOCK_FLAG_PITCH;
         s.hasLocks = true;
     }
 }
@@ -155,6 +186,7 @@ void StepSequencer::setStepDecay(int trackIdx, int stepIdx, float decayFactor)
     {
         auto& s = currentPattern().tracks[(size_t) trackIdx].steps[(size_t) stepIdx];
         s.pLockDecay = clampRange(decayFactor, 0.05f, 5.0f);
+        s.lockMask |= LOCK_FLAG_DECAY;
         s.hasLocks = true;
     }
 }
@@ -166,6 +198,7 @@ void StepSequencer::setStepDrive(int trackIdx, int stepIdx, float driveAmt)
     {
         auto& s = currentPattern().tracks[(size_t) trackIdx].steps[(size_t) stepIdx];
         s.pLockDrive = clampRange(driveAmt, 0.0f, 1.0f);
+        s.lockMask |= LOCK_FLAG_DRIVE;
         s.hasLocks = true;
     }
 }
@@ -177,6 +210,7 @@ void StepSequencer::setStepLevel(int trackIdx, int stepIdx, float levelAmt)
     {
         auto& s = currentPattern().tracks[(size_t) trackIdx].steps[(size_t) stepIdx];
         s.pLockLevel = clampRange(levelAmt, 0.0f, 1.5f);
+        s.lockMask |= LOCK_FLAG_LEVEL;
         s.hasLocks = true;
     }
 }
@@ -188,6 +222,7 @@ void StepSequencer::setStepPan(int trackIdx, int stepIdx, float panAmt)
     {
         auto& s = currentPattern().tracks[(size_t) trackIdx].steps[(size_t) stepIdx];
         s.pLockPan = clampRange(panAmt, -1.0f, 1.0f);
+        s.lockMask |= LOCK_FLAG_PAN;
         s.hasLocks = true;
     }
 }
@@ -239,20 +274,264 @@ void StepSequencer::copyPattern()
 
 void StepSequencer::pastePattern()
 {
+    {
+        std::lock_guard<std::mutex> lock(seqMutex);
+        if (hasClipboard)
+            currentPattern() = clipboardPattern;
+    }
+    bumpPatternVersion();
+}
+
+std::unique_ptr<PatternData> StepSequencer::getPatternCopy(int idx) const
+{
     std::lock_guard<std::mutex> lock(seqMutex);
-    if (hasClipboard)
-        currentPattern() = clipboardPattern;
+    auto p = std::make_unique<PatternData>();
+    if (idx >= 0 && idx < 16)
+        *p = patterns[(size_t) idx];
+    return p;
+}
+
+void StepSequencer::setPattern(int idx, const PatternData& data)
+{
+    {
+        std::lock_guard<std::mutex> lock(seqMutex);
+        if (idx >= 0 && idx < 16)
+            patterns[(size_t) idx] = data;
+    }
+    bumpPatternVersion();
+}
+
+std::unique_ptr<std::array<PatternData, 16>> StepSequencer::getAllPatternsCopy() const
+{
+    std::lock_guard<std::mutex> lock(seqMutex);
+    auto arr = std::make_unique<std::array<PatternData, 16>>();
+    *arr = patterns;
+    return arr;
+}
+
+void StepSequencer::setAllPatterns(const std::array<PatternData, 16>& data)
+{
+    {
+        std::lock_guard<std::mutex> lock(seqMutex);
+        patterns = data;
+    }
+    bumpPatternVersion();
 }
 
 void StepSequencer::clearCurrentPattern()
 {
-    std::lock_guard<std::mutex> lock(seqMutex);
-    for (auto& t : currentPattern().tracks)
     {
-        for (auto& s : t.steps)
+        std::lock_guard<std::mutex> lock(seqMutex);
+        for (auto& t : currentPattern().tracks)
         {
-            s.active = false;
-            s.hasLocks = false;
+            for (auto& s : t.steps)
+                s.resetStep();
+        }
+    }
+    bumpPatternVersion();
+}
+
+void StepSequencer::clearAllPatterns()
+{
+    {
+        std::lock_guard<std::mutex> lock(seqMutex);
+        for (auto& p : patterns)
+        {
+            for (auto& t : p.tracks)
+            {
+                for (auto& s : t.steps)
+                    s.resetStep();
+            }
+        }
+    }
+    bumpPatternVersion();
+}
+
+void StepSequencer::clearTrack(int trackIdx)
+{
+    {
+        std::lock_guard<std::mutex> lock(seqMutex);
+        if (trackIdx >= 0 && trackIdx < 8)
+        {
+            for (auto& s : currentPattern().tracks[(size_t) trackIdx].steps)
+                s.resetStep();
+        }
+    }
+    bumpPatternVersion();
+}
+
+void StepSequencer::duplicateTrackLoop(int trackIdx, int multiplier)
+{
+    std::lock_guard<std::mutex> lock(seqMutex);
+    if (trackIdx < 0 || trackIdx >= 8 || multiplier <= 1) return;
+    auto& trk = currentPattern().tracks[(size_t) trackIdx];
+    const int curLen = juce::jlimit(1, 64, trk.stepCount);
+    std::vector<StepData> src(trk.steps.begin(), trk.steps.begin() + curLen);
+
+    int newLen = curLen * multiplier;
+    if (newLen > 64) newLen = 64;
+
+    for (int dst = curLen; dst < newLen; ++dst)
+    {
+        trk.steps[(size_t) dst] = src[(size_t) (dst % curLen)];
+    }
+    trk.stepCount = newLen;
+}
+
+void StepSequencer::duplicateAllTracksLoop(int multiplier)
+{
+    std::lock_guard<std::mutex> lock(seqMutex);
+    if (multiplier <= 1) return;
+    for (int t = 0; t < 8; ++t)
+    {
+        auto& trk = currentPattern().tracks[(size_t) t];
+        const int curLen = juce::jlimit(1, 64, trk.stepCount);
+        std::vector<StepData> src(trk.steps.begin(), trk.steps.begin() + curLen);
+
+        int newLen = curLen * multiplier;
+        if (newLen > 64) newLen = 64;
+
+        for (int dst = curLen; dst < newLen; ++dst)
+        {
+            trk.steps[(size_t) dst] = src[(size_t) (dst % curLen)];
+        }
+        trk.stepCount = newLen;
+    }
+}
+
+void StepSequencer::copyPage(int trackIdx, int pageIdx)
+{
+    std::lock_guard<std::mutex> lock(seqMutex);
+    if (trackIdx < 0 || trackIdx >= 8 || pageIdx < 0 || pageIdx >= 4) return;
+    const auto& trk = currentPattern().tracks[(size_t) trackIdx];
+    for (int i = 0; i < 16; ++i)
+        pageClipboard[(size_t) i] = trk.steps[(size_t) (pageIdx * 16 + i)];
+    hasPageClipboard = true;
+}
+
+void StepSequencer::pastePage(int trackIdx, int pageIdx)
+{
+    std::lock_guard<std::mutex> lock(seqMutex);
+    if (! hasPageClipboard || trackIdx < 0 || trackIdx >= 8 || pageIdx < 0 || pageIdx >= 4) return;
+    auto& trk = currentPattern().tracks[(size_t) trackIdx];
+    for (int i = 0; i < 16; ++i)
+        trk.steps[(size_t) (pageIdx * 16 + i)] = pageClipboard[(size_t) i];
+    if (trk.stepCount < (pageIdx + 1) * 16)
+        trk.stepCount = (pageIdx + 1) * 16;
+}
+
+void StepSequencer::duplicatePageToNext(int trackIdx, int pageIdx)
+{
+    std::lock_guard<std::mutex> lock(seqMutex);
+    if (trackIdx < 0 || trackIdx >= 8 || pageIdx < 0 || pageIdx >= 3) return;
+    auto& trk = currentPattern().tracks[(size_t) trackIdx];
+    for (int i = 0; i < 16; ++i)
+        trk.steps[(size_t) ((pageIdx + 1) * 16 + i)] = trk.steps[(size_t) (pageIdx * 16 + i)];
+    if (trk.stepCount < (pageIdx + 2) * 16)
+        trk.stepCount = (pageIdx + 2) * 16;
+}
+
+void StepSequencer::duplicatePageToAll(int trackIdx, int pageIdx)
+{
+    std::lock_guard<std::mutex> lock(seqMutex);
+    if (trackIdx < 0 || trackIdx >= 8 || pageIdx < 0 || pageIdx >= 4) return;
+    auto& trk = currentPattern().tracks[(size_t) trackIdx];
+    std::array<StepData, 16> src;
+    for (int i = 0; i < 16; ++i)
+        src[(size_t) i] = trk.steps[(size_t) (pageIdx * 16 + i)];
+    for (int p = 0; p < 4; ++p)
+    {
+        if (p == pageIdx) continue;
+        for (int i = 0; i < 16; ++i)
+            trk.steps[(size_t) (p * 16 + i)] = src[(size_t) i];
+    }
+    trk.stepCount = 64;
+}
+
+void StepSequencer::clearPage(int trackIdx, int pageIdx)
+{
+    std::lock_guard<std::mutex> lock(seqMutex);
+    if (trackIdx < 0 || trackIdx >= 8 || pageIdx < 0 || pageIdx >= 4) return;
+    auto& trk = currentPattern().tracks[(size_t) trackIdx];
+    for (int i = 0; i < 16; ++i)
+    {
+        trk.steps[(size_t) (pageIdx * 16 + i)].active = false;
+        trk.steps[(size_t) (pageIdx * 16 + i)].clearLocks();
+    }
+}
+
+void StepSequencer::copyAllTracksPage(int pageIdx)
+{
+    std::lock_guard<std::mutex> lock(seqMutex);
+    if (pageIdx < 0 || pageIdx >= 4) return;
+    for (int t = 0; t < 8; ++t)
+    {
+        const auto& trk = currentPattern().tracks[(size_t) t];
+        for (int i = 0; i < 16; ++i)
+            allTracksPageClipboard[(size_t) t][(size_t) i] = trk.steps[(size_t) (pageIdx * 16 + i)];
+    }
+    hasAllTracksPageClipboard = true;
+}
+
+void StepSequencer::pasteAllTracksPage(int pageIdx)
+{
+    std::lock_guard<std::mutex> lock(seqMutex);
+    if (! hasAllTracksPageClipboard || pageIdx < 0 || pageIdx >= 4) return;
+    for (int t = 0; t < 8; ++t)
+    {
+        auto& trk = currentPattern().tracks[(size_t) t];
+        for (int i = 0; i < 16; ++i)
+            trk.steps[(size_t) (pageIdx * 16 + i)] = allTracksPageClipboard[(size_t) t][(size_t) i];
+        if (trk.stepCount < (pageIdx + 1) * 16)
+            trk.stepCount = (pageIdx + 1) * 16;
+    }
+}
+
+void StepSequencer::duplicateAllTracksPageToNext(int pageIdx)
+{
+    std::lock_guard<std::mutex> lock(seqMutex);
+    if (pageIdx < 0 || pageIdx >= 3) return;
+    for (int t = 0; t < 8; ++t)
+    {
+        auto& trk = currentPattern().tracks[(size_t) t];
+        for (int i = 0; i < 16; ++i)
+            trk.steps[(size_t) ((pageIdx + 1) * 16 + i)] = trk.steps[(size_t) (pageIdx * 16 + i)];
+        if (trk.stepCount < (pageIdx + 2) * 16)
+            trk.stepCount = (pageIdx + 2) * 16;
+    }
+}
+
+void StepSequencer::duplicateAllTracksPageToAll(int pageIdx)
+{
+    std::lock_guard<std::mutex> lock(seqMutex);
+    if (pageIdx < 0 || pageIdx >= 4) return;
+    for (int t = 0; t < 8; ++t)
+    {
+        auto& trk = currentPattern().tracks[(size_t) t];
+        std::array<StepData, 16> src;
+        for (int i = 0; i < 16; ++i)
+            src[(size_t) i] = trk.steps[(size_t) (pageIdx * 16 + i)];
+        for (int p = 0; p < 4; ++p)
+        {
+            if (p == pageIdx) continue;
+            for (int i = 0; i < 16; ++i)
+                trk.steps[(size_t) (p * 16 + i)] = src[(size_t) i];
+        }
+        trk.stepCount = 64;
+    }
+}
+
+void StepSequencer::clearAllTracksPage(int pageIdx)
+{
+    std::lock_guard<std::mutex> lock(seqMutex);
+    if (pageIdx < 0 || pageIdx >= 4) return;
+    for (int t = 0; t < 8; ++t)
+    {
+        auto& trk = currentPattern().tracks[(size_t) t];
+        for (int i = 0; i < 16; ++i)
+        {
+            trk.steps[(size_t) (pageIdx * 16 + i)].active = false;
+            trk.steps[(size_t) (pageIdx * 16 + i)].clearLocks();
         }
     }
 }
@@ -344,6 +623,7 @@ void StepSequencer::process(int numSamples, double bpm, bool hostPlaying, std::v
     for (int t = 0; t < 8; ++t)
         if (pat.tracks[(size_t) t].solo) anySolo = true;
 
+    // Advance master 16th-note clock and song structure
     int sampleOffset = 0;
     while (sampleOffset < numSamples)
     {
@@ -356,120 +636,9 @@ void StepSequencer::process(int numSamples, double bpm, bool hostPlaying, std::v
         if (clockAccumulator >= samplesPer16th)
         {
             clockAccumulator -= samplesPer16th;
-            const int blockPos = juce::jlimit(0, numSamples - 1, sampleOffset - 1);
-
-            // Iterate through the 8 polymetric tracks
-            for (int tIdx = 0; tIdx < 8; ++tIdx)
-            {
-                const auto& trk = pat.tracks[(size_t) tIdx];
-                if (trk.mute || (anySolo && ! trk.solo))
-                    continue;
-
-                const int len = juce::jmax(1, trk.stepCount);
-                const int stepIdx = (int) (global16thCounter % (int64_t) len);
-                trackStepIndices[(size_t) tIdx].store(stepIdx);
-
-                const auto& step = trk.steps[(size_t) stepIdx];
-
-                auto scheduleStepTriggers = [&](const StepData& s, int defaultPad, int startOffset)
-                {
-                    const int padToTrigger = (s.padOverride >= 0 && s.padOverride < kNumPads) ? s.padOverride : defaultPad;
-                    const int rCount = juce::jlimit(1, 4, s.ratchet);
-                    const int subStepLen = (int) (samplesPer16th / (double) rCount);
-
-                    for (int r = 0; r < rCount; ++r)
-                    {
-                        const int rTargetPos = startOffset + r * subStepLen;
-                        TriggerEvent ev;
-                        ev.pad = padToTrigger;
-                        ev.vel = clampRange(s.velocity, 0.05f, 1.0f);
-                        ev.hasLocks = s.hasLocks;
-                        if (s.hasLocks)
-                        {
-                            ev.pitch = s.pLockPitch;
-                            ev.decay = s.pLockDecay;
-                            ev.tone  = s.pLockTone;
-                            ev.drive = s.pLockDrive;
-                            ev.sendA = s.pLockSendA;
-                            ev.sendB = s.pLockSendB;
-                            ev.level = s.pLockLevel;
-                            ev.pan   = s.pLockPan;
-                            ev.p2    = s.pLockP2;
-                            ev.p3    = s.pLockP3;
-                            ev.p4    = s.pLockP4;
-                            ev.p5    = s.pLockP5;
-                            ev.modAmt = s.pLockModAmt;
-                            ev.vcfType = s.pLockVcfType;
-                            ev.vcfCut  = s.pLockVcfCut;
-                            ev.vcfRes  = s.pLockVcfRes;
-                            ev.vcfEnv  = s.pLockVcfEnv;
-                            ev.eqLF    = s.pLockEqLF;
-                            ev.eqLG    = s.pLockEqLG;
-                            ev.eqMF    = s.pLockEqMF;
-                            ev.eqMG    = s.pLockEqMG;
-                            ev.eqHF    = s.pLockEqHF;
-                            ev.eqHG    = s.pLockEqHG;
-                            ev.cThr    = s.pLockCThr;
-                            ev.cRat    = s.pLockCRat;
-                            ev.cAtk    = s.pLockCAtk;
-                            ev.cRel    = s.pLockCRel;
-                            ev.ifxType = s.pLockIfxType;
-                            ev.ifx1    = s.pLockIfx1;
-                            ev.ifx2    = s.pLockIfx2;
-                            ev.ifx3    = s.pLockIfx3;
-                            ev.ifx4    = s.pLockIfx4;
-                            ev.sendC   = s.pLockSendC;
-                            ev.sendD   = s.pLockSendD;
-                        }
-
-                        if (rTargetPos < numSamples)
-                        {
-                            ev.pos = juce::jlimit(0, numSamples - 1, rTargetPos);
-                            outEvents.push_back(ev);
-                        }
-                        else
-                        {
-                            PendingTrigger pt;
-                            pt.samplesRemaining = rTargetPos - numSamples;
-                            pt.event = ev;
-                            pendingTriggers.push_back(pt);
-                        }
-                    }
-                };
-
-                // 1. Current step trigger (for steps on grid or with positive microtiming)
-                // If microtiming < -0.001f, this step was already triggered early during the previous 16th interval.
-                const bool shouldTriggerNow = step.active && (step.microtiming >= -0.001f || global16thCounter == 0);
-                if (shouldTriggerNow)
-                {
-                    if (step.probability >= 0.999f || rng.nextFloat() <= step.probability)
-                    {
-                        int swingOffset = ((stepIdx % 2 != 0) && trk.swing > 0.001f)
-                                          ? (int) (trk.swing * samplesPer16th * 0.5) : 0;
-                        const int mOffset = (step.microtiming >= -0.001f) ? (int) (step.microtiming * samplesPer16th) : 0;
-                        scheduleStepTriggers(step, trk.defaultPad, blockPos + mOffset + swingOffset);
-                    }
-                }
-
-                // 2. Look-ahead for next step with negative microtiming (rushed / early hit)
-                const int nextStepIdx = (int) ((global16thCounter + 1) % (int64_t) len);
-                const auto& nextStep = trk.steps[(size_t) nextStepIdx];
-                if (nextStep.active && nextStep.microtiming < -0.001f)
-                {
-                    if (nextStep.probability >= 0.999f || rng.nextFloat() <= nextStep.probability)
-                    {
-                        int nextSwingOffset = ((nextStepIdx % 2 != 0) && trk.swing > 0.001f)
-                                              ? (int) (trk.swing * samplesPer16th * 0.5) : 0;
-                        const int earlyOffset = blockPos + (int) ((1.0f + nextStep.microtiming) * samplesPer16th) + nextSwingOffset;
-                        scheduleStepTriggers(nextStep, trk.defaultPad, earlyOffset);
-                    }
-                }
-            }
-
             ++global16thCounter;
             ++currentPatternStep;
 
-            // Song mode advancement: advance after 16 or 64 steps
             if (playMode.load() == MODE_SONG && ! songSequence.empty())
             {
                 if (currentPatternStep >= 16)
@@ -486,6 +655,132 @@ void StepSequencer::process(int numSamples, double bpm, bool hostPlaying, std::v
                 }
             }
         }
+    }
+
+    auto scheduleStepTriggers = [&](const StepData& s, int defaultPad, int startOffset, double stepLen)
+    {
+        const int padToTrigger = (s.padOverride >= 0 && s.padOverride < kNumPads) ? s.padOverride : defaultPad;
+        const int rCount = juce::jlimit(1, 4, s.ratchet);
+        const int subStepLen = (int) (stepLen / (double) rCount);
+
+        for (int r = 0; r < rCount; ++r)
+        {
+            const int rTargetPos = startOffset + r * subStepLen;
+            TriggerEvent ev;
+            ev.pad = padToTrigger;
+            ev.vel = clampRange(s.velocity, 0.05f, 1.0f);
+            ev.hasLocks = s.hasLocks;
+            ev.lockMask = s.lockMask;
+            if (s.hasLocks)
+            {
+                ev.pitch = s.pLockPitch;
+                ev.decay = s.pLockDecay;
+                ev.tone  = s.pLockTone;
+                ev.drive = s.pLockDrive;
+                ev.sendA = s.pLockSendA;
+                ev.sendB = s.pLockSendB;
+                ev.level = s.pLockLevel;
+                ev.pan   = s.pLockPan;
+                ev.p2    = s.pLockP2;
+                ev.p3    = s.pLockP3;
+                ev.p4    = s.pLockP4;
+                ev.p5    = s.pLockP5;
+                ev.modAmt = s.pLockModAmt;
+                ev.vcfType = s.pLockVcfType;
+                ev.vcfCut  = s.pLockVcfCut;
+                ev.vcfRes  = s.pLockVcfRes;
+                ev.vcfEnv  = s.pLockVcfEnv;
+                ev.eqLF    = s.pLockEqLF;
+                ev.eqLG    = s.pLockEqLG;
+                ev.eqMF    = s.pLockEqMF;
+                ev.eqMG    = s.pLockEqMG;
+                ev.eqHF    = s.pLockEqHF;
+                ev.eqHG    = s.pLockEqHG;
+                ev.cThr    = s.pLockCThr;
+                ev.cRat    = s.pLockCRat;
+                ev.cAtk    = s.pLockCAtk;
+                ev.cRel    = s.pLockCRel;
+                ev.ifxType = s.pLockIfxType;
+                ev.ifx1    = s.pLockIfx1;
+                ev.ifx2    = s.pLockIfx2;
+                ev.ifx3    = s.pLockIfx3;
+                ev.ifx4    = s.pLockIfx4;
+                ev.sendC   = s.pLockSendC;
+                ev.sendD   = s.pLockSendD;
+            }
+
+            if (rTargetPos < numSamples)
+            {
+                ev.pos = juce::jlimit(0, numSamples - 1, rTargetPos);
+                outEvents.push_back(ev);
+            }
+            else
+            {
+                PendingTrigger pt;
+                pt.samplesRemaining = rTargetPos - numSamples;
+                pt.event = ev;
+                pendingTriggers.push_back(pt);
+            }
+        }
+    };
+
+    // 2. Advance each track independently based on its speed multiplier
+    for (int tIdx = 0; tIdx < 8; ++tIdx)
+    {
+        const auto& trk = pat.tracks[(size_t) tIdx];
+        const bool isTrackAudible = (! trk.mute) && (! anySolo || trk.solo);
+
+        const float spd = juce::jlimit(0.125f, 8.0f, trk.speedMultiplier > 0.05f ? trk.speedMultiplier : 1.0f);
+        const double stepLenSamples = samplesPer16th / (double) spd;
+        const int len = juce::jmax(1, trk.stepCount);
+
+        double rem = trackSamplesRemaining[(size_t) tIdx];
+        int curSample = 0;
+
+        while (curSample < numSamples)
+        {
+            if (rem <= 0.0)
+            {
+                const int stepIdx = juce::jlimit(0, 63, trackCurrentSteps[(size_t) tIdx]);
+                trackStepIndices[(size_t) tIdx].store(stepIdx);
+                const auto& step = trk.steps[(size_t) stepIdx];
+
+                const bool shouldTriggerNow = isTrackAudible && step.active && (step.microtiming >= -0.001f || global16thCounter <= 1);
+                if (shouldTriggerNow)
+                {
+                    if (step.probability >= 0.999f || rng.nextFloat() <= step.probability)
+                    {
+                        int swingOffset = ((stepIdx % 2 != 0) && trk.swing > 0.001f)
+                                          ? (int) (trk.swing * stepLenSamples * 0.5) : 0;
+                        const int mOffset = (step.microtiming >= -0.001f) ? (int) (step.microtiming * stepLenSamples) : 0;
+                        scheduleStepTriggers(step, trk.defaultPad, curSample + mOffset + swingOffset, stepLenSamples);
+                    }
+                }
+
+                // Look-ahead for next step with negative microtiming (rushed hit)
+                const int nextStepIdx = juce::jlimit(0, 63, (stepIdx + 1) % len);
+                const auto& nextStep = trk.steps[(size_t) nextStepIdx];
+                if (isTrackAudible && nextStep.active && nextStep.microtiming < -0.001f)
+                {
+                    if (nextStep.probability >= 0.999f || rng.nextFloat() <= nextStep.probability)
+                    {
+                        int nextSwingOffset = ((nextStepIdx % 2 != 0) && trk.swing > 0.001f)
+                                              ? (int) (trk.swing * stepLenSamples * 0.5) : 0;
+                        const int earlyOffset = curSample + (int) ((1.0f + nextStep.microtiming) * stepLenSamples) + nextSwingOffset;
+                        scheduleStepTriggers(nextStep, trk.defaultPad, earlyOffset, stepLenSamples);
+                    }
+                }
+
+                trackCurrentSteps[(size_t) tIdx] = nextStepIdx;
+                rem += stepLenSamples;
+            }
+
+            const int toAdvance = juce::jmin(numSamples - curSample, (int) std::ceil(rem));
+            rem -= toAdvance;
+            curSample += toAdvance;
+        }
+
+        trackSamplesRemaining[(size_t) tIdx] = rem;
     }
 
     if (outEvents.size() > 1)
@@ -626,6 +921,7 @@ juce::ValueTree StepSequencer::serialize() const
             tTree.setProperty("name", trk.name, nullptr);
             tTree.setProperty("pad", trk.defaultPad, nullptr);
             tTree.setProperty("len", trk.stepCount, nullptr);
+            tTree.setProperty("speed", trk.speedMultiplier, nullptr);
             tTree.setProperty("swing", trk.swing, nullptr);
             tTree.setProperty("mute", trk.mute, nullptr);
             tTree.setProperty("solo", trk.solo, nullptr);
@@ -646,6 +942,7 @@ juce::ValueTree StepSequencer::serialize() const
                     if (step.hasLocks)
                     {
                         sTree.setProperty("hl", true, nullptr);
+                        sTree.setProperty("lm", (juce::int64) step.lockMask, nullptr);
                         sTree.setProperty("lp", step.pLockPitch, nullptr);
                         sTree.setProperty("ld", step.pLockDecay, nullptr);
                         sTree.setProperty("lt", step.pLockTone, nullptr);
@@ -732,6 +1029,7 @@ void StepSequencer::deserialize(const juce::ValueTree& tree)
                         trk.name = tTree.getProperty("name", trk.name).toString();
                         trk.defaultPad = tTree.getProperty("pad", trk.defaultPad);
                         trk.stepCount = clampRange((int) tTree.getProperty("len", 16), 1, 64);
+                        trk.speedMultiplier = (float) tTree.getProperty("speed", 1.0f);
                         trk.swing = tTree.getProperty("swing", 0.f);
                         trk.mute = tTree.getProperty("mute", false);
                         trk.solo = tTree.getProperty("solo", false);
@@ -758,6 +1056,9 @@ void StepSequencer::deserialize(const juce::ValueTree& tree)
                                 step.hasLocks = sTree.getProperty("hl", false);
                                 if (step.hasLocks)
                                 {
+                                    step.lockMask = (uint64_t) (juce::int64) sTree.getProperty("lm", (juce::int64) 0);
+                                    if (step.lockMask == 0)
+                                        step.lockMask = ~0ULL;
                                     step.pLockPitch = sTree.getProperty("lp", 0.0f);
                                     step.pLockDecay = sTree.getProperty("ld", 1.0f);
                                     step.pLockTone  = sTree.getProperty("lt", 0.5f);

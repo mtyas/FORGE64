@@ -12,6 +12,17 @@ public:
     StepButton(SequencerPage& owner_, int trackIdx_, int stepIdx_)
         : owner(owner_), trackIdx(trackIdx_), stepIdx(stepIdx_) {}
 
+    void setStepIndex(int newStepIdx)
+    {
+        if (stepIdx != newStepIdx)
+        {
+            stepIdx = newStepIdx;
+            repaint();
+        }
+    }
+
+    int getStepIndex() const { return stepIdx; }
+
     void paint(juce::Graphics& g) override
     {
         const auto& trk = owner.seq.currentPattern().tracks[(size_t) trackIdx];
@@ -324,7 +335,7 @@ public:
         }
 
         // P-Lock hot ember indicator dot
-        if (s.hasLocks)
+        if (s.hasLocks && ((s.lockMask & ~StepLockFlags::LOCK_FLAG_PAD_OVERRIDE) != 0 || s.ratchet > 1))
         {
             g.setColour(juce::Colour(0xFFFFD166));
             g.fillEllipse(r.getRight() - 6.f, r.getY() + 3.f, 4.f, 4.f);
@@ -428,16 +439,10 @@ public:
             if (curTrack >= 0 && curStep >= 0)
             {
                 auto& s = owner.seq.currentPattern().tracks[(size_t) curTrack].steps[(size_t) curStep];
-                s.hasLocks = false;
-                s.padOverride = -1;
+                s.clearLocks();
                 s.ratchet = 1;
                 s.microtiming = 0.f;
                 s.probability = 1.f;
-                s.pLockPitch = 0.0f;
-                s.pLockDecay = 1.0f;
-                s.pLockDrive = 0.0f;
-                s.pLockLevel = 1.0f;
-                s.pLockPan   = 0.0f;
                 openForStep(curTrack, curStep);
                 owner.repaint();
             }
@@ -493,10 +498,20 @@ public:
         s.pLockLevel = (float) levelSlider->getValue();
         s.pLockPan   = (float) panSlider->getValue();
         s.pLockSendA = (float) sendASlider->getValue();
-        s.hasLocks = (std::abs(s.pLockPitch) > 0.01f || std::abs(s.pLockDecay - 1.0f) > 0.01f
-                      || std::abs(s.pLockTone - 0.5f) > 0.01f || s.pLockDrive > 0.01f || s.pLockSendA > 0.01f
-                      || std::abs(s.pLockLevel - 1.0f) > 0.01f || std::abs(s.pLockPan) > 0.01f
-                      || s.padOverride >= 0 || s.ratchet > 1);
+
+        uint64_t mask = 0;
+        if (std::abs(s.pLockPitch) > 0.01f) mask |= StepLockFlags::LOCK_FLAG_PITCH;
+        if (std::abs(s.pLockDecay - 1.0f) > 0.01f) mask |= StepLockFlags::LOCK_FLAG_DECAY;
+        if (s.pLockDrive > 0.01f) mask |= StepLockFlags::LOCK_FLAG_DRIVE;
+        if (std::abs(s.pLockTone - 0.5f) > 0.01f) mask |= StepLockFlags::LOCK_FLAG_TONE;
+        if (std::abs(s.pLockLevel - 1.0f) > 0.01f) mask |= StepLockFlags::LOCK_FLAG_LEVEL;
+        if (std::abs(s.pLockPan) > 0.01f) mask |= StepLockFlags::LOCK_FLAG_PAN;
+        if (s.pLockSendA > 0.01f) mask |= StepLockFlags::LOCK_FLAG_SEND_A;
+        const uint64_t paramMask = mask;
+        if (s.padOverride >= 0 && s.padOverride != owner.seq.currentPattern().tracks[(size_t) curTrack].defaultPad)
+            mask |= StepLockFlags::LOCK_FLAG_PAD_OVERRIDE;
+        s.lockMask = mask;
+        s.hasLocks = (paramMask != 0 || s.ratchet > 1);
         owner.repaint();
     }
 
@@ -720,13 +735,15 @@ public:
         : owner(owner_), trackIdx(trackIdx_)
     {
         nameLabel = std::make_unique<juce::Label>();
-        nameLabel->setText(owner.seq.currentPattern().tracks[(size_t) trackIdx].name, juce::dontSendNotification);
-        nameLabel->setFont(uiFont(11.f, true));
+        nameLabel->setText("TRK " + juce::String(trackIdx + 1), juce::dontSendNotification);
+        nameLabel->setFont(uiFont(11.5f, true));
         nameLabel->setColour(juce::Label::textColourId, ui::accentHot());
+        nameLabel->setJustificationType(juce::Justification::centredLeft);
         addAndMakeVisible(nameLabel.get());
 
         muteBtn = std::make_unique<juce::TextButton>("M");
         ui::styleButton(*muteBtn);
+        muteBtn->setTooltip("Mute Track");
         muteBtn->onClick = [this]
         {
             const bool m = ! owner.seq.currentPattern().tracks[(size_t) trackIdx].mute;
@@ -737,6 +754,7 @@ public:
 
         soloBtn = std::make_unique<juce::TextButton>("S");
         ui::styleButton(*soloBtn);
+        soloBtn->setTooltip("Solo Track");
         soloBtn->onClick = [this]
         {
             const bool s = ! owner.seq.currentPattern().tracks[(size_t) trackIdx].solo;
@@ -745,14 +763,22 @@ public:
         };
         addAndMakeVisible(soloBtn.get());
 
+        speedBtn = std::make_unique<juce::TextButton>("1x");
+        ui::styleButton(*speedBtn);
+        speedBtn->setTooltip("Track clock speed multiplier/divider (click to choose 1/8x to 8x)");
+        speedBtn->onClick = [this] { showSpeedMenu(); };
+        addAndMakeVisible(speedBtn.get());
+
+        lenBtn = std::make_unique<juce::TextButton>("16 STEPS");
+        ui::styleButton(*lenBtn);
+        lenBtn->setTooltip("Track polymetric length (click for options, scroll wheel to adjust 1..64)");
+        lenBtn->onClick = [this] { showLengthMenu(); };
+        addAndMakeVisible(lenBtn.get());
+
         padCombo = std::make_unique<juce::ComboBox>();
         ui::styleCombo(*padCombo);
-        for (int p = 0; p < kNumPads; ++p)
-        {
-            const int b = p / 16;
-            const char bc = (char) ('A' + b);
-            padCombo->addItem(juce::String::charToString(bc) + juce::String::formatted("%02d", (p % 16) + 1), p + 1);
-        }
+        padCombo->setTooltip("Assigned Drum Pad (Bank & Sound)");
+        populatePadCombo();
         padCombo->setSelectedId(owner.seq.currentPattern().tracks[(size_t) trackIdx].defaultPad + 1, juce::dontSendNotification);
         padCombo->onChange = [this]
         {
@@ -762,24 +788,122 @@ public:
         };
         addAndMakeVisible(padCombo.get());
 
-        lenSlider = std::make_unique<juce::Slider>(juce::Slider::IncDecButtons, juce::Slider::TextBoxLeft);
-        lenSlider->setRange(1, 64, 1);
-        lenSlider->setValue(owner.seq.currentPattern().tracks[(size_t) trackIdx].stepCount, juce::dontSendNotification);
-        lenSlider->setColour(juce::Slider::textBoxTextColourId, ui::accentHot());
-        lenSlider->setColour(juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
-        lenSlider->onValueChange = [this]
-        {
-            owner.seq.setSelectedTrack(trackIdx);
-            owner.seq.setTrackLength(trackIdx, (int) lenSlider->getValue());
-            owner.repaint();
-        };
-        addAndMakeVisible(lenSlider.get());
-
         for (int s = 0; s < 16; ++s)
         {
             stepBtns[(size_t) s] = std::make_unique<StepButton>(owner, trackIdx, s);
             addAndMakeVisible(stepBtns[(size_t) s].get());
         }
+    }
+
+    void populatePadCombo(bool force = false)
+    {
+        if (! force && padCombo->getNumItems() > 0)
+            return;
+
+        padCombo->clear(juce::dontSendNotification);
+        for (int p = 0; p < kNumPads; ++p)
+        {
+            const int b = p / 16;
+            const char bc = (char) ('A' + b);
+            const juce::String padName = owner.proc.grid().padState(p).getProperty("name", "Pad " + juce::String(p + 1)).toString();
+            if (p % 16 == 0)
+                padCombo->getRootMenu()->addSectionHeader("--- BANK " + juce::String::charToString(bc) + " ---");
+            padCombo->addItem(juce::String::charToString(bc) + juce::String::formatted("%02d: ", (p % 16) + 1) + padName, p + 1);
+        }
+    }
+
+    void showLengthMenu()
+    {
+        juce::PopupMenu m;
+        const int curLen = owner.seq.currentPattern().tracks[(size_t) trackIdx].stepCount;
+
+        m.addSectionHeader("COMMON LENGTHS");
+        m.addItem(16, "16 Steps (1 Bar)", true, curLen == 16);
+        m.addItem(32, "32 Steps (2 Bars)", true, curLen == 32);
+        m.addItem(48, "48 Steps (3 Bars)", true, curLen == 48);
+        m.addItem(64, "64 Steps (4 Bars / Full)", true, curLen == 64);
+
+        m.addSeparator();
+        m.addSectionHeader("POLYMETER / ODD");
+        static const int oddLens[] = { 3, 5, 7, 9, 10, 11, 12, 13, 14, 15, 24 };
+        for (int ol : oddLens)
+            m.addItem(ol, juce::String(ol) + " Steps", true, curLen == ol);
+
+        juce::PopupMenu allMenu;
+        for (int i = 1; i <= 64; ++i)
+            allMenu.addItem(100 + i, juce::String(i) + " Steps", true, curLen == i);
+        m.addSubMenu("All Lengths (1 to 64)...", allMenu);
+
+        m.addSeparator();
+        m.addItem(201, "Duplicate Loop x2 (Double Length)");
+        m.addItem(202, "Duplicate Loop x4 (Quadruple Length, e.g. 15 -> 60)");
+
+        m.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(lenBtn.get()),
+            [this](int res)
+            {
+                if (res >= 1 && res <= 64)
+                {
+                    owner.seq.setTrackLength(trackIdx, res);
+                    updateTrackData();
+                    owner.repaint();
+                }
+                else if (res > 100 && res <= 164)
+                {
+                    owner.seq.setTrackLength(trackIdx, res - 100);
+                    updateTrackData();
+                    owner.repaint();
+                }
+                else if (res == 201)
+                {
+                    owner.seq.duplicateTrackLoop(trackIdx, 2);
+                    updateTrackData();
+                    owner.repaint();
+                }
+                else if (res == 202)
+                {
+                    owner.seq.duplicateTrackLoop(trackIdx, 4);
+                    updateTrackData();
+                    owner.repaint();
+                }
+            });
+    }
+
+    void showSpeedMenu()
+    {
+        juce::PopupMenu m;
+        static const struct { float val; const char* label; } speeds[] = {
+            { 0.125f, "1/8x (Slowest)" },
+            { 0.25f,  "1/4x" },
+            { 0.333f, "1/3x (Triplet Div)" },
+            { 0.5f,   "1/2x (Half speed)" },
+            { 0.667f, "2/3x" },
+            { 0.75f,  "3/4x" },
+            { 1.0f,   "1x (Normal)" },
+            { 1.25f,  "1.25x" },
+            { 1.5f,   "1.5x" },
+            { 2.0f,   "2x (Double)" },
+            { 3.0f,   "3x (Triple)" },
+            { 4.0f,   "4x" },
+            { 5.0f,   "5x" },
+            { 6.0f,   "6x" },
+            { 8.0f,   "8x (Fastest)" }
+        };
+        const float current = owner.seq.getTrackSpeed(trackIdx);
+        for (int i = 0; i < 15; ++i)
+        {
+            const bool isCur = std::abs(current - speeds[i].val) < 0.02f;
+            m.addItem(i + 1, speeds[i].label, true, isCur);
+        }
+        m.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(speedBtn.get()),
+            [this](int res)
+            {
+                if (res > 0 && res <= 15)
+                {
+                    owner.seq.setTrackSpeed(trackIdx, speeds[res - 1].val);
+                    updateTrackData();
+                    owner.repaint();
+                }
+            });
     }
 
     void mouseDown(const juce::MouseEvent&) override
@@ -788,19 +912,63 @@ public:
         owner.repaint();
     }
 
+    void mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel) override
+    {
+        if (e.position.x < 276)
+        {
+            const int curLen = owner.seq.currentPattern().tracks[(size_t) trackIdx].stepCount;
+            const int delta = (wheel.deltaY > 0.0f) ? 1 : -1;
+            const int newLen = juce::jlimit(1, 64, curLen + delta);
+            if (newLen != curLen)
+            {
+                owner.seq.setTrackLength(trackIdx, newLen);
+                updateTrackData();
+                owner.repaint();
+            }
+        }
+    }
+
     void updateTrackData()
     {
         const auto& trk = owner.seq.currentPattern().tracks[(size_t) trackIdx];
         if (nameLabel != nullptr)
-            nameLabel->setText(trk.name, juce::dontSendNotification);
+            nameLabel->setText("TRK " + juce::String(trackIdx + 1), juce::dontSendNotification);
         if (muteBtn != nullptr)
             muteBtn->setColour(juce::TextButton::buttonColourId, trk.mute ? ui::ember() : ui::panelHi());
         if (soloBtn != nullptr)
             soloBtn->setColour(juce::TextButton::buttonColourId, trk.solo ? juce::Colour(0xFFFFB703) : ui::panelHi());
         if (padCombo != nullptr)
+        {
+            populatePadCombo();
             padCombo->setSelectedId(trk.defaultPad + 1, juce::dontSendNotification);
-        if (lenSlider != nullptr)
-            lenSlider->setValue(trk.stepCount, juce::dontSendNotification);
+        }
+        if (lenBtn != nullptr)
+            lenBtn->setButtonText(juce::String(trk.stepCount) + (trk.stepCount == 1 ? " STEP" : " STEPS"));
+
+        if (speedBtn != nullptr)
+        {
+            const float s = owner.seq.getTrackSpeed(trackIdx);
+            auto formatSpd = [](float spd) -> juce::String
+            {
+                if (std::abs(spd - 0.125f) < 0.01f) return "1/8x";
+                if (std::abs(spd - 0.25f)  < 0.01f) return "1/4x";
+                if (std::abs(spd - 0.333f) < 0.02f) return "1/3x";
+                if (std::abs(spd - 0.5f)   < 0.01f) return "1/2x";
+                if (std::abs(spd - 0.667f) < 0.02f) return "2/3x";
+                if (std::abs(spd - 0.75f)  < 0.01f) return "3/4x";
+                if (std::abs(spd - 1.0f)   < 0.01f) return "1x";
+                if (std::abs(spd - 1.25f)  < 0.01f) return "1.25x";
+                if (std::abs(spd - 1.5f)   < 0.01f) return "1.5x";
+                if (std::abs(spd - 2.0f)   < 0.01f) return "2x";
+                if (std::abs(spd - 3.0f)   < 0.01f) return "3x";
+                if (std::abs(spd - 4.0f)   < 0.01f) return "4x";
+                if (std::abs(spd - 5.0f)   < 0.01f) return "5x";
+                if (std::abs(spd - 6.0f)   < 0.01f) return "6x";
+                if (std::abs(spd - 8.0f)   < 0.01f) return "8x";
+                return juce::String(spd, 1) + "x";
+            };
+            speedBtn->setButtonText(formatSpd(s));
+        }
     }
 
     void updatePage(int pageIdx)
@@ -809,22 +977,27 @@ public:
         const int startStep = pageIdx * 16;
         for (int s = 0; s < 16; ++s)
         {
-            stepBtns[(size_t) s] = std::make_unique<StepButton>(owner, trackIdx, startStep + s);
-            addAndMakeVisible(stepBtns[(size_t) s].get());
+            if (stepBtns[(size_t) s] != nullptr)
+                stepBtns[(size_t) s]->setStepIndex(startStep + s);
         }
-        resized();
+        repaint();
     }
 
     void resized() override
     {
         const int h = getHeight();
-        nameLabel->setBounds(4, 4, 75, 20);
-        muteBtn->setBounds(82, 4, 20, 20);
-        soloBtn->setBounds(104, 4, 20, 20);
-        padCombo->setBounds(126, 4, 60, 20);
-        lenSlider->setBounds(190, 4, 52, 20);
+        const int stepAreaX = 280;
 
-        const int stepAreaX = 250;
+        // Row 1 (y = 5, height = 22): TRK name, Mute, Solo, Speed, Steps
+        nameLabel->setBounds(4, 5, 52, 22);
+        muteBtn->setBounds(58, 5, 24, 22);
+        soloBtn->setBounds(84, 5, 24, 22);
+        speedBtn->setBounds(111, 5, 46, 22);
+        lenBtn->setBounds(160, 5, 112, 22);
+
+        // Row 2 (y = 31, height = 24): Full width Pad Selector with Bank & Name
+        padCombo->setBounds(4, 31, 268, 24);
+
         const int stepW = (getWidth() - stepAreaX - 8) / 16;
         for (int s = 0; s < 16; ++s)
             if (stepBtns[(size_t) s] != nullptr)
@@ -842,6 +1015,10 @@ public:
             g.setColour(ui::accentHot().withAlpha(0.75f));
             g.drawRoundedRectangle(r, 3.f, 1.5f);
         }
+
+        // Draw vertical channel strip separator between header and steps
+        g.setColour(ui::panelHi().withAlpha(0.6f));
+        g.drawVerticalLine(276, 4.f, (float) getHeight() - 4.f);
     }
 
     SequencerPage& owner;
@@ -849,7 +1026,8 @@ public:
     std::unique_ptr<juce::Label> nameLabel;
     std::unique_ptr<juce::TextButton> muteBtn, soloBtn;
     std::unique_ptr<juce::ComboBox> padCombo;
-    std::unique_ptr<juce::Slider> lenSlider;
+    std::unique_ptr<juce::TextButton> lenBtn;
+    std::unique_ptr<juce::TextButton> speedBtn;
     std::array<std::unique_ptr<StepButton>, 16> stepBtns;
 };
 
@@ -1058,13 +1236,70 @@ SequencerPage::SequencerPage(Forge64Processor& processor)
     pasteBtn = std::make_unique<juce::TextButton>("PASTE");
     ui::styleButton(*pasteBtn);
     pasteBtn->setLookAndFeel(&compactBtnLnF);
-    pasteBtn->onClick = [this] { seq.pastePattern(); refreshFromSequencer(); };
+    pasteBtn->onClick = [this]
+    {
+        const int patIdx = seq.selectedPatternIndex();
+        auto before = seq.getPatternCopy(patIdx);
+        seq.pastePattern();
+        auto after = seq.getPatternCopy(patIdx);
+        seq.setPattern(patIdx, *before);
+        proc.getUndoManager().perform(new SequencerPatternAction(seq, patIdx, std::move(before), std::move(after)));
+        refreshFromSequencer();
+    };
     addAndMakeVisible(pasteBtn.get());
 
     clearBtn = std::make_unique<juce::TextButton>("CLEAR");
     ui::styleButton(*clearBtn);
     clearBtn->setLookAndFeel(&compactBtnLnF);
-    clearBtn->onClick = [this] { seq.clearCurrentPattern(); refreshFromSequencer(); };
+    clearBtn->setTooltip("Clear pattern (click to choose: current pattern, all patterns, or selected track)");
+    clearBtn->onClick = [this]
+    {
+        juce::Component::SafePointer<SequencerPage> safeThis(this);
+        juce::PopupMenu menu;
+        const int patIdx = seq.selectedPatternIndex();
+        menu.addSectionHeader("CLEAR OPTIONS");
+        menu.addItem(1, "Clear Pattern " + juce::String(patIdx + 1) + " (Current)");
+        menu.addItem(2, "Clear All 16 Patterns");
+        menu.addItem(3, "Clear Selected Track Only");
+
+        menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(clearBtn.get()),
+            [safeThis, patIdx](int result)
+            {
+                if (safeThis == nullptr || result == 0) return;
+                auto* self = safeThis.getComponent();
+                if (result == 1)
+                {
+                    auto before = self->seq.getPatternCopy(patIdx);
+                    auto after = std::make_unique<PatternData>(*before);
+                    for (auto& t : after->tracks)
+                        for (auto& s : t.steps)
+                            s.resetStep();
+                    self->proc.getUndoManager().perform(new SequencerPatternAction(self->seq, patIdx, std::move(before), std::move(after)));
+                    self->refreshFromSequencer();
+                }
+                else if (result == 2)
+                {
+                    auto before = self->seq.getAllPatternsCopy();
+                    auto after = std::make_unique<std::array<PatternData, 16>>(*before);
+                    for (auto& p : *after)
+                        for (auto& t : p.tracks)
+                            for (auto& s : t.steps)
+                                s.resetStep();
+                    self->proc.getUndoManager().perform(new SequencerAllPatternsAction(self->seq, std::move(before), std::move(after)));
+                    self->refreshFromSequencer();
+                }
+                else if (result == 3)
+                {
+                    const int selTrk = juce::jlimit(0, 7, self->seq.selectedTrackIndex());
+                    auto before = self->seq.getPatternCopy(patIdx);
+                    auto after = std::make_unique<PatternData>(*before);
+                    for (auto& s : after->tracks[(size_t) selTrk].steps)
+                        s.resetStep();
+                    self->proc.getUndoManager().perform(new SequencerPatternAction(self->seq, patIdx, std::move(before), std::move(after)));
+                    self->refreshFromSequencer();
+                }
+            });
+    };
     addAndMakeVisible(clearBtn.get());
 
     randBtn = std::make_unique<juce::TextButton>("RAND");
@@ -1073,27 +1308,56 @@ SequencerPage::SequencerPage(Forge64Processor& processor)
     randBtn->setTooltip("Randomize selected track (Shift+click to randomize all 8 tracks)");
     randBtn->onClick = [this]
     {
+        const int patIdx = seq.selectedPatternIndex();
         if (juce::ModifierKeys::getCurrentModifiers().isShiftDown() ||
             juce::ModifierKeys::getCurrentModifiers().isAltDown())
         {
+            auto before = seq.getPatternCopy(patIdx);
             seq.randomizeAllTracks();
+            auto after = seq.getPatternCopy(patIdx);
+            seq.setPattern(patIdx, *before);
+            proc.getUndoManager().perform(new SequencerPatternAction(seq, patIdx, std::move(before), std::move(after)));
+            refreshFromSequencer();
         }
         else
         {
+            auto before = seq.getPatternCopy(patIdx);
             seq.randomizeCurrentTrack();
+            auto after = seq.getPatternCopy(patIdx);
+            seq.setPattern(patIdx, *before);
+            proc.getUndoManager().perform(new SequencerPatternAction(seq, patIdx, std::move(before), std::move(after)));
+            refreshFromSequencer();
         }
-        refreshFromSequencer();
     };
     addAndMakeVisible(randBtn.get());
+
+    class PageNavBtn : public juce::TextButton
+    {
+    public:
+        using juce::TextButton::TextButton;
+        std::function<void(const juce::MouseEvent&)> onRightClick;
+        void mouseDown(const juce::MouseEvent& e) override
+        {
+            if (e.mods.isPopupMenu() || e.mods.isRightButtonDown())
+            {
+                if (onRightClick)
+                    onRightClick(e);
+                return;
+            }
+            juce::TextButton::mouseDown(e);
+        }
+    };
 
     // Page Buttons: 1-16, 17-32, 33-48, 49-64
     static const char* pNames[4] = { "1-16", "17-32", "33-48", "49-64" };
     for (int p = 0; p < 4; ++p)
     {
-        pageBtns[(size_t) p] = std::make_unique<juce::TextButton>(pNames[p]);
-        ui::styleButton(*pageBtns[(size_t) p]);
-        pageBtns[(size_t) p]->setLookAndFeel(&compactBtnLnF);
-        pageBtns[(size_t) p]->onClick = [this, p]
+        auto pb = std::make_unique<PageNavBtn>(pNames[p]);
+        ui::styleButton(*pb);
+        pb->setLookAndFeel(&compactBtnLnF);
+        pb->setTooltip("Steps " + juce::String(p * 16 + 1) + "-" + juce::String((p + 1) * 16) + " (Right-click to Copy/Paste/Duplicate)");
+        pb->onRightClick = [this, p](const juce::MouseEvent& e) { showPageContextMenu(p, e); };
+        pb->onClick = [this, p]
         {
             seq.setPage(p);
             for (int i = 0; i < 4; ++i)
@@ -1102,7 +1366,8 @@ SequencerPage::SequencerPage(Forge64Processor& processor)
             for (auto& tl : trackLanes)
                 if (tl != nullptr) tl->updatePage(p);
         };
-        addAndMakeVisible(pageBtns[(size_t) p].get());
+        addAndMakeVisible(pb.get());
+        pageBtns[(size_t) p] = std::move(pb);
     }
     pageBtns[0]->setColour(juce::TextButton::buttonColourId, ui::accent());
 
@@ -1172,8 +1437,81 @@ SequencerPage::~SequencerPage()
     if (modeBtn != nullptr)      modeBtn->setLookAndFeel(nullptr);
 }
 
+void SequencerPage::showPageContextMenu(int pageIdx, const juce::MouseEvent& e)
+{
+    juce::PopupMenu menu;
+    const int selTrk = seq.selectedTrackIndex();
+    menu.addSectionHeader("PAGE " + juce::String(pageIdx * 16 + 1) + "-" + juce::String((pageIdx + 1) * 16) + " (TRACK " + juce::String(selTrk + 1) + ")");
+    menu.addItem(1, "Copy Page (Track " + juce::String(selTrk + 1) + ")");
+    menu.addItem(2, "Paste Page (Track " + juce::String(selTrk + 1) + ")");
+    menu.addItem(3, "Duplicate to Next Page (Track " + juce::String(selTrk + 1) + ")");
+    menu.addItem(4, "Duplicate to All 4 Pages (Track " + juce::String(selTrk + 1) + ")");
+    menu.addItem(6, "Duplicate Track Loop x2 (Double Length)");
+    menu.addItem(7, "Duplicate Track Loop x4 (Quadruple Length, e.g. 15 -> 60)");
+    menu.addItem(5, "Clear Page (Track " + juce::String(selTrk + 1) + ")");
+
+    menu.addSeparator();
+    menu.addSectionHeader("PAGE " + juce::String(pageIdx * 16 + 1) + "-" + juce::String((pageIdx + 1) * 16) + " (ALL 8 TRACKS)");
+    menu.addItem(11, "Copy Page (All 8 Tracks)");
+    menu.addItem(12, "Paste Page (All 8 Tracks)");
+    menu.addItem(13, "Duplicate to Next Page (All 8 Tracks)");
+    menu.addItem(14, "Duplicate to All 4 Pages (All 8 Tracks)");
+    menu.addItem(16, "Duplicate All Tracks Loop x2");
+    menu.addItem(17, "Duplicate All Tracks Loop x4");
+    menu.addItem(15, "Clear Page (All 8 Tracks)");
+
+    juce::Component::SafePointer<SequencerPage> safeThis(this);
+    menu.showMenuAsync(juce::PopupMenu::Options().withTargetScreenArea(juce::Rectangle<int>(e.getScreenX(), e.getScreenY(), 1, 1)),
+        [safeThis, selTrk, pageIdx](int res)
+        {
+            if (safeThis == nullptr || res == 0) return;
+            auto* self = safeThis.getComponent();
+            switch (res)
+            {
+                case 1:  self->seq.copyPage(selTrk, pageIdx); break;
+                case 2:  self->seq.pastePage(selTrk, pageIdx); self->refreshFromSequencer(); break;
+                case 3:  self->seq.duplicatePageToNext(selTrk, pageIdx); self->refreshFromSequencer(); break;
+                case 4:  self->seq.duplicatePageToAll(selTrk, pageIdx); self->refreshFromSequencer(); break;
+                case 5:  self->seq.clearPage(selTrk, pageIdx); self->refreshFromSequencer(); break;
+                case 6:  self->seq.duplicateTrackLoop(selTrk, 2); self->refreshFromSequencer(); break;
+                case 7:  self->seq.duplicateTrackLoop(selTrk, 4); self->refreshFromSequencer(); break;
+                case 11: self->seq.copyAllTracksPage(pageIdx); break;
+                case 12: self->seq.pasteAllTracksPage(pageIdx); self->refreshFromSequencer(); break;
+                case 13: self->seq.duplicateAllTracksPageToNext(pageIdx); self->refreshFromSequencer(); break;
+                case 14: self->seq.duplicateAllTracksPageToAll(pageIdx); self->refreshFromSequencer(); break;
+                case 15: self->seq.clearAllTracksPage(pageIdx); self->refreshFromSequencer(); break;
+                case 16: self->seq.duplicateAllTracksLoop(2); self->refreshFromSequencer(); break;
+                case 17: self->seq.duplicateAllTracksLoop(4); self->refreshFromSequencer(); break;
+                default: break;
+            }
+        });
+}
+
 void SequencerPage::timerCallback()
 {
+    const int curPat = seq.selectedPatternIndex();
+    const uint32_t curVer = seq.getPatternVersion();
+    if (curPat != lastActivePattern || curVer != lastPatternVersion)
+    {
+        lastActivePattern = curPat;
+        lastPatternVersion = curVer;
+        for (int i = 0; i < 16; ++i)
+            if (patternBtns[(size_t) i] != nullptr)
+                patternBtns[(size_t) i]->setColour(juce::TextButton::buttonColourId,
+                    (i == curPat) ? ui::accent() : ui::panelHi());
+        refreshFromSequencer();
+    }
+    const int curPg = seq.getPage();
+    if (curPg != lastActivePage)
+    {
+        lastActivePage = curPg;
+        for (int i = 0; i < 4; ++i)
+            if (pageBtns[(size_t) i] != nullptr)
+                pageBtns[(size_t) i]->setColour(juce::TextButton::buttonColourId,
+                    (i == curPg) ? ui::accent() : ui::panelHi());
+        for (auto& tl : trackLanes)
+            if (tl != nullptr) tl->updatePage(curPg);
+    }
     repaint();
 }
 
@@ -1182,23 +1520,25 @@ void SequencerPage::refreshFromSequencer()
     if (swingSlider != nullptr)
         swingSlider->setValue(seq.currentPattern().tracks[0].swing, juce::dontSendNotification);
 
+    const int curPg = seq.getPage();
     for (auto& tl : trackLanes)
         if (tl != nullptr)
-        {
-            tl->updateTrackData();
-            tl->updatePage(seq.getPage());
-        }
+            tl->updatePage(curPg);
 
-    // Refresh Song Blocks
-    songBlockViews.clear();
+    // Refresh Song Blocks only if block count changed
     auto blocks = seq.getSongSequence();
-    for (size_t b = 0; b < blocks.size(); ++b)
+    if (songBlockViews.size() != blocks.size())
     {
-        auto view = std::make_unique<SongBlockView>(*this, (int) b);
-        songContainer->addAndMakeVisible(view.get());
-        songBlockViews.push_back(std::move(view));
+        songBlockViews.clear();
+        for (size_t b = 0; b < blocks.size(); ++b)
+        {
+            auto view = std::make_unique<SongBlockView>(*this, (int) b);
+            songContainer->addAndMakeVisible(view.get());
+            songBlockViews.push_back(std::move(view));
+        }
+        resized();
     }
-    resized();
+    repaint();
 }
 
 void SequencerPage::paint(juce::Graphics& g)

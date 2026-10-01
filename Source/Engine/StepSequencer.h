@@ -8,6 +8,51 @@
 
 namespace f64 {
 
+enum StepLockFlags : uint64_t
+{
+    LOCK_FLAG_PITCH    = 1ULL << 0,
+    LOCK_FLAG_DECAY    = 1ULL << 1,
+    LOCK_FLAG_DRIVE    = 1ULL << 2,
+    LOCK_FLAG_LEVEL    = 1ULL << 3,
+    LOCK_FLAG_PAN      = 1ULL << 4,
+    LOCK_FLAG_TONE     = 1ULL << 5, // FX1
+    LOCK_FLAG_P2       = 1ULL << 6,
+    LOCK_FLAG_P3       = 1ULL << 7,
+    LOCK_FLAG_P4       = 1ULL << 8,
+    LOCK_FLAG_P5       = 1ULL << 9,
+    LOCK_FLAG_SENDA    = 1ULL << 10,
+    LOCK_FLAG_SENDB    = 1ULL << 11,
+    LOCK_FLAG_SENDC    = 1ULL << 12,
+    LOCK_FLAG_SENDD    = 1ULL << 13,
+    LOCK_FLAG_MODAMT   = 1ULL << 14,
+    LOCK_FLAG_VCF_TYPE = 1ULL << 15,
+    LOCK_FLAG_VCF_CUT  = 1ULL << 16,
+    LOCK_FLAG_VCF_RES  = 1ULL << 17,
+    LOCK_FLAG_VCF_ENV  = 1ULL << 18,
+    LOCK_FLAG_EQ_LF    = 1ULL << 19,
+    LOCK_FLAG_EQ_LG    = 1ULL << 20,
+    LOCK_FLAG_EQ_MF    = 1ULL << 21,
+    LOCK_FLAG_EQ_MG    = 1ULL << 22,
+    LOCK_FLAG_EQ_HF    = 1ULL << 23,
+    LOCK_FLAG_EQ_HG    = 1ULL << 24,
+    LOCK_FLAG_COMP_THR = 1ULL << 25,
+    LOCK_FLAG_COMP_RAT = 1ULL << 26,
+    LOCK_FLAG_COMP_ATK = 1ULL << 27,
+    LOCK_FLAG_COMP_REL = 1ULL << 28,
+    LOCK_FLAG_IFX_TYPE = 1ULL << 29,
+    LOCK_FLAG_IFX1     = 1ULL << 30,
+    LOCK_FLAG_IFX2     = 1ULL << 31,
+    LOCK_FLAG_IFX3     = 1ULL << 32,
+    LOCK_FLAG_IFX4         = 1ULL << 33,
+    LOCK_FLAG_PAD_OVERRIDE = 1ULL << 34,
+
+    // Aliases
+    LOCK_FLAG_SEND_A       = 1ULL << 10,
+    LOCK_FLAG_SEND_B       = 1ULL << 11,
+    LOCK_FLAG_SEND_C       = 1ULL << 12,
+    LOCK_FLAG_SEND_D       = 1ULL << 13,
+};
+
 struct StepData
 {
     bool  active = false;
@@ -18,7 +63,8 @@ struct StepData
     float microtiming = 0.0f;     // -0.5 .. +0.5 fraction of step
 
     // Parameter Locks (P-Locks)
-    bool  hasLocks = false;
+    bool     hasLocks = false;
+    uint64_t lockMask = 0;
     float pLockPitch = 0.0f;      // Semitones (-24 .. +24)
     float pLockDecay = 1.0f;      // Decay factor (0.05 .. 5.0)
     float pLockTone  = 0.5f;      // FX1 (Punch / Tone / Cutoff)
@@ -63,6 +109,57 @@ struct StepData
     // Aux Sends C and D Locks
     float pLockSendC = 0.0f;
     float pLockSendD = 0.0f;
+
+    void clearLocks()
+    {
+        hasLocks = false;
+        lockMask = 0;
+        ratchet = 1;
+        microtiming = 0.0f;
+        probability = 1.0f;
+        pLockPitch = 0.0f;
+        pLockDecay = 1.0f;
+        pLockTone  = 0.5f;
+        pLockDrive = 0.0f;
+        pLockSendA = 0.0f;
+        pLockSendB = 0.0f;
+        pLockLevel = 1.0f;
+        pLockPan   = 0.0f;
+        pLockP2    = 0.5f;
+        pLockP3    = 0.5f;
+        pLockP4    = 0.5f;
+        pLockP5    = 0.5f;
+        pLockModAmt = 1.0f;
+        pLockVcfType = 0;
+        pLockVcfCut  = 20000.f;
+        pLockVcfRes  = 0.707f;
+        pLockVcfEnv  = 0.0f;
+        pLockEqLF = 200.f;
+        pLockEqLG = 0.f;
+        pLockEqMF = 1000.f;
+        pLockEqMG = 0.f;
+        pLockEqHF = 8000.f;
+        pLockEqHG = 0.f;
+        pLockCThr = 0.f;
+        pLockCRat = 1.f;
+        pLockCAtk = 5.f;
+        pLockCRel = 100.f;
+        pLockIfxType = 0;
+        pLockIfx1 = 0.5f;
+        pLockIfx2 = 0.5f;
+        pLockIfx3 = 0.5f;
+        pLockIfx4 = 0.5f;
+        pLockSendC = 0.0f;
+        pLockSendD = 0.0f;
+    }
+
+    void resetStep()
+    {
+        active = false;
+        velocity = 0.85f;
+        padOverride = -1;
+        clearLocks();
+    }
 };
 
 struct TrackData
@@ -70,6 +167,7 @@ struct TrackData
     juce::String name = "Track 1";
     int   defaultPad = 0;         // 0..63
     int   stepCount = 16;         // Polymetric length: 1 to 64 steps
+    float speedMultiplier = 1.0f; // Multipliers/dividers: 0.125, 0.25, 0.33, 0.5, 0.67, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0, 4.0, 6.0, 8.0
     float swing = 0.0f;           // 0.0 to 0.75
     bool  mute = false;
     bool  solo = false;
@@ -99,6 +197,7 @@ public:
         float vel = 0.85f;
         int   pos = 0;            // sample position in block
         bool  hasLocks = false;
+        uint64_t lockMask = 0;
         float pitch = 0.f;
         float decay = 1.f;
         float tone = 0.5f;
@@ -179,6 +278,8 @@ public:
     // Track getters/setters (thread-safe for UI)
     void setTrackLength(int trackIdx, int length);
     void setTrackPad(int trackIdx, int pad);
+    void setTrackSpeed(int trackIdx, float speedMultiplier);
+    float getTrackSpeed(int trackIdx) const;
     void setTrackSwing(int trackIdx, float swing);
     void setPatternSwing(float swing);
     void setTrackMute(int trackIdx, bool mute);
@@ -201,17 +302,48 @@ public:
     void removeSongBlock(int blockIdx);
     void clearSongSequence();
 
+    // Pattern access & Clear (heap copies to prevent thread stack overflow)
+    std::unique_ptr<PatternData> getPatternCopy(int idx) const;
+    void setPattern(int idx, const PatternData& data);
+    std::unique_ptr<std::array<PatternData, 16>> getAllPatternsCopy() const;
+    void setAllPatterns(const std::array<PatternData, 16>& data);
+
     // Clipboard & Presets
     void copyPattern();
     void pastePattern();
     void clearCurrentPattern();
+    void clearAllPatterns();
+    void clearTrack(int trackIdx);
     void randomizeCurrentTrack();
     void randomizeAllTracks();
     void loadFactoryPreset(int presetIdx);
 
+    // Page-level Clipboard & Duplication
+    bool hasPageInClipboard() const { return hasPageClipboard; }
+    void duplicateTrackLoop(int trackIdx, int multiplier);
+    void duplicateAllTracksLoop(int multiplier);
+    void copyPage(int trackIdx, int pageIdx);
+    void pastePage(int trackIdx, int pageIdx);
+    void duplicatePageToNext(int trackIdx, int pageIdx);
+    void duplicatePageToAll(int trackIdx, int pageIdx);
+    void clearPage(int trackIdx, int pageIdx);
+
+    void copyAllTracksPage(int pageIdx);
+    void pasteAllTracksPage(int pageIdx);
+    void duplicateAllTracksPageToNext(int pageIdx);
+    void duplicateAllTracksPageToAll(int pageIdx);
+    void clearAllTracksPage(int pageIdx);
+
+    // Transport synchronization with DAW / UI
+    void resetPlayback();
+
     // Playhead tracking for UI
     int getTrackPlayhead(int trackIdx) const { return (trackIdx >= 0 && trackIdx < 8) ? trackStepIndices[(size_t) trackIdx].load() : 0; }
     int getSongBlockIndex() const { return currentSongBlockIdx.load(); }
+
+    // Pattern versioning for safe lock-free UI cache invalidation
+    void bumpPatternVersion() { patternVersion.fetch_add(1, std::memory_order_relaxed); }
+    uint32_t getPatternVersion() const { return patternVersion.load(std::memory_order_relaxed); }
 
     // State serialization
     juce::ValueTree serialize() const;
@@ -225,12 +357,17 @@ private:
     };
 
     void initDefaultPatterns();
-    void resetPlayback();
 
     mutable std::mutex seqMutex;
+    std::atomic<uint32_t> patternVersion { 0 };
     std::array<PatternData, 16> patterns;
     PatternData clipboardPattern;
     bool hasClipboard = false;
+
+    std::array<StepData, 16> pageClipboard {};
+    bool hasPageClipboard = false;
+    std::array<std::array<StepData, 16>, 8> allTracksPageClipboard {};
+    bool hasAllTracksPageClipboard = false;
 
     std::vector<SongBlock> songSequence;
     std::vector<PendingTrigger> pendingTriggers;
@@ -247,12 +384,83 @@ private:
     double clockAccumulator = 0.0;
     int64_t global16thCounter = 0;
 
+    std::array<double, 8> trackSamplesRemaining {};
+    std::array<int, 8> trackCurrentSteps {};
+
     std::atomic<int> currentSongBlockIdx { 0 };
     int currentBlockRepeatsCount = 0;
     int currentPatternStep = 0;
 
     std::array<std::atomic<int>, 8> trackStepIndices;
     juce::Random rng;
+};
+
+// ---------------------------------------------------------------------------
+// Sequencer Undoable Actions
+// ---------------------------------------------------------------------------
+class SequencerPatternAction : public juce::UndoableAction
+{
+public:
+    SequencerPatternAction(StepSequencer& s, int patternIndex,
+                           std::unique_ptr<PatternData> before,
+                           std::unique_ptr<PatternData> after)
+        : seq(s), patIdx(patternIndex), beforeState(std::move(before)), afterState(std::move(after))
+    {
+    }
+
+    bool perform() override
+    {
+        if (afterState)
+            seq.setPattern(patIdx, *afterState);
+        return true;
+    }
+
+    bool undo() override
+    {
+        if (beforeState)
+            seq.setPattern(patIdx, *beforeState);
+        return true;
+    }
+
+    int getSizeInUnits() override { return 1; }
+
+private:
+    StepSequencer& seq;
+    int patIdx;
+    std::unique_ptr<PatternData> beforeState;
+    std::unique_ptr<PatternData> afterState;
+};
+
+class SequencerAllPatternsAction : public juce::UndoableAction
+{
+public:
+    SequencerAllPatternsAction(StepSequencer& s,
+                               std::unique_ptr<std::array<PatternData, 16>> before,
+                               std::unique_ptr<std::array<PatternData, 16>> after)
+        : seq(s), beforeState(std::move(before)), afterState(std::move(after))
+    {
+    }
+
+    bool perform() override
+    {
+        if (afterState)
+            seq.setAllPatterns(*afterState);
+        return true;
+    }
+
+    bool undo() override
+    {
+        if (beforeState)
+            seq.setAllPatterns(*beforeState);
+        return true;
+    }
+
+    int getSizeInUnits() override { return 16; }
+
+private:
+    StepSequencer& seq;
+    std::unique_ptr<std::array<PatternData, 16>> beforeState;
+    std::unique_ptr<std::array<PatternData, 16>> afterState;
 };
 
 } // namespace f64

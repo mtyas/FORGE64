@@ -32,6 +32,7 @@ public:
 
     void setLockViewMode(StepLockViewMode mode);
     StepLockViewMode getLockViewMode() const { return lockViewMode; }
+    void refreshFromSequencer();
 
 private:
     class StepButton;
@@ -40,10 +41,13 @@ private:
     class SongBlockView;
 
     void timerCallback() override;
-    void refreshFromSequencer();
+    void showPageContextMenu(int pageIdx, const juce::MouseEvent& e);
 
     Forge64Processor& proc;
     StepSequencer& seq;
+    int lastActivePattern = -1;
+    int lastActivePage = -1;
+    uint32_t lastPatternVersion = 0;
 
     // Header Controls
     std::unique_ptr<juce::TextButton> modeBtn;

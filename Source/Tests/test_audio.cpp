@@ -141,6 +141,62 @@ int main(int argc, char* argv[])
         std::cout << "[6] All Tracks Randomizer: " << (randAllPassed ? "PASSED" : "FAILED")
                   << " (Total active steps=" << totalActive << ")" << std::endl;
         if (! randAllPassed) failedPads++;
+
+        // Clear pattern while playing test
+        proc->getSequencer().loadFactoryPreset(0);
+        proc->getSequencer().setPlaying(true);
+        juce::AudioBuffer<float> playBuf(2, 512);
+        juce::MidiBuffer playMidi;
+        for (int b = 0; b < 10; ++b)
+        {
+            playBuf.clear();
+            proc->processBlock(playBuf, playMidi);
+        }
+        const int patIdx = proc->getSequencer().selectedPatternIndex();
+        auto before = proc->getSequencer().getPatternCopy(patIdx);
+        auto after = std::make_unique<f64::PatternData>(*before);
+        for (auto& t : after->tracks)
+            for (auto& s : t.steps)
+                s.resetStep();
+        proc->getUndoManager().perform(new f64::SequencerPatternAction(proc->getSequencer(), patIdx, std::move(before), std::move(after)));
+        for (int b = 0; b < 10; ++b)
+        {
+            playBuf.clear();
+            proc->processBlock(playBuf, playMidi);
+        }
+        proc->getUndoManager().undo();
+        for (int b = 0; b < 10; ++b)
+        {
+            playBuf.clear();
+            proc->processBlock(playBuf, playMidi);
+        }
+        proc->getSequencer().setPlaying(false);
+        std::cout << "[6.5] Clear Pattern While Playing Test: PASSED" << std::endl;
+    }
+
+    // 6.6 Step Parameter Locks Clearing and Step Reset Verification
+    {
+        f64::StepData s;
+        s.active = true;
+        s.velocity = 0.9f;
+        s.padOverride = 5;
+        s.pLockPitch = 7.0f;
+        s.pLockDecay = 0.4f;
+        s.hasLocks = true;
+        s.lockMask = f64::StepLockFlags::LOCK_FLAG_PITCH | f64::StepLockFlags::LOCK_FLAG_DECAY | f64::StepLockFlags::LOCK_FLAG_PAD_OVERRIDE;
+
+        // Clear locks must reset hasLocks and lockMask while preserving padOverride
+        s.clearLocks();
+        bool clearPassed = (! s.hasLocks && s.lockMask == 0 && s.padOverride == 5);
+        if (! clearPassed) failedPads++;
+
+        // Reset step must erase everything: inactive, default velocity, padOverride = -1, hasLocks = false
+        s.resetStep();
+        bool resetPassed = (! s.active && s.padOverride == -1 && ! s.hasLocks && s.lockMask == 0);
+        if (! resetPassed) failedPads++;
+
+        std::cout << "[6.6] Step Clear Locks and Reset Test: "
+                  << (clearPassed && resetPassed ? "PASSED" : "FAILED") << std::endl;
     }
 
     // 7. Aux FX Tests: Gated Reverb Long Decay, Shimmer Reverb, and Pitch Shifter
@@ -175,32 +231,32 @@ int main(int argc, char* argv[])
                   << " (late peak=" << gateLatePeak << ")" << std::endl;
         if (! gatePassed) failedPads++;
 
-        // B) Shimmer Reverb Test
-        f64::AuxBusParams shimParams;
-        shimParams.fxType = f64::AUX_FX_SHIMMER;
-        shimParams.p1 = 0.85f; // Feedback
-        shimParams.p2 = 0.80f; // Shimmer amount
-        shimParams.p3 = 0.80f; // Brightness
-        shimParams.p4 = 0.50f; // Width
-        shimParams.enabled = true;
+        // B) Studio Plate Reverb Test
+        f64::AuxBusParams plateParams;
+        plateParams.fxType = f64::AUX_FX_PLATE;
+        plateParams.p1 = 0.85f; // Decay
+        plateParams.p2 = 0.60f; // Size
+        plateParams.p3 = 0.40f; // Damp
+        plateParams.p4 = 0.75f; // Diffusion
+        plateParams.enabled = true;
 
         auxMgr.reset();
         l[0] = 0.9f; r[0] = 0.9f;
-        auxMgr.processAux(1, l.data(), r.data(), 512, shimParams);
+        auxMgr.processAux(1, l.data(), r.data(), 512, plateParams);
 
-        float shimPeak = 0.f;
+        float platePeak = 0.f;
         for (int b = 0; b < 40; ++b)
         {
             std::fill(l.begin(), l.end(), 0.f);
             std::fill(r.begin(), r.end(), 0.f);
-            auxMgr.processAux(1, l.data(), r.data(), 512, shimParams);
+            auxMgr.processAux(1, l.data(), r.data(), 512, plateParams);
             for (int i = 0; i < 512; ++i)
-                shimPeak = std::max(shimPeak, std::abs(l[i]));
+                platePeak = std::max(platePeak, std::abs(l[i]));
         }
-        bool shimPassed = (shimPeak > 0.005f);
-        std::cout << "[8] Aux Shimmer Reverb Bloom Test: " << (shimPassed ? "PASSED" : "FAILED")
-                  << " (peak=" << shimPeak << ")" << std::endl;
-        if (! shimPassed) failedPads++;
+        bool platePassed = (platePeak > 0.005f);
+        std::cout << "[8] Aux Studio Plate Reverb Test: " << (platePassed ? "PASSED" : "FAILED")
+                  << " (peak=" << platePeak << ")" << std::endl;
+        if (! platePassed) failedPads++;
 
         // C) Pitch Shifter Test (-12 semitones & +12 semitones)
         f64::AuxBusParams pitchParams;

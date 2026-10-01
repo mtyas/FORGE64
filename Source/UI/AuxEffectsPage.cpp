@@ -192,11 +192,11 @@ void AuxEffectsPage::AuxStrip::updateControlLabels(int fxType)
             p3Label->setText("MODE", juce::dontSendNotification);
             p4Label->setText("DRIVE", juce::dontSendNotification);
             break;
-        case AUX_FX_SHIMMER:
+        case AUX_FX_PLATE:
             p1Label->setText("DECAY", juce::dontSendNotification);
-            p2Label->setText("SHIMMER", juce::dontSendNotification);
-            p3Label->setText("TONE", juce::dontSendNotification);
-            p4Label->setText("WIDTH", juce::dontSendNotification);
+            p2Label->setText("SIZE", juce::dontSendNotification);
+            p3Label->setText("DAMP", juce::dontSendNotification);
+            p4Label->setText("DIFFUSE", juce::dontSendNotification);
             break;
         case AUX_FX_PINGPONG:
             p1Label->setText(p.p4 >= 0.5f ? "DIVISION" : "TIME", juce::dontSendNotification);

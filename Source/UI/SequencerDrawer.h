@@ -21,6 +21,8 @@ public:
 
     void setTrack(int trackIdx);
     void updateTrackInfo();
+    void setSelectedStep(int step) { selectedStep = step; repaint(); }
+    int  getSelectedStep() const { return selectedStep; }
 
     std::function<void(bool unfolded)> onFoldStateChanged;
     std::function<void(int trackIdx, int stepIdx, int padIdx)> onStepClicked;
@@ -31,6 +33,8 @@ public:
 
 private:
     void timerCallback() override;
+    void showPageContextMenu(int pageIdx, const juce::MouseEvent& e);
+    void showTrackSpeedMenu();
 
     class TrackButton : public juce::Component
     {
@@ -87,6 +91,7 @@ private:
     std::unique_ptr<juce::TextButton> stepsDecBtn;
     std::unique_ptr<juce::Label> stepsCountLabel;
     std::unique_ptr<juce::TextButton> stepsIncBtn;
+    std::unique_ptr<juce::TextButton> speedBtn;
     std::array<std::unique_ptr<juce::TextButton>, 4> pageBtns;
 
     // Step buttons (16 visible for current page)
@@ -96,6 +101,9 @@ private:
 
     int currentTrack = 0;
     int currentPage = 0;
+    int selectedStep = -1;
+    int lastActivePattern = -1;
+    uint32_t lastPatternVersion = 0;
 };
 
 } // namespace f64

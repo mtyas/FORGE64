@@ -48,32 +48,9 @@ private:
     void chooseSample();
     void updateIfxLabels(int ifxType);
 
-    struct PadBaseParams
-    {
-        float tune = 0.f;
-        float decay = 0.5f;
-        float drive = 0.f;
-        float fx1 = 0.5f, fx2 = 0.5f, fx3 = 0.5f, fx4 = 0.5f, fx5 = 0.5f;
-        float sendA = 0.f, sendB = 0.f, sendC = 0.f, sendD = 0.f;
-        float level = 1.f;
-        float pan = 0.f;
-        float modAmt = 1.0f;
+    void visibilityChanged() override;
 
-        // VCF Filter
-        int   vcfType = 0;
-        float vcfCut = 20000.f, vcfRes = 0.707f, vcfEnv = 0.f;
-
-        // 3-Band Parametric EQ
-        float eqLF = 200.f, eqLG = 0.f, eqMF = 1000.f, eqMG = 0.f, eqHF = 8000.f, eqHG = 0.f;
-
-        // Compressor
-        float cThr = 0.f, cRat = 1.f, cAtk = 5.f, cRel = 100.f;
-
-        // Insert Multi-FX
-        int   ifxType = 0;
-        float ifx1 = 0.5f, ifx2 = 0.5f, ifx3 = 0.5f, ifx4 = 0.5f;
-    };
-    PadBaseParams preLockParams;
+    PadParams preLockParams;
     bool hadLocksOnEntry = false;
 
     void syncModuleSelectionQuiet();

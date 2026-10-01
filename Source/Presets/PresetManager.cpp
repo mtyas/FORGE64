@@ -33,6 +33,9 @@ int PresetManager::padIndexOfParamId(const juce::String& id)
 // ---------------------------------------------------------------------------
 bool PresetManager::saveKit(const juce::File& f)
 {
+    if (onBeforeSave)
+        onBeforeSave();
+
     auto xml = kit.createXml();
     if (! xml)
     {
@@ -69,12 +72,17 @@ bool PresetManager::loadKit(const juce::File& f)
     if (params.isValid())
         apvts.replaceState(params);
 
-    for (const char* name : { "PADS", "MODSRC", "MODMAT" })
+    for (const char* name : { "PADS", "MODSRC", "MODMAT", "SEQUENCER", "AUX_MASTER_FX", "MIDI_LEARN" })
     {
         auto src = incoming.getChildWithName(name);
         auto dst = kit.getChildWithName(name);
-        if (src.isValid() && dst.isValid())
-            copyTreeInPlace(dst, src);
+        if (src.isValid())
+        {
+            if (dst.isValid())
+                copyTreeInPlace(dst, src);
+            else
+                kit.appendChild(src.createCopy(), nullptr);
+        }
     }
 
     err = {};

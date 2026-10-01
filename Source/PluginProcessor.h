@@ -72,11 +72,26 @@ public:
 
     void triggerAudition(int pad, float velocity = 0.9f);
     void triggerStepAudition(int pad, float velocity, const StepData& stepData);
+    void setPadPLockPreviewActive(int pad, bool active, const PadParams& baseParams)
+    {
+        if (pad >= 0 && pad < kNumPads)
+        {
+            if (active)
+                padBaseParams[(size_t) pad] = baseParams;
+            if (gridPtr != nullptr)
+                gridPtr->runtime(pad).isPLockPreviewActive.store(active);
+        }
+    }
     void allNotesOff() { voices.allNotesOff(); }
     int getLastTriggeredPad() const { return lastTriggeredPad.load(); }
 
+    void loadFactoryKit(int kitIndex);
+    static juce::StringArray getFactoryKitNames();
+
     float getMasterPeakL() const { return masterPeakL.load(); }
     float getMasterPeakR() const { return masterPeakR.load(); }
+
+    void fillPadParams(int pad, PadParams& out, float modScale = 1.0f);
 
 private:
     std::atomic<float> masterPeakL { 0.f }, masterPeakR { 0.f };
@@ -86,6 +101,7 @@ private:
         int   pad = 0;
         float vel = 0.9f;
         bool  hasLocks = false;
+        uint64_t lockMask = 0;
         float pitch = 0.f, decay = 1.f, drive = 0.f, tone = 0.5f;
         float p2 = 0.5f, p3 = 0.5f, p4 = 0.5f, p5 = 0.5f;
         float sendA = 0.f, sendB = 0.f, level = 1.f, pan = 0.f, modAmt = 1.f;
@@ -113,7 +129,6 @@ private:
 
     static BusesProperties makeBuses();
     static juce::AudioProcessorValueTreeState::ParameterLayout makeParams();
-    void fillPadParams(int pad, PadParams& out, float modScale = 1.0f);
     void onPresetLoaded();
 
     juce::AudioProcessorValueTreeState apvts;
@@ -138,6 +153,10 @@ private:
 
     std::array<int, kNumBuses> busOffset {};
     std::array<bool, kNumBuses> busActive {};
+
+    bool wasHostPlaying = false;
+    double lastPpqPosition = -1.0;
+    std::array<PadParams, kNumPads> padBaseParams {};
 
     juce::AudioBuffer<float> busScratch, auxA, auxB, auxC, auxD;
     std::vector<float> scratchL, scratchR;

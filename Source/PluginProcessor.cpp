@@ -141,6 +141,15 @@ Forge64Processor::Forge64Processor()
                                          kitRoot.getChildWithName("MODMAT"), apvts);
     presetPtr = std::make_unique<PresetManager>(kitRoot, apvts);
     presetPtr->onLoaded = [this] { onPresetLoaded(); };
+    presetPtr->onBeforeSave = [this]
+    {
+        kitRoot.removeChild(kitRoot.getChildWithName("MIDI_LEARN"), nullptr);
+        kitRoot.appendChild(midiLearn.serialize(), nullptr);
+        kitRoot.removeChild(kitRoot.getChildWithName("SEQUENCER"), nullptr);
+        kitRoot.appendChild(sequencer.serialize(), nullptr);
+        kitRoot.removeChild(kitRoot.getChildWithName("AUX_MASTER_FX"), nullptr);
+        kitRoot.appendChild(auxManager.serialize(), nullptr);
+    };
 
     voices.setDeps(gridPtr.get(), modPtr.get());
 
@@ -213,6 +222,7 @@ void Forge64Processor::triggerStepAudition(int pad, float velocity, const StepDa
     tr.pad = pad;
     tr.vel = velocity;
     tr.hasLocks = stepData.hasLocks;
+    tr.lockMask = stepData.lockMask;
     if (stepData.hasLocks)
     {
         tr.pitch = stepData.pLockPitch;
@@ -369,13 +379,32 @@ void Forge64Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::Midi
 
     double bpm = 120.0;
     bool playing = false;
+    bool hostJustStarted = false;
     if (auto* ph = getPlayHead())
+    {
         if (auto pos = ph->getPosition())
         {
             if (auto t = pos->getBpm())
                 bpm = *t;
             playing = pos->getIsPlaying();
+            if (auto ppq = pos->getPpqPosition())
+            {
+                if (*ppq < lastPpqPosition - 0.05) // DAW loop or rewind / seek back
+                    hostJustStarted = true;
+                lastPpqPosition = *ppq;
+            }
         }
+    }
+
+    if (playing && ! wasHostPlaying)
+        hostJustStarted = true;
+    else if (! playing && wasHostPlaying)
+        sequencer.resetPlayback();
+
+    if (hostJustStarted)
+        sequencer.resetPlayback();
+
+    wasHostPlaying = playing;
     modPtr->setTempo(bpm, playing);
 
     busScratch.setSize(2 * kNumBuses, n, false, false, true);
@@ -543,6 +572,7 @@ void Forge64Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::Midi
                 rt.lastNote.store(nte);
                 rt.lastHitStamp.store(clockNow);
                 rt.hasLocks.store(a.hasLocks);
+                rt.lockMask.store(a.hasLocks ? a.lockMask : 0);
                 if (a.hasLocks)
                 {
                     rt.latchedTune.store(a.pitch);
@@ -606,6 +636,7 @@ void Forge64Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::Midi
             rt.lastNote.store(60);
             rt.lastHitStamp.store(clockNow);
             rt.hasLocks.store(st.hasLocks);
+            rt.lockMask.store(st.hasLocks ? st.lockMask : 0);
             if (st.hasLocks)
             {
                 rt.latchedTune.store(st.pitch);
@@ -783,9 +814,13 @@ void Forge64Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::Midi
 
         auto& rt = gridPtr->runtime(p);
         auto pp = eff[(size_t) p];
-        if (rt.hasLocks.load())
+        if (rt.isPLockPreviewActive.load() && ! rt.hasLocks.load())
+            pp = padBaseParams[(size_t) p];
+
+        const uint64_t mask = rt.lockMask.load();
+        if (rt.hasLocks.load() && mask != 0)
         {
-            const float modScale = rt.latchedModAmt.load();
+            const float modScale = (mask & LOCK_FLAG_MODAMT) ? rt.latchedModAmt.load() : 1.0f;
             auto& ptrs = padPtrs[(size_t) p];
             auto& ids  = padIds[(size_t) p];
 
@@ -801,50 +836,54 @@ void Forge64Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::Midi
                 return par->convertFrom0to1(clampRange(norm, 0.f, 1.f));
             };
 
-            pp.level = applyMod(0,  rt.latchedLevel.load());
-            pp.pan   = applyMod(1,  rt.latchedPan.load());
-            pp.tune  = applyMod(2,  rt.latchedTune.load());
-            pp.decay = applyMod(3,  rt.latchedDecay.load());
+            if (mask & LOCK_FLAG_LEVEL) pp.level = applyMod(0,  rt.latchedLevel.load());
+            if (mask & LOCK_FLAG_PAN)   pp.pan   = applyMod(1,  rt.latchedPan.load());
+            if (mask & LOCK_FLAG_PITCH) pp.tune  = applyMod(2,  rt.latchedTune.load());
+            if (mask & LOCK_FLAG_DECAY)
+            {
+                const float decFactor = rt.latchedDecay.load();
+                pp.decay = juce::jlimit(0.01f, 6.0f, pp.decay * decFactor);
+            }
 
             // EQ
-            pp.eqLF = applyMod(4, rt.latchedEqLF.load());
-            pp.eqLG = applyMod(5, rt.latchedEqLG.load());
-            pp.eqMF = applyMod(6, rt.latchedEqMF.load());
-            pp.eqMG = applyMod(7, rt.latchedEqMG.load());
-            pp.eqHF = applyMod(8, rt.latchedEqHF.load());
-            pp.eqHG = applyMod(9, rt.latchedEqHG.load());
+            if (mask & LOCK_FLAG_EQ_LF) pp.eqLF = applyMod(4, rt.latchedEqLF.load());
+            if (mask & LOCK_FLAG_EQ_LG) pp.eqLG = applyMod(5, rt.latchedEqLG.load());
+            if (mask & LOCK_FLAG_EQ_MF) pp.eqMF = applyMod(6, rt.latchedEqMF.load());
+            if (mask & LOCK_FLAG_EQ_MG) pp.eqMG = applyMod(7, rt.latchedEqMG.load());
+            if (mask & LOCK_FLAG_EQ_HF) pp.eqHF = applyMod(8, rt.latchedEqHF.load());
+            if (mask & LOCK_FLAG_EQ_HG) pp.eqHG = applyMod(9, rt.latchedEqHG.load());
 
             // Compressor
-            pp.cThr = applyMod(10, rt.latchedCThr.load());
-            pp.cRat = applyMod(11, rt.latchedCRat.load());
-            pp.cAtk = applyMod(12, rt.latchedCAtk.load());
-            pp.cRel = applyMod(13, rt.latchedCRel.load());
+            if (mask & LOCK_FLAG_COMP_THR) pp.cThr = applyMod(10, rt.latchedCThr.load());
+            if (mask & LOCK_FLAG_COMP_RAT) pp.cRat = applyMod(11, rt.latchedCRat.load());
+            if (mask & LOCK_FLAG_COMP_ATK) pp.cAtk = applyMod(12, rt.latchedCAtk.load());
+            if (mask & LOCK_FLAG_COMP_REL) pp.cRel = applyMod(13, rt.latchedCRel.load());
 
-            pp.drive = applyMod(14, rt.latchedDrive.load());
+            if (mask & LOCK_FLAG_DRIVE) pp.drive = applyMod(14, rt.latchedDrive.load());
 
-            pp.fx1   = applyMod(16, rt.latchedTone.load());
-            pp.fx2   = applyMod(17, rt.latchedP2.load());
-            pp.fx3   = applyMod(18, rt.latchedP3.load());
-            pp.fx4   = applyMod(19, rt.latchedP4.load());
-            pp.fx5   = applyMod(20, rt.latchedP5.load());
+            if (mask & LOCK_FLAG_TONE)  pp.fx1   = applyMod(16, rt.latchedTone.load());
+            if (mask & LOCK_FLAG_P2)    pp.fx2   = applyMod(17, rt.latchedP2.load());
+            if (mask & LOCK_FLAG_P3)    pp.fx3   = applyMod(18, rt.latchedP3.load());
+            if (mask & LOCK_FLAG_P4)    pp.fx4   = applyMod(19, rt.latchedP4.load());
+            if (mask & LOCK_FLAG_P5)    pp.fx5   = applyMod(20, rt.latchedP5.load());
 
-            pp.sendA = applyMod(21, rt.latchedSendA.load());
-            pp.sendB = applyMod(22, rt.latchedSendB.load());
-            pp.sendC = applyMod(23, rt.latchedSendC.load());
-            pp.sendD = applyMod(24, rt.latchedSendD.load());
+            if (mask & LOCK_FLAG_SENDA) pp.sendA = applyMod(21, rt.latchedSendA.load());
+            if (mask & LOCK_FLAG_SENDB) pp.sendB = applyMod(22, rt.latchedSendB.load());
+            if (mask & LOCK_FLAG_SENDC) pp.sendC = applyMod(23, rt.latchedSendC.load());
+            if (mask & LOCK_FLAG_SENDD) pp.sendD = applyMod(24, rt.latchedSendD.load());
 
             // Insert Multi-FX
-            pp.ifxType = rt.latchedIfxType.load();
-            pp.ifx1    = applyMod(36, rt.latchedIfx1.load());
-            pp.ifx2    = applyMod(37, rt.latchedIfx2.load());
-            pp.ifx3    = applyMod(38, rt.latchedIfx3.load());
-            pp.ifx4    = applyMod(39, rt.latchedIfx4.load());
+            if (mask & LOCK_FLAG_IFX_TYPE) pp.ifxType = rt.latchedIfxType.load();
+            if (mask & LOCK_FLAG_IFX1)     pp.ifx1    = applyMod(36, rt.latchedIfx1.load());
+            if (mask & LOCK_FLAG_IFX2)     pp.ifx2    = applyMod(37, rt.latchedIfx2.load());
+            if (mask & LOCK_FLAG_IFX3)     pp.ifx3    = applyMod(38, rt.latchedIfx3.load());
+            if (mask & LOCK_FLAG_IFX4)     pp.ifx4    = applyMod(39, rt.latchedIfx4.load());
 
             // VCF
-            pp.vcfType = rt.latchedVcfType.load();
-            pp.vcfCut  = applyMod(41, rt.latchedVcfCut.load());
-            pp.vcfRes  = applyMod(42, rt.latchedVcfRes.load());
-            pp.vcfEnv  = applyMod(43, rt.latchedVcfEnv.load());
+            if (mask & LOCK_FLAG_VCF_TYPE) pp.vcfType = rt.latchedVcfType.load();
+            if (mask & LOCK_FLAG_VCF_CUT)  pp.vcfCut  = applyMod(41, rt.latchedVcfCut.load());
+            if (mask & LOCK_FLAG_VCF_RES)  pp.vcfRes  = applyMod(42, rt.latchedVcfRes.load());
+            if (mask & LOCK_FLAG_VCF_ENV)  pp.vcfEnv  = applyMod(43, rt.latchedVcfEnv.load());
         }
 
         const bool isSilenced = (anyPadSolo && ! rt.isSolo.load()) || rt.isMuted.load();
@@ -1015,6 +1054,14 @@ void Forge64Processor::onPresetLoaded()
     gridPtr->reloadSamples();
     modPtr->syncAllFromTrees();
 
+    auto seq = kitRoot.getChildWithName("SEQUENCER");
+    if (seq.isValid())
+        sequencer.deserialize(seq);
+
+    auto aux = kitRoot.getChildWithName("AUX_MASTER_FX");
+    if (aux.isValid())
+        auxManager.deserialize(aux);
+
     for (int p = 0; p < kNumPads; ++p)
     {
         const auto st = gridPtr->padState(p);
@@ -1025,17 +1072,425 @@ void Forge64Processor::onPresetLoaded()
     voices.allNotesOff();
 }
 
+juce::StringArray Forge64Processor::getFactoryKitNames()
+{
+    return {
+        "01 Clean Electronic (Default)",
+        "02 Acoustic Jazz Club",
+        "03 Garage Punk 77",
+        "04 1960s Experimental Lab",
+        "05 1990s Modular Drum Machine",
+        "06 Ambient Space Dub"
+    };
+}
+
+void Forge64Processor::loadFactoryKit(int kitIndex)
+{
+    auto setAP = [this](int p, const char* base, float val)
+    {
+        if (auto* par = dynamic_cast<juce::RangedAudioParameter*>(apvts.getParameter(padParamId(p, base))))
+            par->setValueNotifyingHost(par->convertTo0to1(val));
+    };
+
+    // First reset all 64 pads to their default core presets cleanly
+    for (int p = 0; p < kNumPads; ++p)
+    {
+        const auto pre = PadGrid::getDefaultPadPreset(p);
+        setAP(p, "tune", pre.tune);
+        setAP(p, "dec",  pre.decay);
+        setAP(p, "drv",  pre.drive);
+        setAP(p, "fx1",  pre.p1);
+        setAP(p, "fx2",  pre.p2);
+        setAP(p, "fx3",  pre.p3);
+        setAP(p, "fx4",  pre.p4);
+        setAP(p, "fx5",  pre.p5);
+        setAP(p, "snda", 0.0f);
+        setAP(p, "sndb", 0.0f);
+        setAP(p, "sndc", 0.0f);
+        setAP(p, "sndd", 0.0f);
+        setAP(p, "lvl",  0.55f);
+        setAP(p, "pan",  0.0f);
+        setAP(p, "vcft", (float) pre.vcfType);
+        setAP(p, "vcfc", pre.vcfCut);
+        setAP(p, "vcfr", pre.vcfRes);
+        setAP(p, "vcfe", pre.vcfEnv);
+        setAP(p, "eqlf", 200.f);  setAP(p, "eqlg", 0.f);
+        setAP(p, "eqmf", 1000.f); setAP(p, "eqmg", 0.f);
+        setAP(p, "eqhf", 8000.f); setAP(p, "eqhg", 0.f);
+        setAP(p, "cthr", 0.f);    setAP(p, "crat", 1.f);
+        setAP(p, "catk", 5.f);    setAP(p, "crel", 100.f);
+        setAP(p, "ifx",  0.f);
+    }
+
+    // Default Aux FX setup
+    auxManager.auxParams[0].fxType = AUX_FX_REVERB;
+    auxManager.auxParams[0].p1 = 0.45f;
+    auxManager.auxParams[0].p2 = 0.50f;
+    auxManager.auxParams[0].p3 = 0.10f;
+    auxManager.auxParams[0].p4 = 0.80f;
+    auxManager.auxParams[0].returnLevel = 0.50f;
+    auxManager.auxParams[0].returnPan = 0.0f;
+    auxManager.auxParams[0].enabled = true;
+
+    auxManager.auxParams[1].fxType = AUX_FX_DELAY;
+    auxManager.auxParams[1].p1 = 0.17f; // ~250ms
+    auxManager.auxParams[1].p2 = 0.25f;
+    auxManager.auxParams[1].p3 = 0.50f;
+    auxManager.auxParams[1].p4 = 0.0f;  // Free
+    auxManager.auxParams[1].returnLevel = 0.35f;
+    auxManager.auxParams[1].returnPan = 0.0f;
+    auxManager.auxParams[1].enabled = true;
+
+    auxManager.auxParams[2].fxType = AUX_FX_DRIVE;
+    auxManager.auxParams[2].p1 = 0.30f;
+    auxManager.auxParams[2].p2 = 0.50f;
+    auxManager.auxParams[2].p3 = 0.50f;
+    auxManager.auxParams[2].p4 = 0.50f;
+    auxManager.auxParams[2].returnLevel = 0.0f;
+    auxManager.auxParams[2].returnPan = 0.0f;
+    auxManager.auxParams[2].enabled = false;
+
+    auxManager.auxParams[3].fxType = AUX_FX_CHORUS;
+    auxManager.auxParams[3].p1 = 0.30f;
+    auxManager.auxParams[3].p2 = 0.50f;
+    auxManager.auxParams[3].p3 = 0.20f;
+    auxManager.auxParams[3].p4 = 0.80f;
+    auxManager.auxParams[3].returnLevel = 0.0f;
+    auxManager.auxParams[3].returnPan = 0.0f;
+    auxManager.auxParams[3].enabled = false;
+
+    // Reset Master FX
+    auxManager.masterParams.compOn = false;
+    auxManager.masterParams.driveOn = false;
+    auxManager.masterParams.drive = 0.0f;
+    auxManager.masterParams.compThresh = -10.f;
+    auxManager.masterParams.compRatio = 2.5f;
+    auxManager.masterParams.compAtk = 25.f;
+    auxManager.masterParams.compRel = 120.f;
+    auxManager.masterParams.compMakeup = 0.f;
+    auxManager.masterParams.eqOn = true;
+    auxManager.masterParams.eqLowGain = 0.f;
+    auxManager.masterParams.eqLowMidGain = 0.f;
+    auxManager.masterParams.eqHiMidGain = 0.f;
+    auxManager.masterParams.eqHighGain = 0.f;
+    auxManager.masterParams.limiterOn = true;
+    auxManager.masterParams.ceiling = -0.3f;
+
+    auto setPad = [&](int p, const char* name, float tune, float dec, float drv,
+                      float p1, float p2, float p3, float p4, float p5,
+                      int vcft = 0, float vcfc = 20000.f, float vcfr = 0.707f, float vcfe = 0.f,
+                      float eqlg = 0.f, float eqmg = 0.f, float eqhg = 0.f,
+                      float snda = 0.f, float sndb = 0.f, float lvl = 0.55f)
+    {
+        if (p >= 0 && p < kNumPads && gridPtr != nullptr)
+            gridPtr->padState(p).setProperty("name", name, nullptr);
+
+        setAP(p, "tune", tune);
+        setAP(p, "dec",  dec);
+        setAP(p, "drv",  drv);
+        setAP(p, "fx1",  p1);
+        setAP(p, "fx2",  p2);
+        setAP(p, "fx3",  p3);
+        setAP(p, "fx4",  p4);
+        setAP(p, "fx5",  p5);
+        setAP(p, "vcft", (float) vcft);
+        setAP(p, "vcfc", vcfc);
+        setAP(p, "vcfr", vcfr);
+        setAP(p, "vcfe", vcfe);
+        setAP(p, "eqlg", eqlg);
+        setAP(p, "eqmg", eqmg);
+        setAP(p, "eqhg", eqhg);
+        setAP(p, "snda", snda);
+        setAP(p, "sndb", sndb);
+        setAP(p, "lvl",  lvl);
+    };
+
+    switch (kitIndex)
+    {
+        case 0: // 01 Clean Electronic
+        {
+            // Crisp, dynamic, uncompressed, crystal clear
+            auxManager.masterParams.compOn = false;
+            auxManager.masterParams.driveOn = false;
+            auxManager.auxParams[0].p1 = 0.38f;
+            auxManager.auxParams[0].returnLevel = 0.40f;
+            auxManager.auxParams[1].p1 = 0.14f; // ~200 ms
+            auxManager.auxParams[1].p2 = 0.20f;
+            auxManager.auxParams[1].returnLevel = 0.25f;
+
+            setPad(0,  "808 Sub Kick",        0.0f,  0.55f, 0.00f, 0.65f, 0.35f, 0.70f, 0.30f, 0.20f, 0, 20000.f, 0.707f, 0.f,  1.5f, 0.f, 0.f, 0.00f, 0.00f);
+            setPad(1,  "808 Snare",           0.0f,  0.28f, 0.00f, 0.60f, 0.65f, 0.50f, 0.40f, 0.30f, 0, 20000.f, 0.707f, 0.f,  0.0f, 0.f, 0.f, 0.18f, 0.00f);
+            setPad(2,  "Closed Hat",          0.0f,  0.055f,0.00f, 0.75f, 0.50f, 0.50f, 0.50f, 0.50f, 0, 16000.f, 0.707f, 0.f,  0.0f, 0.f, 1.0f, 0.00f, 0.00f);
+            setPad(3,  "Open Hat",            0.0f,  0.38f, 0.00f, 0.70f, 0.50f, 0.50f, 0.50f, 0.50f, 0, 15000.f, 0.707f, 0.f,  0.0f, 0.f, 1.0f, 0.00f, 0.12f);
+            setPad(4,  "808 Handclap",        0.0f,  0.25f, 0.00f, 0.70f, 0.50f, 0.50f, 0.50f, 0.50f, 0, 20000.f, 0.707f, 0.f,  0.0f, 0.f, 0.f, 0.22f, 0.00f);
+            setPad(5,  "Low Tom",            -2.0f,  0.35f, 0.00f, 0.50f, 0.50f, 0.50f, 0.50f, 0.50f, 0, 20000.f, 0.707f, 0.f,  1.0f, 0.f, 0.f, 0.05f, 0.00f);
+            setPad(6,  "Mid Tom",             0.0f,  0.30f, 0.00f, 0.55f, 0.50f, 0.50f, 0.50f, 0.50f, 0, 20000.f, 0.707f, 0.f,  0.0f, 0.f, 0.f, 0.05f, 0.00f);
+            setPad(7,  "Hi Tom",              3.0f,  0.25f, 0.00f, 0.60f, 0.50f, 0.50f, 0.50f, 0.50f, 0, 20000.f, 0.707f, 0.f,  0.0f, 0.f, 0.f, 0.05f, 0.00f);
+            setPad(8,  "Maple Rimshot",       0.0f,  0.12f, 0.00f, 0.50f, 0.50f, 0.50f, 0.50f, 0.50f, 0, 20000.f, 0.707f, 0.f,  0.0f, 0.f, 0.f, 0.08f, 0.00f);
+            setPad(9,  "808 Cowbell",         0.0f,  0.32f, 0.00f, 0.50f, 0.50f, 0.50f, 0.50f, 0.50f, 0, 20000.f, 0.707f, 0.f,  0.0f, 0.f, 0.f, 0.10f, 0.05f);
+            setPad(10, "Sizzle Shaker",       0.0f,  0.09f, 0.00f, 0.80f, 0.50f, 0.50f, 0.50f, 0.50f, 0, 18000.f, 0.707f, 0.f,  0.0f, 0.f, 1.5f, 0.05f, 0.00f);
+            setPad(11, "Modal Crash",         0.0f,  1.20f, 0.00f, 0.50f, 0.50f, 0.50f, 0.50f, 0.50f, 0, 20000.f, 0.707f, 0.f,  0.0f, 0.f, 0.f, 0.28f, 0.00f);
+            setPad(12, "Ride Bell",           0.0f,  1.50f, 0.00f, 0.65f, 0.50f, 0.50f, 0.50f, 0.50f, 0, 20000.f, 0.707f, 0.f,  0.0f, 0.f, 0.f, 0.15f, 0.00f);
+            setPad(13, "Latin Conga",         1.0f,  0.28f, 0.00f, 0.50f, 0.50f, 0.50f, 0.50f, 0.50f, 0, 20000.f, 0.707f, 0.f,  0.0f, 0.f, 0.f, 0.08f, 0.00f);
+            setPad(14, "Laser Zap",           0.0f,  0.18f, 0.00f, 0.50f, 0.50f, 0.50f, 0.50f, 0.50f, 0, 20000.f, 0.707f, 0.f,  0.0f, 0.f, 0.f, 0.12f, 0.00f);
+            setPad(15, "909 Punch Kick",      1.0f,  0.38f, 0.00f, 0.80f, 0.40f, 0.50f, 0.30f, 0.20f, 0, 20000.f, 0.707f, 0.f,  2.0f, 0.f, 0.f, 0.00f, 0.00f);
+            break;
+        }
+
+        case 1: // 02 Acoustic Jazz Club
+        {
+            // Natural room acoustics, warm dynamics, subtle VCA glue
+            auxManager.masterParams.compOn = true;
+            auxManager.masterParams.compThresh = -14.f;
+            auxManager.masterParams.compRatio = 1.8f;
+            auxManager.masterParams.compAtk = 30.f;
+            auxManager.masterParams.compRel = 180.f;
+            auxManager.masterParams.compMakeup = 1.5f;
+            auxManager.masterParams.driveOn = false;
+
+            // Wooden club room acoustic curve
+            auxManager.masterParams.eqLowGain = 1.5f;
+            auxManager.masterParams.eqLowMidGain = -1.2f;
+            auxManager.masterParams.eqHiMidGain = 0.8f;
+            auxManager.masterParams.eqHighGain = -1.5f;
+
+            auxManager.auxParams[0].p1 = 0.65f;
+            auxManager.auxParams[0].p2 = 0.45f;
+            auxManager.auxParams[0].p3 = 0.15f;
+            auxManager.auxParams[0].returnLevel = 0.42f;
+
+            auxManager.auxParams[1].p1 = 0.05f; // ~85 ms slap
+            auxManager.auxParams[1].p2 = 0.15f;
+            auxManager.auxParams[1].returnLevel = 0.18f;
+
+            setPad(0,  "Woody Bebop Kick",   -3.5f,  0.32f, 0.00f, 0.40f, 0.20f, 0.30f, 0.60f, 0.20f, 1,  4500.f, 0.707f, 0.f,  2.5f, 0.f,-1.0f, 0.05f, 0.00f);
+            setPad(1,  "Coated Snare (Brush)", 1.0f, 0.24f, 0.00f, 0.42f, 0.55f, 0.40f, 0.50f, 0.40f, 1,  9500.f, 0.707f, 0.f,  0.0f, 1.2f, 0.f, 0.30f, 0.00f);
+            setPad(2,  "Jazz Hat (Closed)",   -2.0f,  0.06f, 0.00f, 0.45f, 0.40f, 0.40f, 0.40f, 0.40f, 1, 11000.f, 0.707f, 0.f,  0.0f, 0.f,-1.5f, 0.18f, 0.00f);
+            setPad(3,  "Sizzle Hat (Half)",   -1.5f,  0.32f, 0.00f, 0.50f, 0.45f, 0.45f, 0.45f, 0.45f, 1, 10500.f, 0.707f, 0.f,  0.0f, 0.f,-1.0f, 0.25f, 0.00f);
+            setPad(4,  "Finger Snap / Clap",   2.0f,  0.18f, 0.00f, 0.45f, 0.40f, 0.40f, 0.40f, 0.40f, 0, 14000.f, 0.707f, 0.f,  0.0f, 0.f, 0.f, 0.28f, 0.00f);
+            setPad(5,  "16\" Floor Tom",      -4.0f,  0.55f, 0.00f, 0.45f, 0.35f, 0.40f, 0.50f, 0.30f, 1,  6000.f, 0.707f, 0.f,  3.0f, 0.f,-1.0f, 0.35f, 0.00f);
+            setPad(6,  "12\" Rack Tom",       -1.0f,  0.45f, 0.00f, 0.50f, 0.40f, 0.45f, 0.50f, 0.35f, 1,  7500.f, 0.707f, 0.f,  1.5f, 0.f,-0.5f, 0.32f, 0.00f);
+            setPad(7,  "10\" High Tom",        2.5f,  0.38f, 0.00f, 0.55f, 0.45f, 0.50f, 0.50f, 0.40f, 1,  9000.f, 0.707f, 0.f,  0.0f, 0.f, 0.f, 0.30f, 0.00f);
+            setPad(8,  "Cross-Stick Rim",      1.5f,  0.15f, 0.00f, 0.40f, 0.35f, 0.40f, 0.40f, 0.35f, 0, 12000.f, 0.707f, 0.f,  0.0f, 1.5f, 0.f, 0.25f, 0.00f);
+            setPad(9,  "Mambo Cowbell",       -1.0f,  0.22f, 0.00f, 0.38f, 0.40f, 0.40f, 0.40f, 0.40f, 0, 10000.f, 0.707f, 0.f,  0.0f, 0.f,-1.0f, 0.15f, 0.00f);
+            setPad(10, "Cabasa Shaker",       -1.0f,  0.08f, 0.00f, 0.48f, 0.40f, 0.40f, 0.40f, 0.40f, 0, 13000.f, 0.707f, 0.f,  0.0f, 0.f, 0.f, 0.15f, 0.00f);
+            setPad(11, "Dark Melodic Crash",  -2.0f,  1.60f, 0.00f, 0.45f, 0.40f, 0.40f, 0.40f, 0.40f, 1, 12000.f, 0.707f, 0.f,  0.0f, 0.f,-1.5f, 0.45f, 0.00f);
+            setPad(12, "Dry Constantinople Ride",-0.5f, 2.40f, 0.00f, 0.55f, 0.45f, 0.45f, 0.45f, 0.45f, 0, 14000.f, 0.707f, 0.f, 0.0f, 0.f, 0.f, 0.42f, 0.12f);
+            setPad(13, "Low Tumba Conga",     -2.0f,  0.35f, 0.00f, 0.40f, 0.40f, 0.40f, 0.40f, 0.40f, 0,  8500.f, 0.707f, 0.f,  2.0f, 0.f, 0.f, 0.20f, 0.00f);
+            setPad(14, "High Quinto Slap",     3.0f,  0.16f, 0.00f, 0.65f, 0.50f, 0.50f, 0.50f, 0.50f, 0, 11000.f, 0.707f, 0.f,  0.0f, 2.0f, 0.f, 0.22f, 0.00f);
+            setPad(15, "Felt Beater Kick",    -4.5f,  0.28f, 0.00f, 0.30f, 0.15f, 0.30f, 0.50f, 0.20f, 1,  3800.f, 0.707f, 0.f,  3.0f, 0.f,-2.0f, 0.05f, 0.00f);
+            break;
+        }
+
+        case 2: // 03 Garage Punk 77
+        {
+            // Raw, loud, distorted tape saturation and high-energy compressor pumping
+            auxManager.masterParams.driveOn = true;
+            auxManager.masterParams.drive = 0.38f;
+
+            auxManager.masterParams.compOn = true;
+            auxManager.masterParams.compThresh = -18.f;
+            auxManager.masterParams.compRatio = 4.5f;
+            auxManager.masterParams.compAtk = 8.f;
+            auxManager.masterParams.compRel = 75.f;
+            auxManager.masterParams.compMakeup = 3.5f;
+
+            auxManager.masterParams.eqLowGain = 2.5f;
+            auxManager.masterParams.eqLowMidGain = -2.0f;
+            auxManager.masterParams.eqHiMidGain = 3.2f;
+            auxManager.masterParams.eqHighGain = 1.0f;
+
+            auxManager.auxParams[0].fxType = AUX_FX_SPRING;
+            auxManager.auxParams[0].p1 = 0.55f;
+            auxManager.auxParams[0].p2 = 0.30f;
+            auxManager.auxParams[0].returnLevel = 0.28f;
+
+            auxManager.auxParams[1].p1 = 0.08f; // ~120 ms
+            auxManager.auxParams[1].p2 = 0.35f;
+            auxManager.auxParams[1].returnLevel = 0.22f;
+
+            setPad(0,  "Trash Can Kick",      -1.0f,  0.42f, 0.28f, 0.85f, 0.55f, 0.60f, 0.45f, 0.30f, 0, 20000.f, 0.707f, 0.f,  3.5f, 0.f, 0.f, 0.08f, 0.00f);
+            setPad(1,  "Cranked Snare Crack",  2.5f,  0.35f, 0.34f, 0.75f, 0.80f, 0.60f, 0.50f, 0.40f, 0, 20000.f, 0.707f, 0.f,  0.0f, 3.0f, 1.5f, 0.22f, 0.00f);
+            setPad(2,  "Chipped Iron Hat",     1.5f,  0.05f, 0.20f, 0.85f, 0.60f, 0.60f, 0.60f, 0.60f, 0, 20000.f, 0.707f, 0.f,  0.0f, 0.f, 2.0f, 0.05f, 0.00f);
+            setPad(3,  "Loose Trash Hat",      0.5f,  0.35f, 0.25f, 0.80f, 0.60f, 0.60f, 0.60f, 0.60f, 0, 20000.f, 0.707f, 0.f,  0.0f, 0.f, 1.5f, 0.10f, 0.08f);
+            setPad(4,  "Stomp Clatter Clap",  -1.0f,  0.30f, 0.30f, 0.80f, 0.60f, 0.60f, 0.60f, 0.60f, 0, 20000.f, 0.707f, 0.f,  0.0f, 2.0f, 0.f, 0.30f, 0.00f);
+            setPad(5,  "Dirty Floor Thud",    -3.0f,  0.48f, 0.22f, 0.65f, 0.50f, 0.55f, 0.55f, 0.40f, 0, 20000.f, 0.707f, 0.f,  3.0f, 0.f, 0.f, 0.15f, 0.00f);
+            setPad(6,  "Rattly Mid Tom",       0.0f,  0.38f, 0.20f, 0.65f, 0.50f, 0.55f, 0.55f, 0.40f, 0, 20000.f, 0.707f, 0.f,  1.0f, 1.0f, 0.f, 0.15f, 0.00f);
+            setPad(7,  "Ringy High Tom",       3.0f,  0.28f, 0.20f, 0.70f, 0.55f, 0.60f, 0.60f, 0.45f, 0, 20000.f, 0.707f, 0.f,  0.0f, 1.5f, 0.f, 0.15f, 0.00f);
+            setPad(8,  "Metal Rimshot Clack",  2.0f,  0.12f, 0.25f, 0.70f, 0.50f, 0.50f, 0.50f, 0.50f, 0, 20000.f, 0.707f, 0.f,  0.0f, 2.0f, 0.f, 0.18f, 0.00f);
+            setPad(9,  "Battered Steel Cowbell",1.0f, 0.25f, 0.22f, 0.60f, 0.50f, 0.50f, 0.50f, 0.50f, 0, 20000.f, 0.707f, 0.f,  0.0f, 2.5f, 0.f, 0.15f, 0.00f);
+            setPad(10, "Sandpaper Scrape",     0.0f,  0.10f, 0.25f, 0.80f, 0.50f, 0.50f, 0.50f, 0.50f, 0, 20000.f, 0.707f, 0.f,  0.0f, 0.f, 2.0f, 0.10f, 0.00f);
+            setPad(11, "Trash China Bash",     1.0f,  0.95f, 0.30f, 0.70f, 0.60f, 0.60f, 0.60f, 0.60f, 0, 20000.f, 0.707f, 0.f,  0.0f, 0.f, 2.0f, 0.32f, 0.00f);
+            setPad(12, "Rivet Trash Ride",     0.0f,  1.40f, 0.22f, 0.70f, 0.55f, 0.55f, 0.55f, 0.55f, 0, 20000.f, 0.707f, 0.f,  0.0f, 0.f, 1.0f, 0.20f, 0.00f);
+            setPad(13, "Junk Metal Can",      -2.0f,  0.28f, 0.30f, 0.65f, 0.60f, 0.60f, 0.60f, 0.60f, 0, 20000.f, 0.707f, 0.f,  0.0f, 2.0f, 0.f, 0.18f, 0.00f);
+            setPad(14, "Screaming Feedback Zap",4.0f, 0.20f, 0.35f, 0.70f, 0.70f, 0.70f, 0.70f, 0.70f, 0, 20000.f, 0.707f, 0.f,  0.0f, 3.0f, 2.0f, 0.22f, 0.25f);
+            setPad(15, "Mud Overdrive Kick",  -2.5f,  0.50f, 0.42f, 0.85f, 0.60f, 0.65f, 0.65f, 0.50f, 0, 20000.f, 0.707f, 0.f,  4.0f, 0.f, 0.f, 0.10f, 0.00f);
+            break;
+        }
+
+        case 3: // 04 1960s Experimental Lab
+        {
+            // Early electronic / tape radiophonic sound: reel-to-reel echoes, hollow spring reverb, ringing filters
+            auxManager.masterParams.driveOn = true;
+            auxManager.masterParams.drive = 0.26f;
+
+            auxManager.masterParams.compOn = true;
+            auxManager.masterParams.compThresh = -12.f;
+            auxManager.masterParams.compRatio = 2.2f;
+            auxManager.masterParams.compAtk = 40.f;
+            auxManager.masterParams.compRel = 250.f;
+            auxManager.masterParams.compMakeup = 1.2f;
+
+            auxManager.masterParams.eqLowGain = -2.0f;
+            auxManager.masterParams.eqLowMidGain = 2.2f;
+            auxManager.masterParams.eqHiMidGain = 1.5f;
+            auxManager.masterParams.eqHighGain = -3.5f;
+
+            auxManager.auxParams[0].fxType = AUX_FX_SPRING;
+            auxManager.auxParams[0].p1 = 0.82f;
+            auxManager.auxParams[0].p2 = 0.25f;
+            auxManager.auxParams[0].returnLevel = 0.45f;
+
+            auxManager.auxParams[1].p1 = 0.25f; // ~360 ms tape delay
+            auxManager.auxParams[1].p2 = 0.62f;
+            auxManager.auxParams[1].p3 = 0.40f;
+            auxManager.auxParams[1].returnLevel = 0.40f;
+
+            setPad(0,  "Radiophonic Tape Thump",-5.0f,0.45f, 0.00f, 0.20f, 0.10f, 0.30f, 0.80f, 0.20f, 1,  1200.f, 2.50f, 0.f, -1.0f, 2.0f,-2.0f, 0.10f, 0.00f);
+            setPad(1,  "White Noise Burst",   0.0f,  0.18f, 0.00f, 0.50f, 0.60f, 0.50f, 0.50f, 0.50f, 2,  2400.f, 3.20f, 0.f,  0.0f, 2.5f, 0.f, 0.35f, 0.25f);
+            setPad(2,  "Filtered Metallic Blip",7.0f, 0.04f, 0.00f, 0.60f, 0.50f, 0.50f, 0.50f, 0.50f, 2,  4200.f, 4.00f, 0.f,  0.0f, 0.f, 0.f, 0.10f, 0.20f);
+            setPad(3,  "Resonant Ringing Hat", 5.0f, 0.25f, 0.00f, 0.55f, 0.50f, 0.50f, 0.50f, 0.50f, 2,  3500.f, 5.00f, 0.f,  0.0f, 0.f, 0.f, 0.15f, 0.35f);
+            setPad(4,  "Hollow Spring Clap",   0.0f,  0.22f, 0.00f, 0.50f, 0.50f, 0.50f, 0.50f, 0.50f, 0, 16000.f, 0.707f, 0.f,  0.0f, 0.f, 0.f, 0.50f, 0.15f);
+            setPad(5,  "Sub-Harmonic Drone",  -6.0f,  0.75f, 0.00f, 0.30f, 0.20f, 0.30f, 0.60f, 0.40f, 1,   800.f, 3.00f, 0.f,  2.0f, 0.f,-2.0f, 0.20f, 0.25f);
+            setPad(6,  "Tape Flutter Tom",    -2.0f,  0.50f, 0.00f, 0.45f, 0.35f, 0.45f, 0.55f, 0.35f, 2,  1400.f, 3.50f, 0.f,  0.0f, 1.5f,-1.0f, 0.20f, 0.30f);
+            setPad(7,  "Pitch-Drop Oscillator",4.0f,  0.35f, 0.00f, 0.60f, 0.45f, 0.50f, 0.50f, 0.50f, 1,  2200.f, 4.00f, 0.f,  0.0f, 1.0f, 0.f, 0.20f, 0.35f);
+            setPad(8,  "Glass Tube Ting",      9.0f,  0.14f, 0.00f, 0.50f, 0.50f, 0.50f, 0.50f, 0.50f, 2,  5500.f, 4.50f, 0.f,  0.0f, 0.f, 0.f, 0.25f, 0.35f);
+            setPad(9,  "Ring-Mod Bell Strike", 2.0f,  0.45f, 0.00f, 0.50f, 0.50f, 0.50f, 0.50f, 0.50f, 3,  1800.f, 4.50f, 0.f,  0.0f, 2.0f, 0.f, 0.20f, 0.45f);
+            setPad(10, "Radio Static Burst",   0.0f,  0.12f, 0.00f, 0.65f, 0.50f, 0.50f, 0.50f, 0.50f, 2,  1800.f, 3.80f, 0.f,  0.0f, 1.5f, 0.f, 0.15f, 0.35f);
+            setPad(11, "Gong Splash Plate",   -3.0f,  2.20f, 0.00f, 0.45f, 0.40f, 0.40f, 0.40f, 0.40f, 1,  8000.f, 2.50f, 0.f,  0.0f, 0.f,-2.0f, 0.55f, 0.35f);
+            setPad(12, "Sawtooth Ping Cymbal", 3.0f,  1.80f, 0.00f, 0.55f, 0.45f, 0.45f, 0.45f, 0.45f, 1,  6500.f, 2.00f, 0.f,  0.0f, 0.f,-1.0f, 0.30f, 0.40f);
+            setPad(13, "Wooden Log Drum",     -1.0f,  0.38f, 0.00f, 0.40f, 0.25f, 0.35f, 0.50f, 0.30f, 1,  1100.f, 3.00f, 0.f,  1.5f, 0.f,-2.0f, 0.20f, 0.20f);
+            setPad(14, "Theremin Laser Zap",   5.0f,  0.28f, 0.00f, 0.60f, 0.60f, 0.60f, 0.60f, 0.60f, 1,  2200.f, 4.20f, 0.f,  0.0f, 2.0f, 0.f, 0.25f, 0.50f);
+            setPad(15, "Impulse Click Kick",  -7.0f,  0.30f, 0.00f, 0.90f, 0.80f, 0.50f, 0.40f, 0.20f, 1,  2800.f, 1.50f, 0.f,  3.0f, 0.f, 0.f, 0.10f, 0.00f);
+            break;
+        }
+
+        case 4: // 05 1990s Modular Drum Machine
+        {
+            // West Coast & Eurorack modular: snappy envelopes, punchy VCA, stereo delay, sub impact
+            auxManager.masterParams.compOn = true;
+            auxManager.masterParams.compThresh = -13.f;
+            auxManager.masterParams.compRatio = 3.2f;
+            auxManager.masterParams.compAtk = 15.f;
+            auxManager.masterParams.compRel = 95.f;
+            auxManager.masterParams.compMakeup = 2.0f;
+
+            auxManager.masterParams.driveOn = true;
+            auxManager.masterParams.drive = 0.18f;
+
+            auxManager.masterParams.eqLowGain = 3.0f;
+            auxManager.masterParams.eqLowMidGain = -1.0f;
+            auxManager.masterParams.eqHiMidGain = 1.8f;
+            auxManager.masterParams.eqHighGain = 2.2f;
+
+            auxManager.auxParams[0].p1 = 0.72f;
+            auxManager.auxParams[0].p2 = 0.40f;
+            auxManager.auxParams[0].returnLevel = 0.30f;
+
+            auxManager.auxParams[1].p1 = 0.13f; // ~187 ms
+            auxManager.auxParams[1].p2 = 0.45f;
+            auxManager.auxParams[1].returnLevel = 0.28f;
+
+            setPad(0,  "Eurorack VCF Sub Kick",2.0f,  0.48f, 0.12f, 0.88f, 0.45f, 0.75f, 0.40f, 0.20f, 0, 20000.f, 0.707f, 0.f,  4.0f, 0.f, 0.f, 0.00f, 0.00f);
+            setPad(1,  "Analog Noise Snare",  -1.0f,  0.22f, 0.15f, 0.65f, 0.75f, 0.55f, 0.45f, 0.30f, 0, 20000.f, 0.707f, 0.f,  0.0f, 1.5f, 1.0f, 0.20f, 0.00f);
+            setPad(2,  "Clocked Linear FM Hat",3.0f,  0.045f,0.05f, 0.85f, 0.55f, 0.55f, 0.55f, 0.55f, 0, 15000.f, 0.707f, 0.f,  0.0f, 0.f, 1.5f, 0.05f, 0.00f);
+            setPad(3,  "VCA Ringing Open Hat", 2.0f,  0.32f, 0.08f, 0.78f, 0.55f, 0.55f, 0.55f, 0.55f, 0, 16000.f, 0.707f, 0.f,  0.0f, 0.f, 1.0f, 0.08f, 0.25f);
+            setPad(4,  "Dual Impulse Clap",    1.0f,  0.20f, 0.10f, 0.80f, 0.55f, 0.55f, 0.55f, 0.55f, 0, 20000.f, 0.707f, 0.f,  0.0f, 1.5f, 0.f, 0.22f, 0.00f);
+            setPad(5,  "Pinged Ladder Tom Low",-2.0f, 0.42f, 0.10f, 0.55f, 0.45f, 0.50f, 0.50f, 0.35f, 1,  3500.f, 2.50f, 0.f,  2.0f, 0.f, 0.f, 0.10f, 0.30f);
+            setPad(6,  "Pinged Ladder Tom Mid",1.0f,  0.34f, 0.10f, 0.60f, 0.50f, 0.55f, 0.55f, 0.40f, 1,  4200.f, 2.50f, 0.f,  1.0f, 0.f, 0.f, 0.10f, 0.15f);
+            setPad(7,  "Pinged Ladder Tom Hi", 4.0f,  0.26f, 0.10f, 0.65f, 0.55f, 0.60f, 0.60f, 0.45f, 1,  5500.f, 2.50f, 0.f,  0.0f, 0.f, 0.f, 0.10f, 0.15f);
+            setPad(8,  "Resonance Rim Click",  5.0f,  0.08f, 0.12f, 0.65f, 0.50f, 0.50f, 0.50f, 0.50f, 2,  4800.f, 4.00f, 0.f,  0.0f, 2.0f, 0.f, 0.12f, 0.00f);
+            setPad(9,  "Bipolar FM Bell",      2.0f,  0.38f, 0.15f, 0.60f, 0.50f, 0.50f, 0.50f, 0.50f, 0, 18000.f, 0.707f, 0.f,  0.0f, 1.5f, 1.0f, 0.15f, 0.35f);
+            setPad(10, "Stochastic Noise Shaker",0.0f,0.07f, 0.10f, 0.75f, 0.50f, 0.50f, 0.50f, 0.50f, 0, 18000.f, 0.707f, 0.f,  0.0f, 0.f, 1.5f, 0.05f, 0.10f);
+            setPad(11, "Metallic Phase Crash", 0.0f,  1.10f, 0.15f, 0.55f, 0.50f, 0.50f, 0.50f, 0.50f, 0, 20000.f, 0.707f, 0.f,  0.0f, 0.f, 1.0f, 0.35f, 0.15f);
+            setPad(12, "West Coast Folded Ride",1.5f, 1.60f, 0.14f, 0.70f, 0.50f, 0.50f, 0.50f, 0.50f, 0, 20000.f, 0.707f, 0.f,  0.0f, 0.f, 1.0f, 0.22f, 0.20f);
+            setPad(13, "Pinged Resonator Perc", 3.0f, 0.25f, 0.15f, 0.55f, 0.50f, 0.50f, 0.50f, 0.50f, 0, 12000.f, 3.50f, 0.f,  0.0f, 1.5f, 0.f, 0.18f, 0.25f);
+            setPad(14, "VCO FM Laser Zap",     3.0f,  0.18f, 0.20f, 0.65f, 0.60f, 0.60f, 0.60f, 0.60f, 0, 20000.f, 0.707f, 0.f,  0.0f, 2.0f, 1.5f, 0.20f, 0.35f);
+            setPad(15, "S&H Glitch Impact Kick",4.0f, 0.35f, 0.25f, 0.95f, 0.60f, 0.65f, 0.50f, 0.30f, 0, 20000.f, 0.707f, 0.f,  3.5f, 0.f, 0.f, 0.00f, 0.00f);
+            break;
+        }
+
+        case 5: // 06 Ambient Space Dub
+        {
+            // Deep cavernous abyss reverb, long regenerative ping-pong delay, seismic sub-bass
+            auxManager.masterParams.compOn = true;
+            auxManager.masterParams.compThresh = -16.f;
+            auxManager.masterParams.compRatio = 2.4f;
+            auxManager.masterParams.compAtk = 35.f;
+            auxManager.masterParams.compRel = 300.f;
+            auxManager.masterParams.compMakeup = 2.5f;
+
+            auxManager.masterParams.driveOn = true;
+            auxManager.masterParams.drive = 0.22f;
+
+            auxManager.masterParams.eqLowGain = 4.0f;
+            auxManager.masterParams.eqLowMidGain = -2.5f;
+            auxManager.masterParams.eqHiMidGain = 0.0f;
+            auxManager.masterParams.eqHighGain = 1.5f;
+
+            auxManager.auxParams[0].fxType = AUX_FX_PLATE;
+            auxManager.auxParams[0].p1 = 0.85f;
+            auxManager.auxParams[0].p2 = 0.60f;
+            auxManager.auxParams[0].p3 = 0.40f;
+            auxManager.auxParams[0].p4 = 0.75f;
+            auxManager.auxParams[0].returnLevel = 0.52f;
+
+            auxManager.auxParams[1].fxType = AUX_FX_PINGPONG;
+            auxManager.auxParams[1].p1 = 0.30f; // ~428 ms
+            auxManager.auxParams[1].p2 = 0.78f;
+            auxManager.auxParams[1].p3 = 0.40f;
+            auxManager.auxParams[1].p4 = 0.0f;
+            auxManager.auxParams[1].returnLevel = 0.48f;
+
+            setPad(0,  "Deep Sub Abyss Kick", -4.0f,  0.95f, 0.00f, 0.45f, 0.25f, 0.90f, 0.60f, 0.25f, 0, 20000.f, 0.707f, 0.f,  5.0f, 0.f,-2.0f, 0.08f, 0.00f);
+            setPad(1,  "Echo Chamber Snare",   0.0f,  0.35f, 0.00f, 0.55f, 0.65f, 0.50f, 0.40f, 0.30f, 0, 20000.f, 0.707f, 0.f,  0.0f, 1.5f, 0.f, 0.45f, 0.60f);
+            setPad(2,  "Ticked Delay Hat",     1.0f,  0.05f, 0.00f, 0.70f, 0.50f, 0.50f, 0.50f, 0.50f, 0, 15000.f, 0.707f, 0.f,  0.0f, 0.f, 0.f, 0.15f, 0.40f);
+            setPad(3,  "Sustained Airy Hat",   0.0f,  0.45f, 0.00f, 0.65f, 0.50f, 0.50f, 0.50f, 0.50f, 0, 16000.f, 0.707f, 0.f,  0.0f, 0.f, 1.0f, 0.50f, 0.45f);
+            setPad(4,  "Reverberant Hall Clap",-1.0f, 0.35f, 0.00f, 0.65f, 0.50f, 0.50f, 0.50f, 0.50f, 0, 20000.f, 0.707f, 0.f,  0.0f, 0.f, 0.f, 0.55f, 0.30f);
+            setPad(5,  "Cavernous Floor Tom", -3.0f,  0.65f, 0.00f, 0.45f, 0.35f, 0.50f, 0.55f, 0.35f, 0, 20000.f, 0.707f, 0.f,  4.0f, 0.f, 0.f, 0.45f, 0.25f);
+            setPad(6,  "Low Reso Dub Tom",    -1.0f,  0.50f, 0.00f, 0.50f, 0.40f, 0.50f, 0.55f, 0.35f, 0, 20000.f, 0.707f, 0.f,  2.0f, 0.f, 0.f, 0.40f, 0.35f);
+            setPad(7,  "Echoing Mid Tom",      2.0f,  0.40f, 0.00f, 0.55f, 0.45f, 0.55f, 0.55f, 0.40f, 0, 20000.f, 0.707f, 0.f,  1.0f, 0.f, 0.f, 0.40f, 0.45f);
+            setPad(8,  "Spring Dub Rimshot",   0.0f,  0.14f, 0.00f, 0.45f, 0.40f, 0.40f, 0.40f, 0.40f, 0, 16000.f, 0.707f, 0.f,  0.0f, 2.0f, 0.f, 0.40f, 0.55f);
+            setPad(9,  "Dub Delay Cowbell",   -1.0f,  0.35f, 0.00f, 0.45f, 0.40f, 0.40f, 0.40f, 0.40f, 0, 14000.f, 0.707f, 0.f,  0.0f, 1.5f, 0.f, 0.50f, 0.70f);
+            setPad(10, "Space Shaker Swarm",   0.0f,  0.12f, 0.00f, 0.70f, 0.45f, 0.45f, 0.45f, 0.45f, 0, 15000.f, 0.707f, 0.f,  0.0f, 0.f, 1.5f, 0.35f, 0.30f);
+            setPad(11, "Cloud Wash Crash",    -1.0f,  2.50f, 0.00f, 0.50f, 0.45f, 0.45f, 0.45f, 0.45f, 0, 16000.f, 0.707f, 0.f,  0.0f, 0.f, 0.f, 0.70f, 0.40f);
+            setPad(12, "Endless Tape Ride",    0.0f,  2.80f, 0.00f, 0.60f, 0.50f, 0.50f, 0.50f, 0.50f, 0, 18000.f, 0.707f, 0.f,  0.0f, 0.f, 0.f, 0.50f, 0.45f);
+            setPad(13, "Deep Bongo Hit",       1.0f,  0.30f, 0.00f, 0.45f, 0.40f, 0.40f, 0.40f, 0.40f, 0, 12000.f, 0.707f, 0.f,  2.0f, 0.f, 0.f, 0.35f, 0.35f);
+            setPad(14, "Filter Sweep Zap",    -2.0f,  0.45f, 0.00f, 0.55f, 0.50f, 0.50f, 0.50f, 0.50f, 1,  2800.f, 3.00f, 0.f,  0.0f, 2.0f, 0.f, 0.30f, 0.60f);
+            setPad(15, "Infra-Sub Boom",      -6.0f,  1.20f, 0.00f, 0.30f, 0.15f, 0.95f, 0.70f, 0.30f, 0, 20000.f, 0.707f, 0.f,  6.0f, 0.f,-3.0f, 0.50f, 0.20f);
+            break;
+        }
+
+        default:
+            break;
+    }
+
+    onPresetLoaded();
+}
+
 void Forge64Processor::getStateInformation(juce::MemoryBlock& destData)
 {
     // Save UI dimensions
     kitRoot.setProperty("uiWidth", lastUIWidth, nullptr);
     kitRoot.setProperty("uiHeight", lastUIHeight, nullptr);
 
-    // Save midi learn and sequencer into kitRoot before serializing
+    // Save midi learn, sequencer and aux FX into kitRoot before serializing
     kitRoot.removeChild(kitRoot.getChildWithName("MIDI_LEARN"), nullptr);
     kitRoot.appendChild(midiLearn.serialize(), nullptr);
     kitRoot.removeChild(kitRoot.getChildWithName("SEQUENCER"), nullptr);
     kitRoot.appendChild(sequencer.serialize(), nullptr);
+    kitRoot.removeChild(kitRoot.getChildWithName("AUX_MASTER_FX"), nullptr);
+    kitRoot.appendChild(auxManager.serialize(), nullptr);
 
     if (auto xml = kitRoot.createXml())
     {
@@ -1077,7 +1532,19 @@ void Forge64Processor::setStateInformation(const void* data, int sizeInBytes)
 
     auto seq = incoming.getChildWithName("SEQUENCER");
     if (seq.isValid())
+    {
         sequencer.deserialize(seq);
+        kitRoot.removeChild(kitRoot.getChildWithName("SEQUENCER"), nullptr);
+        kitRoot.appendChild(seq.createCopy(), nullptr);
+    }
+
+    auto aux = incoming.getChildWithName("AUX_MASTER_FX");
+    if (aux.isValid())
+    {
+        auxManager.deserialize(aux);
+        kitRoot.removeChild(kitRoot.getChildWithName("AUX_MASTER_FX"), nullptr);
+        kitRoot.appendChild(aux.createCopy(), nullptr);
+    }
 
     onPresetLoaded();
 }

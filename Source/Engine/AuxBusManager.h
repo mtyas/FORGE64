@@ -16,7 +16,7 @@ enum AuxFxType
     AUX_FX_PHASER = 5,
     AUX_FX_COMP = 6,
     AUX_FX_FILTER = 7,
-    AUX_FX_SHIMMER = 8,
+    AUX_FX_PLATE = 8,
     AUX_FX_PINGPONG = 9,
     AUX_FX_GATED_VERB = 10,
     AUX_FX_TUBE = 11,
@@ -37,7 +37,7 @@ inline const char* auxFxTypeName(int type)
         case AUX_FX_PHASER:      return "Multi Phaser";
         case AUX_FX_COMP:        return "Bus Compressor";
         case AUX_FX_FILTER:      return "Resonant Filter";
-        case AUX_FX_SHIMMER:     return "Shimmer Reverb";
+        case AUX_FX_PLATE:       return "Plate Reverb";
         case AUX_FX_PINGPONG:    return "Ping-Pong Delay";
         case AUX_FX_GATED_VERB:  return "Gated Drum Reverb";
         case AUX_FX_TUBE:        return "Tube Warmth";
@@ -145,7 +145,7 @@ inline juce::String formatAuxParam(int fxType, int paramIdx, float val, float sy
             if (paramIdx == 3) return juce::String((int) std::round(v * 100.f)) + " %";
             break;
 
-        case AUX_FX_SHIMMER:
+        case AUX_FX_PLATE:
             if (paramIdx == 0) return juce::String((int) std::round(v * 100.f)) + " %";
             if (paramIdx == 1) return juce::String((int) std::round(v * 100.f)) + " %";
             if (paramIdx == 2) return juce::String((int) std::round(v * 100.f)) + " %";
@@ -270,13 +270,13 @@ struct AuxBusParams
 
 struct MasterFXParams
 {
-    // Master Bus Compressor
-    bool compOn = true;
-    float compThresh = -14.f; // -40 .. 0 dB
-    float compRatio = 4.f;    // 1.5 .. 10
-    float compAtk = 10.f;     // 0.1 .. 30 ms
-    float compRel = 100.f;    // 50 .. 1200 ms
-    float compMakeup = 2.f;   // 0 .. 18 dB
+    // Master Bus Compressor (clean & punchy default: disabled until engaged)
+    bool compOn = false;
+    float compThresh = -10.f; // -40 .. 0 dB
+    float compRatio = 2.5f;   // 1.5 .. 10
+    float compAtk = 25.f;     // 0.1 .. 30 ms
+    float compRel = 120.f;    // 50 .. 1200 ms
+    float compMakeup = 0.f;   // 0 .. 18 dB
 
     // Master 4-Band EQ
     bool eqOn = true;
@@ -285,9 +285,9 @@ struct MasterFXParams
     float eqHiMidGain = 0.f;  // -12 .. +12 dB @ 2500 Hz
     float eqHighGain = 0.f;   // -12 .. +12 dB @ 10000 Hz
 
-    // Master Drive & Limiter
-    bool driveOn = true;
-    float drive = 0.15f;      // 0 .. 1 (tape warmth)
+    // Master Drive & Limiter (drive off by default for uncompressed clarity)
+    bool driveOn = false;
+    float drive = 0.0f;       // 0 .. 1 (tape warmth)
     bool limiterOn = true;
     float ceiling = -0.3f;    // -3 .. 0 dB
 };
@@ -306,6 +306,10 @@ public:
 
     // Process Master Bus chain on stereo output
     void processMasterChain(float* L, float* R, int n, const MasterFXParams& p);
+
+    // Serialization for presets & project state
+    juce::ValueTree serialize() const;
+    void deserialize(const juce::ValueTree& tree);
 
     // Gain reduction readouts for metering
     float getAuxMeter(int auxIdx) const { return auxMeters[(size_t) juce::jlimit(0, 3, auxIdx)].load(); }
@@ -346,6 +350,7 @@ private:
     float auxGateEnv[4] = { 0.f };
     float auxShimPhase[4] = { 0.f };
     float auxPitchPh[4] = { 0.f };
+    float auxModPhase[4] = { 0.f };
     float dlyDampL[4] = { 0.f };
     float dlyDampR[4] = { 0.f };
 

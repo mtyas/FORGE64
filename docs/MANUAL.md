@@ -1,6 +1,6 @@
 # FORGE64 User Manual
 
-**Version 0.90 (Beta)** | Created by **Matthew Tyas (mtyas)**  
+**Version 0.91 (Beta)** | Created by **Matthew Tyas (mtyas)**  
 Support the project: [![Ko-fi](https://img.shields.io/badge/Ko--fi-Support%20My%20Work-ff5e5b?logo=ko-fi&logoColor=white)](https://ko-fi.com/mtyas)
 
 ---

@@ -29,8 +29,10 @@ struct PadRuntime
     std::atomic<bool>    reverseOn   { false };
 
     // Latched Parameter Locks (P-Locks from StepSequencer / MIDI)
-    std::atomic<bool>    hasLocks     { false };
-    std::atomic<float>   latchedTune  { 0.f };
+    std::atomic<bool>     hasLocks     { false };
+    std::atomic<uint64_t> lockMask     { 0 };
+    std::atomic<bool>     isPLockPreviewActive { false };
+    std::atomic<float>    latchedTune  { 0.f };
     std::atomic<float>   latchedDecay { 1.f };
     std::atomic<float>   latchedTone  { 0.5f };
     std::atomic<float>   latchedDrive { 0.f };

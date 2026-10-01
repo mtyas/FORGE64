@@ -565,11 +565,11 @@ void MixerFXPage::AuxStrip::updateLabels(int fxType)
             if (p3Knob) p3Knob->setLabel("MODE");
             if (p4Knob) p4Knob->setLabel("DRIVE");
             break;
-        case AUX_FX_SHIMMER:
+        case AUX_FX_PLATE:
             if (p1Knob) p1Knob->setLabel("DECAY");
-            if (p2Knob) p2Knob->setLabel("SHIMMER");
-            if (p3Knob) p3Knob->setLabel("TONE");
-            if (p4Knob) p4Knob->setLabel("WIDTH");
+            if (p2Knob) p2Knob->setLabel("SIZE");
+            if (p3Knob) p3Knob->setLabel("DAMP");
+            if (p4Knob) p4Knob->setLabel("DIFFUSE");
             break;
         case AUX_FX_PINGPONG:
             if (p1Knob) p1Knob->setLabel(p.p4 >= 0.5f ? "DIVISION" : "TIME");

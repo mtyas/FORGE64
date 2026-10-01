@@ -50,12 +50,56 @@ SequencerDrawer::SequencerDrawer(Forge64Processor& processor)
 
     clearPatternBtn = std::make_unique<juce::TextButton>("[CLEAR]");
     ui::styleButton(*clearPatternBtn);
-    clearPatternBtn->setTooltip("Clear all steps across all 8 tracks in current pattern");
+    clearPatternBtn->setTooltip("Clear pattern (click to choose: current pattern, all patterns, or current track)");
     clearPatternBtn->onClick = [this]
     {
-        seq.clearCurrentPattern();
-        updateTrackInfo();
-        repaint();
+        juce::Component::SafePointer<SequencerDrawer> safeThis(this);
+        juce::PopupMenu menu;
+        const int patIdx = seq.selectedPatternIndex();
+        menu.addSectionHeader("CLEAR OPTIONS");
+        menu.addItem(1, "Clear Pattern " + juce::String(patIdx + 1) + " (Current)");
+        menu.addItem(2, "Clear All 16 Patterns");
+        menu.addItem(3, "Clear Track " + juce::String(currentTrack + 1) + " Only");
+
+        menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(clearPatternBtn.get()),
+            [safeThis, patIdx](int result)
+            {
+                if (safeThis == nullptr || result == 0) return;
+                auto* self = safeThis.getComponent();
+                if (result == 1)
+                {
+                    auto before = self->seq.getPatternCopy(patIdx);
+                    auto after = std::make_unique<PatternData>(*before);
+                    for (auto& t : after->tracks)
+                        for (auto& s : t.steps)
+                            s.resetStep();
+                    self->proc.getUndoManager().perform(new SequencerPatternAction(self->seq, patIdx, std::move(before), std::move(after)));
+                    self->updateTrackInfo();
+                    self->repaint();
+                }
+                else if (result == 2)
+                {
+                    auto before = self->seq.getAllPatternsCopy();
+                    auto after = std::make_unique<std::array<PatternData, 16>>(*before);
+                    for (auto& p : *after)
+                        for (auto& t : p.tracks)
+                            for (auto& s : t.steps)
+                                s.resetStep();
+                    self->proc.getUndoManager().perform(new SequencerAllPatternsAction(self->seq, std::move(before), std::move(after)));
+                    self->updateTrackInfo();
+                    self->repaint();
+                }
+                else if (result == 3)
+                {
+                    auto before = self->seq.getPatternCopy(patIdx);
+                    auto after = std::make_unique<PatternData>(*before);
+                    for (auto& s : after->tracks[(size_t) self->currentTrack].steps)
+                        s.resetStep();
+                    self->proc.getUndoManager().perform(new SequencerPatternAction(self->seq, patIdx, std::move(before), std::move(after)));
+                    self->updateTrackInfo();
+                    self->repaint();
+                }
+            });
     };
     addAndMakeVisible(clearPatternBtn.get());
 
@@ -135,6 +179,23 @@ private:
     stepsCountLabel->setTooltip("Track length (1-64 steps). Click or scroll to change");
     addAndMakeVisible(stepsCountLabel.get());
 
+class DrawerPageBtn : public juce::TextButton
+{
+public:
+    using juce::TextButton::TextButton;
+    std::function<void(const juce::MouseEvent&)> onRightClick;
+    void mouseDown(const juce::MouseEvent& e) override
+    {
+        if (e.mods.isPopupMenu() || e.mods.isRightButtonDown())
+        {
+            if (onRightClick)
+                onRightClick(e);
+            return;
+        }
+        juce::TextButton::mouseDown(e);
+    }
+};
+
     stepsIncBtn = std::make_unique<juce::TextButton>("+");
     ui::styleButton(*stepsIncBtn);
     stepsIncBtn->setTooltip("Increase track length by 1 step");
@@ -147,11 +208,19 @@ private:
     };
     addAndMakeVisible(stepsIncBtn.get());
 
+    speedBtn = std::make_unique<juce::TextButton>("1x");
+    ui::styleButton(*speedBtn);
+    speedBtn->setTooltip("Track clock speed multiplier/divider (click to choose 1/8x to 8x)");
+    speedBtn->onClick = [this] { showTrackSpeedMenu(); };
+    addAndMakeVisible(speedBtn.get());
+
     for (int p = 0; p < 4; ++p)
     {
-        pageBtns[(size_t) p] = std::make_unique<juce::TextButton>(juce::String(p * 16 + 1) + "-" + juce::String((p + 1) * 16));
-        ui::styleButton(*pageBtns[(size_t) p]);
-        pageBtns[(size_t) p]->onClick = [this, p]
+        auto pb = std::make_unique<DrawerPageBtn>(juce::String(p * 16 + 1) + "-" + juce::String((p + 1) * 16));
+        ui::styleButton(*pb);
+        pb->setTooltip("Steps " + juce::String(p * 16 + 1) + "-" + juce::String((p + 1) * 16) + " (Right-click to Copy/Paste/Duplicate)");
+        pb->onRightClick = [this, p](const juce::MouseEvent& e) { showPageContextMenu(p, e); };
+        pb->onClick = [this, p]
         {
             currentPage = p;
             for (int i = 0; i < 4; ++i)
@@ -160,7 +229,8 @@ private:
                 stepBtns[(size_t) s]->stepIndex = currentPage * 16 + s;
             repaint();
         };
-        addAndMakeVisible(pageBtns[(size_t) p].get());
+        addAndMakeVisible(pb.get());
+        pageBtns[(size_t) p] = std::move(pb);
     }
     pageBtns[0]->setToggleState(true, juce::dontSendNotification);
 
@@ -186,6 +256,93 @@ SequencerDrawer::~SequencerDrawer()
     stopTimer();
 }
 
+void SequencerDrawer::showPageContextMenu(int p, const juce::MouseEvent& e)
+{
+    juce::PopupMenu menu;
+    menu.addSectionHeader("PAGE " + juce::String(p * 16 + 1) + "-" + juce::String((p + 1) * 16) + " (TRACK " + juce::String(currentTrack + 1) + ")");
+    menu.addItem(1, "Copy Page (Track " + juce::String(currentTrack + 1) + ")");
+    menu.addItem(2, "Paste Page (Track " + juce::String(currentTrack + 1) + ")");
+    menu.addItem(3, "Duplicate to Next Page (Track " + juce::String(currentTrack + 1) + ")");
+    menu.addItem(4, "Duplicate to All 4 Pages (Track " + juce::String(currentTrack + 1) + ")");
+    menu.addItem(6, "Duplicate Track Loop x2 (Double Length)");
+    menu.addItem(7, "Duplicate Track Loop x4 (Quadruple Length, e.g. 15 -> 60)");
+    menu.addItem(5, "Clear Page (Track " + juce::String(currentTrack + 1) + ")");
+
+    menu.addSeparator();
+    menu.addSectionHeader("PAGE " + juce::String(p * 16 + 1) + "-" + juce::String((p + 1) * 16) + " (ALL 8 TRACKS)");
+    menu.addItem(11, "Copy Page (All 8 Tracks)");
+    menu.addItem(12, "Paste Page (All 8 Tracks)");
+    menu.addItem(13, "Duplicate to Next Page (All 8 Tracks)");
+    menu.addItem(14, "Duplicate to All 4 Pages (All 8 Tracks)");
+    menu.addItem(16, "Duplicate All Tracks Loop x2");
+    menu.addItem(17, "Duplicate All Tracks Loop x4");
+    menu.addItem(15, "Clear Page (All 8 Tracks)");
+
+    juce::Component::SafePointer<SequencerDrawer> safeThis(this);
+    menu.showMenuAsync(juce::PopupMenu::Options().withTargetScreenArea(juce::Rectangle<int>(e.getScreenX(), e.getScreenY(), 1, 1)),
+        [safeThis, p](int res)
+        {
+            if (safeThis == nullptr || res == 0) return;
+            auto* self = safeThis.getComponent();
+            switch (res)
+            {
+                case 1:  self->seq.copyPage(self->currentTrack, p); break;
+                case 2:  self->seq.pastePage(self->currentTrack, p); self->updateTrackInfo(); self->repaint(); break;
+                case 3:  self->seq.duplicatePageToNext(self->currentTrack, p); self->updateTrackInfo(); self->repaint(); break;
+                case 4:  self->seq.duplicatePageToAll(self->currentTrack, p); self->updateTrackInfo(); self->repaint(); break;
+                case 5:  self->seq.clearPage(self->currentTrack, p); self->updateTrackInfo(); self->repaint(); break;
+                case 6:  self->seq.duplicateTrackLoop(self->currentTrack, 2); self->updateTrackInfo(); self->repaint(); break;
+                case 7:  self->seq.duplicateTrackLoop(self->currentTrack, 4); self->updateTrackInfo(); self->repaint(); break;
+                case 11: self->seq.copyAllTracksPage(p); break;
+                case 12: self->seq.pasteAllTracksPage(p); self->updateTrackInfo(); self->repaint(); break;
+                case 13: self->seq.duplicateAllTracksPageToNext(p); self->updateTrackInfo(); self->repaint(); break;
+                case 14: self->seq.duplicateAllTracksPageToAll(p); self->updateTrackInfo(); self->repaint(); break;
+                case 15: self->seq.clearAllTracksPage(p); self->updateTrackInfo(); self->repaint(); break;
+                case 16: self->seq.duplicateAllTracksLoop(2); self->updateTrackInfo(); self->repaint(); break;
+                case 17: self->seq.duplicateAllTracksLoop(4); self->updateTrackInfo(); self->repaint(); break;
+                default: break;
+            }
+        });
+}
+
+void SequencerDrawer::showTrackSpeedMenu()
+{
+    juce::PopupMenu m;
+    static const struct { float val; const char* label; } speeds[] = {
+        { 0.125f, "1/8x (Slowest)" },
+        { 0.25f,  "1/4x" },
+        { 0.333f, "1/3x (Triplet Div)" },
+        { 0.5f,   "1/2x (Half speed)" },
+        { 0.667f, "2/3x" },
+        { 0.75f,  "3/4x" },
+        { 1.0f,   "1x (Normal)" },
+        { 1.25f,  "1.25x" },
+        { 1.5f,   "1.5x" },
+        { 2.0f,   "2x (Double)" },
+        { 3.0f,   "3x (Triple)" },
+        { 4.0f,   "4x" },
+        { 5.0f,   "5x" },
+        { 6.0f,   "6x" },
+        { 8.0f,   "8x (Fastest)" }
+    };
+    const float current = seq.getTrackSpeed(currentTrack);
+    for (int i = 0; i < 15; ++i)
+    {
+        const bool isCur = std::abs(current - speeds[i].val) < 0.02f;
+        m.addItem(i + 1, speeds[i].label, true, isCur);
+    }
+    m.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(speedBtn.get()),
+        [this](int res)
+        {
+            if (res > 0 && res <= 15)
+            {
+                seq.setTrackSpeed(currentTrack, speeds[res - 1].val);
+                updateTrackInfo();
+                repaint();
+            }
+        });
+}
+
 void SequencerDrawer::setTrack(int t)
 {
     currentTrack = juce::jlimit(0, 7, t);
@@ -209,6 +366,31 @@ void SequencerDrawer::updateTrackInfo()
     {
         stepsCountLabel->setText(juce::String(track.stepCount) + " STEPS", juce::dontSendNotification);
     }
+
+    if (speedBtn != nullptr)
+    {
+        const float s = seq.getTrackSpeed(currentTrack);
+        auto formatSpd = [](float spd) -> juce::String
+        {
+            if (std::abs(spd - 0.125f) < 0.01f) return "1/8x";
+            if (std::abs(spd - 0.25f)  < 0.01f) return "1/4x";
+            if (std::abs(spd - 0.333f) < 0.02f) return "1/3x";
+            if (std::abs(spd - 0.5f)   < 0.01f) return "1/2x";
+            if (std::abs(spd - 0.667f) < 0.02f) return "2/3x";
+            if (std::abs(spd - 0.75f)  < 0.01f) return "3/4x";
+            if (std::abs(spd - 1.0f)   < 0.01f) return "1x";
+            if (std::abs(spd - 1.25f)  < 0.01f) return "1.25x";
+            if (std::abs(spd - 1.5f)   < 0.01f) return "1.5x";
+            if (std::abs(spd - 2.0f)   < 0.01f) return "2x";
+            if (std::abs(spd - 3.0f)   < 0.01f) return "3x";
+            if (std::abs(spd - 4.0f)   < 0.01f) return "4x";
+            if (std::abs(spd - 5.0f)   < 0.01f) return "5x";
+            if (std::abs(spd - 6.0f)   < 0.01f) return "6x";
+            if (std::abs(spd - 8.0f)   < 0.01f) return "8x";
+            return juce::String(spd, 1) + "x";
+        };
+        speedBtn->setButtonText(formatSpd(s));
+    }
 }
 
 void SequencerDrawer::setUnfolded(bool shouldUnfold)
@@ -221,6 +403,18 @@ void SequencerDrawer::setUnfolded(bool shouldUnfold)
 
 void SequencerDrawer::timerCallback()
 {
+    const int curPat = seq.selectedPatternIndex();
+    const uint32_t curVer = seq.getPatternVersion();
+    if (curPat != lastActivePattern || curVer != lastPatternVersion)
+    {
+        lastActivePattern = curPat;
+        lastPatternVersion = curVer;
+        if (patternCombo != nullptr && patternCombo->getSelectedId() != curPat + 1)
+            patternCombo->setSelectedId(curPat + 1, juce::dontSendNotification);
+        updateTrackInfo();
+        repaint();
+    }
+
     if (unfolded)
     {
         const int playhead = seq.getTrackPlayhead(currentTrack);
@@ -228,7 +422,6 @@ void SequencerDrawer::timerCallback()
         {
             const int globalStep = currentPage * 16 + s;
             const bool isPlayhead = (seq.isPlaying() && playhead == globalStep);
-            // Quick repaint if playhead moved
             stepBtns[(size_t) s]->repaint();
         }
     }
@@ -281,9 +474,12 @@ void SequencerDrawer::resized()
     tx += 4;
     stepsDecBtn->setBounds(tx, topY, 18, btnH);
     tx += 20;
-    stepsCountLabel->setBounds(tx, topY, 62, btnH);
-    tx += 64;
+    stepsCountLabel->setBounds(tx, topY, 60, btnH);
+    tx += 62;
     stepsIncBtn->setBounds(tx, topY, 18, btnH);
+    tx += 22;
+    if (speedBtn)
+        speedBtn->setBounds(tx, topY, 44, btnH);
 
     int px = w - 8 - 4 * 38;
     for (int p = 0; p < 4; ++p)
@@ -423,7 +619,7 @@ void SequencerDrawer::StepButton::paint(juce::Graphics& g)
         g.drawText(padCoord, r.removeFromTop(20.f), juce::Justification::centred);
 
         // P-Lock badge
-        if (step.hasLocks)
+        if (step.hasLocks && ((step.lockMask & ~StepLockFlags::LOCK_FLAG_PAD_OVERRIDE) != 0 || step.ratchet > 1))
         {
             auto lockRc = r.removeFromTop(14.f).reduced(4.f, 1.f);
             g.setColour(ui::accentHot().withAlpha(0.25f));
@@ -446,34 +642,44 @@ void SequencerDrawer::StepButton::paint(juce::Graphics& g)
         g.setColour(juce::Colours::white.withAlpha(0.7f));
         g.drawVerticalLine((int) fillRc.getRight(), fillRc.getY(), fillRc.getBottom());
     }
+
+    // High-contrast glowing border for the selected step
+    const bool isSelected = (owner.selectedStep == stepIndex);
+    if (isSelected)
+    {
+        g.setColour(juce::Colour(0xFFFFD54F)); // Radiant molten amber
+        g.drawRoundedRectangle(r, 4.f, 2.4f);
+        g.setColour(juce::Colour(0xFFFFD54F).withAlpha(0.22f));
+        g.fillRoundedRectangle(r, 4.f);
+    }
 }
 
 void SequencerDrawer::StepButton::mouseDown(const juce::MouseEvent& e)
 {
+    owner.selectedStep = stepIndex;
     auto& track = owner.seq.currentPattern().tracks[(size_t) owner.currentTrack];
     auto& step = track.steps[(size_t) stepIndex];
 
     if (e.mods.isPopupMenu())
     {
-        step.active = ! step.active;
-        repaint();
+        owner.seq.setStepActive(owner.currentTrack, stepIndex, ! step.active);
+        owner.repaint();
         return;
     }
 
     if (! step.active)
     {
-        step.active = true;
+        owner.seq.setStepActive(owner.currentTrack, stepIndex, true);
         step.velocity = 0.85f;
-        const int curPad = owner.getActivePad ? owner.getActivePad() : track.defaultPad;
-        if (curPad >= 0 && curPad < kNumPads)
-            step.padOverride = curPad;
-        repaint();
+        step.padOverride = -1;
+        owner.repaint();
     }
 
     // Left click always opens Pad panel in P-Lock edit mode and auditions the step!
     const int targetPad = (step.padOverride >= 0) ? step.padOverride : track.defaultPad;
     if (owner.onStepClicked)
         owner.onStepClicked(owner.currentTrack, stepIndex, targetPad);
+    owner.repaint();
 }
 
 void SequencerDrawer::StepButton::mouseDrag(const juce::MouseEvent& e)

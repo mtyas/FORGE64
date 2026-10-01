@@ -455,14 +455,8 @@ public:
 
         addAndMakeVisible(visualizer);
 
-        ui::styleToggle(enable);
-        enable.onClick = [this]
-        {
-            owner.matrixRef.setSourceParam(slot, "enabled", enable.getToggleState());
-        };
-        addAndMakeVisible(enable);
-
         edit.setButtonText(">");
+        edit.setTooltip("Open modulator editor");
         ui::styleButton(edit);
         edit.onClick = [this] { openEditor(); };
         addAndMakeVisible(edit);
@@ -480,10 +474,7 @@ public:
         name.setText(slotName(s), juce::dontSendNotification);
         const auto st = owner.matrixRef.sourceState(s);
         const bool hasState = st.isValid();
-        enable.setVisible(hasState);
         edit.setVisible(hasState);
-        if (hasState)
-            enable.setToggleState(bool(st.getProperty("enabled", false)), juce::dontSendNotification);
         visualizer.setSlot(s, st);
         repaint();
     }
@@ -493,9 +484,8 @@ public:
         auto r = getLocalBounds().reduced(3, 2);
         badge.setBounds(r.removeFromLeft(18));
         edit.setBounds(r.removeFromRight(20));
-        enable.setBounds(r.removeFromRight(22));
         r.removeFromLeft(4);
-        name.setBounds(r.removeFromLeft(52));
+        name.setBounds(r.removeFromLeft(54));
         r.removeFromLeft(4);
         r.removeFromRight(4);
         visualizer.setBounds(r);
@@ -513,7 +503,6 @@ private:
     Badge badge;
     juce::Label name;
     MiniVisualizer visualizer;
-    juce::ToggleButton enable;
     juce::TextButton edit;
 };
 
@@ -1165,18 +1154,17 @@ public:
         title.setColour(juce::Label::textColourId, ui::txt());
         addAndMakeVisible(title);
 
-        const auto st = matrix.sourceState(slot);
-        if (st.isValid())
-        {
-            ui::styleToggle(enableToggle);
-            enableToggle.setButtonText("ON");
-            enableToggle.setToggleState(bool(st.getProperty("enabled", false)), juce::dontSendNotification);
-            enableToggle.onClick = [this]
-            {
-                matrix.setSourceParam(slot, "enabled", enableToggle.getToggleState());
-            };
-            addAndMakeVisible(enableToggle);
-        }
+        prevBtn.setButtonText("<");
+        prevBtn.setTooltip("Previous modulator (Up arrow key)");
+        ui::styleButton(prevBtn);
+        prevBtn.onClick = [this] { owner.openSourceEditor((slot - 1 + kNumSlots) % kNumSlots, nullptr); };
+        addAndMakeVisible(prevBtn);
+
+        nextBtn.setButtonText(">");
+        nextBtn.setTooltip("Next modulator (Down arrow key)");
+        ui::styleButton(nextBtn);
+        nextBtn.onClick = [this] { owner.openSourceEditor((slot + 1) % kNumSlots, nullptr); };
+        addAndMakeVisible(nextBtn);
 
         closeBtn.setButtonText(juce::String::charToString(0x00D7)); // ×
         ui::styleButton(closeBtn);
@@ -1196,13 +1184,16 @@ public:
     {
         auto r = getLocalBounds();
         auto topBar = r.removeFromTop(36).reduced(6, 4);
-        backBtn.setBounds(topBar.removeFromLeft(64));
-        topBar.removeFromLeft(6);
+        backBtn.setBounds(topBar.removeFromLeft(54));
+        topBar.removeFromLeft(4);
         badge.setBounds(topBar.removeFromLeft(22));
         topBar.removeFromLeft(6);
-        closeBtn.setBounds(topBar.removeFromRight(26));
+        closeBtn.setBounds(topBar.removeFromRight(24));
+        topBar.removeFromRight(4);
+        nextBtn.setBounds(topBar.removeFromRight(22));
+        topBar.removeFromRight(2);
+        prevBtn.setBounds(topBar.removeFromRight(22));
         topBar.removeFromRight(6);
-        enableToggle.setBounds(topBar.removeFromRight(48));
         title.setBounds(topBar);
 
         r.removeFromTop(2);
@@ -1229,6 +1220,16 @@ public:
             owner.closeInspector();
             return true;
         }
+        if (key == juce::KeyPress::upKey || key == juce::KeyPress::leftKey)
+        {
+            owner.openSourceEditor((slot - 1 + kNumSlots) % kNumSlots, nullptr);
+            return true;
+        }
+        if (key == juce::KeyPress::downKey || key == juce::KeyPress::rightKey)
+        {
+            owner.openSourceEditor((slot + 1) % kNumSlots, nullptr);
+            return true;
+        }
         return false;
     }
 
@@ -1239,7 +1240,8 @@ private:
     juce::TextButton backBtn;
     SourceRow::Badge badge;
     juce::Label title;
-    juce::ToggleButton enableToggle;
+    juce::TextButton prevBtn;
+    juce::TextButton nextBtn;
     juce::TextButton closeBtn;
     std::unique_ptr<SourceEditorContent> content;
     std::unique_ptr<juce::Viewport> viewport;

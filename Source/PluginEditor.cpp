@@ -229,12 +229,24 @@ Forge64Editor::Forge64Editor(Forge64Processor& p)
 
     undoBtn = std::make_unique<ToolIconButton>(ToolIconButton::Undo, "UNDO");
     undoBtn->setTooltip("Undo parameter gesture (Ctrl+Z)");
-    undoBtn->onClick = [this] { processor.getUndoManager().undo(); };
+    undoBtn->onClick = [this]
+    {
+        processor.getUndoManager().undo();
+        if (seqPage) seqPage->refreshFromSequencer();
+        if (sequencerDrawer) sequencerDrawer->updateTrackInfo();
+        if (grid) grid->repaint();
+    };
     addAndMakeVisible(undoBtn.get());
 
     redoBtn = std::make_unique<ToolIconButton>(ToolIconButton::Redo, "REDO");
     redoBtn->setTooltip("Redo parameter gesture (Ctrl+Y)");
-    redoBtn->onClick = [this] { processor.getUndoManager().redo(); };
+    redoBtn->onClick = [this]
+    {
+        processor.getUndoManager().redo();
+        if (seqPage) seqPage->refreshFromSequencer();
+        if (sequencerDrawer) sequencerDrawer->updateTrackInfo();
+        if (grid) grid->repaint();
+    };
     addAndMakeVisible(redoBtn.get());
 
     midiLearnBtn = std::make_unique<ToolIconButton>(ToolIconButton::MidiLearn, "MIDI LEARN");
@@ -290,6 +302,8 @@ Forge64Editor::Forge64Editor(Forge64Processor& p)
     sequencerDrawer->onStepClicked = [this](int trackIdx, int stepIdx, int padIdx)
     {
         selectedPad = padIdx;
+        if (sequencerDrawer)
+            sequencerDrawer->setSelectedStep(stepIdx);
         setPage(Page_PadEdit);
         if (padEdit)
             padEdit->enterPLockMode(trackIdx, stepIdx);
@@ -437,11 +451,17 @@ bool Forge64Editor::keyPressed(const juce::KeyPress& key)
                 processor.getUndoManager().redo();
             else
                 processor.getUndoManager().undo();
+            if (seqPage) seqPage->refreshFromSequencer();
+            if (sequencerDrawer) sequencerDrawer->updateTrackInfo();
+            if (grid) grid->repaint();
             return true;
         }
         if (key.getKeyCode() == 'Y' || key.getKeyCode() == 'y')
         {
             processor.getUndoManager().redo();
+            if (seqPage) seqPage->refreshFromSequencer();
+            if (sequencerDrawer) sequencerDrawer->updateTrackInfo();
+            if (grid) grid->repaint();
             return true;
         }
     }
@@ -616,6 +636,10 @@ void Forge64Editor::afterPresetOp(bool ok)
         grid->refreshPads();
     if (zoomedPad >= 0)
         rebuildPadEditor();
+    if (seqPage)
+        seqPage->refreshFromSequencer();
+    if (sequencerDrawer)
+        sequencerDrawer->updateTrackInfo();
 }
 
 // ---------------------------------------------------------------------------
@@ -624,18 +648,31 @@ void Forge64Editor::afterPresetOp(bool ok)
 void Forge64Editor::showKitMenu()
 {
     juce::PopupMenu menu;
-    menu.addItem(1, "Load Kit...");
+    juce::PopupMenu factoryMenu;
+    const auto factoryKits = processor.getFactoryKitNames();
+    for (int i = 0; i < factoryKits.size(); ++i)
+        factoryMenu.addItem(100 + i, factoryKits[i]);
+    menu.addSubMenu("Factory Kits", factoryMenu);
+    menu.addSeparator();
+
+    menu.addItem(1, "Load Kit from File...");
     menu.addItem(2, lastKit == juce::File() ? "Save Kit As..."
                                             : "Save Kit (" + lastKit.getFileName() + ")");
     menu.addItem(3, "Save Kit As...");
 
     juce::Component::SafePointer<Forge64Editor> safe(this);
     menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(kitBtn.get()),
-                       [safe](int result)
+                       [safe, factoryKits](int result)
     {
         if (safe == nullptr)
             return;
-        if (result == 1)
+        if (result >= 100 && result < 100 + factoryKits.size())
+        {
+            safe->processor.loadFactoryKit(result - 100);
+            safe->lastKit = juce::File();
+            safe->afterPresetOp(true);
+        }
+        else if (result == 1)
             safe->doLoadKit();
         else if (result == 2)
         {
