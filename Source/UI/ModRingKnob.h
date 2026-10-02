@@ -11,7 +11,7 @@ namespace f64 {
 // contribution, plus a dot for the effective value. Also a drop target for
 // modulation source badges ("f64mod:<slot>") - the drag & drop patching UX.
 // In "chip" mode it renders as a small round drop zone (voice destinations).
-class ModRingKnob : public juce::Slider, public juce::DragAndDropTarget
+class ModRingKnob : public juce::Slider, public juce::DragAndDropTarget, private juce::Timer
 {
 public:
     struct Services
@@ -33,6 +33,7 @@ public:
     void mouseDrag(const juce::MouseEvent& e) override;
     void mouseUp(const juce::MouseEvent& e) override;
     void mouseDoubleClick(const juce::MouseEvent& e) override;
+    void mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel) override;
 
     void setLabel(juce::StringRef newLabel) { label = newLabel; repaint(); }
     juce::String getLabel() const { return label; }
@@ -47,11 +48,13 @@ public:
 
 private:
     void showConnMenu();
+    void timerCallback() override;
 
     juce::String label;
     Services& services;
     bool chip;
     bool isDragOver = false;
+    bool isWheelDragging = false;
 };
 
 } // namespace f64

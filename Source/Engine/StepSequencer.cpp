@@ -700,6 +700,7 @@ void StepSequencer::process(int numSamples, double bpm, bool hostPlaying, std::v
                 ev.cRat    = s.pLockCRat;
                 ev.cAtk    = s.pLockCAtk;
                 ev.cRel    = s.pLockCRel;
+                ev.cMg     = s.pLockCMg;
                 ev.ifxType = s.pLockIfxType;
                 ev.ifx1    = s.pLockIfx1;
                 ev.ifx2    = s.pLockIfx2;
@@ -899,6 +900,190 @@ void StepSequencer::loadFactoryPreset(int presetIdx)
     }
 }
 
+static juce::ValueTree serializePatternRaw(const f64::PatternData& pat, int p)
+{
+    juce::ValueTree pTree("PATTERN");
+    pTree.setProperty("idx", p, nullptr);
+    pTree.setProperty("name", pat.name, nullptr);
+
+    for (size_t t = 0; t < 8; ++t)
+    {
+        const auto& trk = pat.tracks[t];
+        juce::ValueTree tTree("TRACK");
+        tTree.setProperty("idx", (int) t, nullptr);
+        tTree.setProperty("name", trk.name, nullptr);
+        tTree.setProperty("pad", trk.defaultPad, nullptr);
+        tTree.setProperty("len", trk.stepCount, nullptr);
+        tTree.setProperty("speed", trk.speedMultiplier, nullptr);
+        tTree.setProperty("swing", trk.swing, nullptr);
+        tTree.setProperty("mute", trk.mute, nullptr);
+        tTree.setProperty("solo", trk.solo, nullptr);
+
+        for (size_t s = 0; s < (size_t) trk.stepCount; ++s)
+        {
+            const auto& step = trk.steps[s];
+            if (step.active || step.hasLocks)
+            {
+                juce::ValueTree sTree("STEP");
+                sTree.setProperty("idx", (int) s, nullptr);
+                sTree.setProperty("act", step.active, nullptr);
+                sTree.setProperty("vel", step.velocity, nullptr);
+                sTree.setProperty("pad", step.padOverride, nullptr);
+                sTree.setProperty("prob", step.probability, nullptr);
+                sTree.setProperty("ratch", step.ratchet, nullptr);
+                sTree.setProperty("mtime", step.microtiming, nullptr);
+                if (step.hasLocks)
+                {
+                    sTree.setProperty("hl", true, nullptr);
+                    sTree.setProperty("lm", (juce::int64) step.lockMask, nullptr);
+                    sTree.setProperty("lp", step.pLockPitch, nullptr);
+                    sTree.setProperty("ld", step.pLockDecay, nullptr);
+                    sTree.setProperty("lt", step.pLockTone, nullptr);
+                    sTree.setProperty("ldrv", step.pLockDrive, nullptr);
+                    sTree.setProperty("lsa", step.pLockSendA, nullptr);
+                    sTree.setProperty("lsb", step.pLockSendB, nullptr);
+                    sTree.setProperty("lvl", step.pLockLevel, nullptr);
+                    sTree.setProperty("lpan", step.pLockPan, nullptr);
+                    sTree.setProperty("lp2", step.pLockP2, nullptr);
+                    sTree.setProperty("lp3", step.pLockP3, nullptr);
+                    sTree.setProperty("lp4", step.pLockP4, nullptr);
+                    sTree.setProperty("lp5", step.pLockP5, nullptr);
+                    sTree.setProperty("lmod", step.pLockModAmt, nullptr);
+
+                    sTree.setProperty("lvt", step.pLockVcfType, nullptr);
+                    sTree.setProperty("lvc", step.pLockVcfCut, nullptr);
+                    sTree.setProperty("lvr", step.pLockVcfRes, nullptr);
+                    sTree.setProperty("lve", step.pLockVcfEnv, nullptr);
+                    sTree.setProperty("lelf", step.pLockEqLF, nullptr);
+                    sTree.setProperty("lelg", step.pLockEqLG, nullptr);
+                    sTree.setProperty("lemf", step.pLockEqMF, nullptr);
+                    sTree.setProperty("lemg", step.pLockEqMG, nullptr);
+                    sTree.setProperty("lehf", step.pLockEqHF, nullptr);
+                    sTree.setProperty("lehg", step.pLockEqHG, nullptr);
+                    sTree.setProperty("lcthr", step.pLockCThr, nullptr);
+                    sTree.setProperty("lcrat", step.pLockCRat, nullptr);
+                    sTree.setProperty("lcatk", step.pLockCAtk, nullptr);
+                    sTree.setProperty("lcrel", step.pLockCRel, nullptr);
+                    sTree.setProperty("lcmg",  step.pLockCMg,  nullptr);
+                    sTree.setProperty("lift", step.pLockIfxType, nullptr);
+                    sTree.setProperty("lif1", step.pLockIfx1, nullptr);
+                    sTree.setProperty("lif2", step.pLockIfx2, nullptr);
+                    sTree.setProperty("lif3", step.pLockIfx3, nullptr);
+                    sTree.setProperty("lif4", step.pLockIfx4, nullptr);
+                    sTree.setProperty("lsc", step.pLockSendC, nullptr);
+                    sTree.setProperty("lsd", step.pLockSendD, nullptr);
+                }
+                tTree.appendChild(sTree, nullptr);
+            }
+        }
+        pTree.appendChild(tTree, nullptr);
+    }
+    return pTree;
+}
+
+static void deserializePatternRaw(f64::PatternData& pat, const juce::ValueTree& pTree)
+{
+    pat.name = pTree.getProperty("name", pat.name).toString();
+    for (int t = 0; t < pTree.getNumChildren(); ++t)
+    {
+        auto tTree = pTree.getChild(t);
+        const int tIdx = tTree.getProperty("idx", t);
+        if (tIdx >= 0 && tIdx < 8)
+        {
+            auto& trk = pat.tracks[(size_t) tIdx];
+            trk.name = tTree.getProperty("name", trk.name).toString();
+            trk.defaultPad = tTree.getProperty("pad", trk.defaultPad);
+            trk.stepCount = f64::clampRange((int) tTree.getProperty("len", 16), 1, 64);
+            trk.speedMultiplier = (float) tTree.getProperty("speed", 1.0f);
+            trk.swing = tTree.getProperty("swing", 0.f);
+            trk.mute = tTree.getProperty("mute", false);
+            trk.solo = tTree.getProperty("solo", false);
+
+            for (auto& s : trk.steps)
+            {
+                s.active = false;
+                s.hasLocks = false;
+            }
+
+            for (int s = 0; s < tTree.getNumChildren(); ++s)
+            {
+                auto sTree = tTree.getChild(s);
+                const int sIdx = sTree.getProperty("idx", s);
+                if (sIdx >= 0 && sIdx < 64)
+                {
+                    auto& step = trk.steps[(size_t) sIdx];
+                    step.active = sTree.getProperty("act", true);
+                    step.velocity = sTree.getProperty("vel", 0.85f);
+                    step.padOverride = sTree.getProperty("pad", -1);
+                    step.probability = sTree.getProperty("prob", 1.0f);
+                    step.ratchet = sTree.getProperty("ratch", 1);
+                    step.microtiming = sTree.getProperty("mtime", 0.0f);
+                    step.hasLocks = sTree.getProperty("hl", false);
+                    if (step.hasLocks)
+                    {
+                        step.lockMask = (uint64_t) (juce::int64) sTree.getProperty("lm", (juce::int64) 0);
+                        if (step.lockMask == 0)
+                            step.lockMask = ~0ULL;
+                        step.pLockPitch = sTree.getProperty("lp", 0.0f);
+                        step.pLockDecay = sTree.getProperty("ld", 1.0f);
+                        step.pLockTone  = sTree.getProperty("lt", 0.5f);
+                        step.pLockDrive = sTree.getProperty("ldrv", 0.0f);
+                        step.pLockSendA = sTree.getProperty("lsa", 0.0f);
+                        step.pLockSendB = sTree.getProperty("lsb", 0.0f);
+                        step.pLockLevel = sTree.getProperty("lvl", 1.0f);
+                        step.pLockPan   = sTree.getProperty("lpan", 0.0f);
+                        step.pLockP2    = sTree.getProperty("lp2", 0.5f);
+                        step.pLockP3    = sTree.getProperty("lp3", 0.5f);
+                        step.pLockP4    = sTree.getProperty("lp4", 0.5f);
+                        step.pLockP5    = sTree.getProperty("lp5", 0.5f);
+                        step.pLockModAmt = sTree.getProperty("lmod", 1.0f);
+
+                        step.pLockVcfType = sTree.getProperty("lvt", 0);
+                        step.pLockVcfCut  = sTree.getProperty("lvc", 20000.f);
+                        step.pLockVcfRes  = sTree.getProperty("lvr", 0.707f);
+                        step.pLockVcfEnv  = sTree.getProperty("lve", 0.0f);
+                        step.pLockEqLF    = sTree.getProperty("lelf", 200.f);
+                        step.pLockEqLG    = sTree.getProperty("lelg", 0.0f);
+                        step.pLockEqMF    = sTree.getProperty("lemf", 1000.f);
+                        step.pLockEqMG    = sTree.getProperty("lemg", 0.0f);
+                        step.pLockEqHF    = sTree.getProperty("lehf", 8000.f);
+                        step.pLockEqHG    = sTree.getProperty("lehg", 0.0f);
+                        step.pLockCThr    = sTree.getProperty("lcthr", 0.0f);
+                        step.pLockCRat    = sTree.getProperty("lcrat", 1.0f);
+                        step.pLockCAtk    = sTree.getProperty("lcatk", 5.0f);
+                        step.pLockCRel    = sTree.getProperty("lcrel", 100.0f);
+                        step.pLockCMg     = sTree.getProperty("lcmg", 0.0f);
+                        step.pLockIfxType = sTree.getProperty("lift", 0);
+                        step.pLockIfx1    = sTree.getProperty("lif1", 0.5f);
+                        step.pLockIfx2    = sTree.getProperty("lif2", 0.5f);
+                        step.pLockIfx3    = sTree.getProperty("lif3", 0.5f);
+                        step.pLockIfx4    = sTree.getProperty("lif4", 0.5f);
+                        step.pLockSendC   = sTree.getProperty("lsc", 0.0f);
+                        step.pLockSendD   = sTree.getProperty("lsd", 0.0f);
+                    }
+                }
+            }
+        }
+    }
+}
+
+juce::ValueTree StepSequencer::serializePattern(int p) const
+{
+    if (p < 0 || p >= 16) return {};
+    std::lock_guard<std::mutex> lock(seqMutex);
+    return serializePatternRaw(patterns[(size_t) p], p);
+}
+
+void StepSequencer::deserializePattern(int pIdx, const juce::ValueTree& pTree)
+{
+    if (pIdx < 0 || pIdx >= 16 || ! pTree.isValid()) return;
+    {
+        std::lock_guard<std::mutex> lock(seqMutex);
+        deserializePatternRaw(patterns[(size_t) pIdx], pTree);
+    }
+    bumpPatternVersion();
+}
+
 juce::ValueTree StepSequencer::serialize() const
 {
     std::lock_guard<std::mutex> lock(seqMutex);
@@ -908,84 +1093,7 @@ juce::ValueTree StepSequencer::serialize() const
 
     juce::ValueTree patsTree("PATTERNS");
     for (size_t p = 0; p < 16; ++p)
-    {
-        juce::ValueTree pTree("PATTERN");
-        pTree.setProperty("idx", (int) p, nullptr);
-        pTree.setProperty("name", patterns[p].name, nullptr);
-
-        for (size_t t = 0; t < 8; ++t)
-        {
-            const auto& trk = patterns[p].tracks[t];
-            juce::ValueTree tTree("TRACK");
-            tTree.setProperty("idx", (int) t, nullptr);
-            tTree.setProperty("name", trk.name, nullptr);
-            tTree.setProperty("pad", trk.defaultPad, nullptr);
-            tTree.setProperty("len", trk.stepCount, nullptr);
-            tTree.setProperty("speed", trk.speedMultiplier, nullptr);
-            tTree.setProperty("swing", trk.swing, nullptr);
-            tTree.setProperty("mute", trk.mute, nullptr);
-            tTree.setProperty("solo", trk.solo, nullptr);
-
-            for (size_t s = 0; s < (size_t) trk.stepCount; ++s)
-            {
-                const auto& step = trk.steps[s];
-                if (step.active || step.hasLocks)
-                {
-                    juce::ValueTree sTree("STEP");
-                    sTree.setProperty("idx", (int) s, nullptr);
-                    sTree.setProperty("act", step.active, nullptr);
-                    sTree.setProperty("vel", step.velocity, nullptr);
-                    sTree.setProperty("pad", step.padOverride, nullptr);
-                    sTree.setProperty("prob", step.probability, nullptr);
-                    sTree.setProperty("ratch", step.ratchet, nullptr);
-                    sTree.setProperty("mtime", step.microtiming, nullptr);
-                    if (step.hasLocks)
-                    {
-                        sTree.setProperty("hl", true, nullptr);
-                        sTree.setProperty("lm", (juce::int64) step.lockMask, nullptr);
-                        sTree.setProperty("lp", step.pLockPitch, nullptr);
-                        sTree.setProperty("ld", step.pLockDecay, nullptr);
-                        sTree.setProperty("lt", step.pLockTone, nullptr);
-                        sTree.setProperty("ldrv", step.pLockDrive, nullptr);
-                        sTree.setProperty("lsa", step.pLockSendA, nullptr);
-                        sTree.setProperty("lsb", step.pLockSendB, nullptr);
-                        sTree.setProperty("lvl", step.pLockLevel, nullptr);
-                        sTree.setProperty("lpan", step.pLockPan, nullptr);
-                        sTree.setProperty("lp2", step.pLockP2, nullptr);
-                        sTree.setProperty("lp3", step.pLockP3, nullptr);
-                        sTree.setProperty("lp4", step.pLockP4, nullptr);
-                        sTree.setProperty("lp5", step.pLockP5, nullptr);
-                        sTree.setProperty("lmod", step.pLockModAmt, nullptr);
-
-                        sTree.setProperty("lvt", step.pLockVcfType, nullptr);
-                        sTree.setProperty("lvc", step.pLockVcfCut, nullptr);
-                        sTree.setProperty("lvr", step.pLockVcfRes, nullptr);
-                        sTree.setProperty("lve", step.pLockVcfEnv, nullptr);
-                        sTree.setProperty("lelf", step.pLockEqLF, nullptr);
-                        sTree.setProperty("lelg", step.pLockEqLG, nullptr);
-                        sTree.setProperty("lemf", step.pLockEqMF, nullptr);
-                        sTree.setProperty("lemg", step.pLockEqMG, nullptr);
-                        sTree.setProperty("lehf", step.pLockEqHF, nullptr);
-                        sTree.setProperty("lehg", step.pLockEqHG, nullptr);
-                        sTree.setProperty("lcthr", step.pLockCThr, nullptr);
-                        sTree.setProperty("lcrat", step.pLockCRat, nullptr);
-                        sTree.setProperty("lcatk", step.pLockCAtk, nullptr);
-                        sTree.setProperty("lcrel", step.pLockCRel, nullptr);
-                        sTree.setProperty("lift", step.pLockIfxType, nullptr);
-                        sTree.setProperty("lif1", step.pLockIfx1, nullptr);
-                        sTree.setProperty("lif2", step.pLockIfx2, nullptr);
-                        sTree.setProperty("lif3", step.pLockIfx3, nullptr);
-                        sTree.setProperty("lif4", step.pLockIfx4, nullptr);
-                        sTree.setProperty("lsc", step.pLockSendC, nullptr);
-                        sTree.setProperty("lsd", step.pLockSendD, nullptr);
-                    }
-                    tTree.appendChild(sTree, nullptr);
-                }
-            }
-            pTree.appendChild(tTree, nullptr);
-        }
-        patsTree.appendChild(pTree, nullptr);
-    }
+        patsTree.appendChild(serializePatternRaw(patterns[p], (int) p), nullptr);
     tree.appendChild(patsTree, nullptr);
 
     juce::ValueTree songTree("SONG");
@@ -1003,7 +1111,6 @@ juce::ValueTree StepSequencer::serialize() const
 
 void StepSequencer::deserialize(const juce::ValueTree& tree)
 {
-    std::lock_guard<std::mutex> lock(seqMutex);
     if (! tree.isValid()) return;
 
     currentPatternIdx.store(tree.getProperty("curPat", 0));
@@ -1012,110 +1119,32 @@ void StepSequencer::deserialize(const juce::ValueTree& tree)
     auto patsTree = tree.getChildWithName("PATTERNS");
     if (patsTree.isValid())
     {
+        std::lock_guard<std::mutex> lock(seqMutex);
         for (int p = 0; p < patsTree.getNumChildren(); ++p)
         {
             auto pTree = patsTree.getChild(p);
             const int pIdx = pTree.getProperty("idx", p);
             if (pIdx >= 0 && pIdx < 16)
-            {
-                patterns[(size_t) pIdx].name = pTree.getProperty("name", "Pattern " + juce::String(pIdx + 1)).toString();
-                for (int t = 0; t < pTree.getNumChildren(); ++t)
-                {
-                    auto tTree = pTree.getChild(t);
-                    const int tIdx = tTree.getProperty("idx", t);
-                    if (tIdx >= 0 && tIdx < 8)
-                    {
-                        auto& trk = patterns[(size_t) pIdx].tracks[(size_t) tIdx];
-                        trk.name = tTree.getProperty("name", trk.name).toString();
-                        trk.defaultPad = tTree.getProperty("pad", trk.defaultPad);
-                        trk.stepCount = clampRange((int) tTree.getProperty("len", 16), 1, 64);
-                        trk.speedMultiplier = (float) tTree.getProperty("speed", 1.0f);
-                        trk.swing = tTree.getProperty("swing", 0.f);
-                        trk.mute = tTree.getProperty("mute", false);
-                        trk.solo = tTree.getProperty("solo", false);
-
-                        for (auto& s : trk.steps)
-                        {
-                            s.active = false;
-                            s.hasLocks = false;
-                        }
-
-                        for (int s = 0; s < tTree.getNumChildren(); ++s)
-                        {
-                            auto sTree = tTree.getChild(s);
-                            const int sIdx = sTree.getProperty("idx", s);
-                            if (sIdx >= 0 && sIdx < 64)
-                            {
-                                auto& step = trk.steps[(size_t) sIdx];
-                                step.active = sTree.getProperty("act", true);
-                                step.velocity = sTree.getProperty("vel", 0.85f);
-                                step.padOverride = sTree.getProperty("pad", -1);
-                                step.probability = sTree.getProperty("prob", 1.0f);
-                                step.ratchet = sTree.getProperty("ratch", 1);
-                                step.microtiming = sTree.getProperty("mtime", 0.0f);
-                                step.hasLocks = sTree.getProperty("hl", false);
-                                if (step.hasLocks)
-                                {
-                                    step.lockMask = (uint64_t) (juce::int64) sTree.getProperty("lm", (juce::int64) 0);
-                                    if (step.lockMask == 0)
-                                        step.lockMask = ~0ULL;
-                                    step.pLockPitch = sTree.getProperty("lp", 0.0f);
-                                    step.pLockDecay = sTree.getProperty("ld", 1.0f);
-                                    step.pLockTone  = sTree.getProperty("lt", 0.5f);
-                                    step.pLockDrive = sTree.getProperty("ldrv", 0.0f);
-                                    step.pLockSendA = sTree.getProperty("lsa", 0.0f);
-                                    step.pLockSendB = sTree.getProperty("lsb", 0.0f);
-                                    step.pLockLevel = sTree.getProperty("lvl", 1.0f);
-                                    step.pLockPan   = sTree.getProperty("lpan", 0.0f);
-                                    step.pLockP2    = sTree.getProperty("lp2", 0.5f);
-                                    step.pLockP3    = sTree.getProperty("lp3", 0.5f);
-                                    step.pLockP4    = sTree.getProperty("lp4", 0.5f);
-                                    step.pLockP5    = sTree.getProperty("lp5", 0.5f);
-                                    step.pLockModAmt = sTree.getProperty("lmod", 1.0f);
-
-                                    step.pLockVcfType = sTree.getProperty("lvt", 0);
-                                    step.pLockVcfCut  = sTree.getProperty("lvc", 20000.f);
-                                    step.pLockVcfRes  = sTree.getProperty("lvr", 0.707f);
-                                    step.pLockVcfEnv  = sTree.getProperty("lve", 0.0f);
-                                    step.pLockEqLF    = sTree.getProperty("lelf", 200.f);
-                                    step.pLockEqLG    = sTree.getProperty("lelg", 0.0f);
-                                    step.pLockEqMF    = sTree.getProperty("lemf", 1000.f);
-                                    step.pLockEqMG    = sTree.getProperty("lemg", 0.0f);
-                                    step.pLockEqHF    = sTree.getProperty("lehf", 8000.f);
-                                    step.pLockEqHG    = sTree.getProperty("lehg", 0.0f);
-                                    step.pLockCThr    = sTree.getProperty("lcthr", 0.0f);
-                                    step.pLockCRat    = sTree.getProperty("lcrat", 1.0f);
-                                    step.pLockCAtk    = sTree.getProperty("lcatk", 5.0f);
-                                    step.pLockCRel    = sTree.getProperty("lcrel", 100.0f);
-                                    step.pLockIfxType = sTree.getProperty("lift", 0);
-                                    step.pLockIfx1    = sTree.getProperty("lif1", 0.5f);
-                                    step.pLockIfx2    = sTree.getProperty("lif2", 0.5f);
-                                    step.pLockIfx3    = sTree.getProperty("lif3", 0.5f);
-                                    step.pLockIfx4    = sTree.getProperty("lif4", 0.5f);
-                                    step.pLockSendC   = sTree.getProperty("lsc", 0.0f);
-                                    step.pLockSendD   = sTree.getProperty("lsd", 0.0f);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+                deserializePatternRaw(patterns[(size_t) pIdx], pTree);
         }
     }
 
     auto songTree = tree.getChildWithName("SONG");
     if (songTree.isValid())
     {
+        std::lock_guard<std::mutex> lock(seqMutex);
         songSequence.clear();
         for (int b = 0; b < songTree.getNumChildren(); ++b)
         {
             auto bTree = songTree.getChild(b);
-            songSequence.push_back({
-                clampRange((int) bTree.getProperty("pat", 0), 0, 15),
-                clampRange((int) bTree.getProperty("rep", 1), 1, 16)
-            });
+            SongBlock sb;
+            sb.patternIndex = bTree.getProperty("pat", 0);
+            sb.repeats = bTree.getProperty("rep", 1);
+            songSequence.push_back(sb);
         }
     }
+
+    bumpPatternVersion();
 }
 
 } // namespace f64

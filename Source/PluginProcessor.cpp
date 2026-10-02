@@ -1,11 +1,12 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 #include "Scripting/ScriptPresetManager.h"
+#include "Presets/SequencePresetManager.h"
 #include <cmath>
 
 namespace f64 {
 
-static_assert(kNumPadParams == 44, "PadParams field mapping below must match kPadParams order");
+static_assert(kNumPadParams == 45, "PadParams field mapping below must match kPadParams order");
 
 // ---------------------------------------------------------------------------
 // Buses: main stereo + 15 additional stereo pairs (16 total), each pad
@@ -114,6 +115,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout Forge64Processor::makeParams
         addF(id("vcfc"), n + "VCF Cut",   { 20.f, 20000.f, 0.1f, 0.25f },   defVcfCut);
         addF(id("vcfr"), n + "VCF Res",   { 0.1f, 10.f, 0.01f, 0.35f },     defVcfRes);
         addF(id("vcfe"), n + "VCF Env",   { -1.f, 1.f, 0.001f },            defVcfEnv);
+        addF(id("cmg"),  n + "Comp Gain", { 0.f, 24.f, 0.1f },              0.f);
     }
 
     return { params.begin(), params.end() };
@@ -125,6 +127,7 @@ Forge64Processor::Forge64Processor()
       apvts(*this, &undoManager, "PARAMS", makeParams())
 {
     ScriptPresetManager::initializePresetsOnDisk();
+    SequencePresetManager::initializePresetsOnDisk();
 
     kitRoot = juce::ValueTree("FORGE64KIT");
     kitRoot.appendChild(apvts.state, nullptr);
@@ -252,6 +255,7 @@ void Forge64Processor::triggerStepAudition(int pad, float velocity, const StepDa
         tr.cRat    = stepData.pLockCRat;
         tr.cAtk    = stepData.pLockCAtk;
         tr.cRel    = stepData.pLockCRel;
+        tr.cMg     = stepData.pLockCMg;
         tr.ifxType = stepData.pLockIfxType;
         tr.ifx1    = stepData.pLockIfx1;
         tr.ifx2    = stepData.pLockIfx2;
@@ -360,6 +364,7 @@ void Forge64Processor::fillPadParams(int pad, PadParams& out, float modScale)
     out.vcfCut  = getF(41);
     out.vcfRes  = getF(42);
     out.vcfEnv  = getF(43);
+    out.cMg     = getF(44);
 }
 
 // ---------------------------------------------------------------------------
@@ -605,6 +610,7 @@ void Forge64Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::Midi
                     rt.latchedCRat.store(a.cRat);
                     rt.latchedCAtk.store(a.cAtk);
                     rt.latchedCRel.store(a.cRel);
+                    rt.latchedCMg.store(a.cMg);
 
                     rt.latchedIfxType.store(a.ifxType);
                     rt.latchedIfx1.store(a.ifx1);
@@ -669,6 +675,7 @@ void Forge64Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::Midi
                 rt.latchedCRat.store(st.cRat);
                 rt.latchedCAtk.store(st.cAtk);
                 rt.latchedCRel.store(st.cRel);
+                rt.latchedCMg.store(st.cMg);
 
                 rt.latchedIfxType.store(st.ifxType);
                 rt.latchedIfx1.store(st.ifx1);
@@ -814,15 +821,15 @@ void Forge64Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::Midi
 
         auto& rt = gridPtr->runtime(p);
         auto pp = eff[(size_t) p];
-        if (rt.isPLockPreviewActive.load() && ! rt.hasLocks.load())
-            pp = padBaseParams[(size_t) p];
-
         const uint64_t mask = rt.lockMask.load();
-        if (rt.hasLocks.load() && mask != 0)
+        const bool hasLocks = rt.hasLocks.load() && mask != 0;
+        const bool isPLockPreview = rt.isPLockPreviewActive.load();
+
+        if (isPLockPreview || hasLocks)
         {
-            const float modScale = (mask & LOCK_FLAG_MODAMT) ? rt.latchedModAmt.load() : 1.0f;
             auto& ptrs = padPtrs[(size_t) p];
             auto& ids  = padIds[(size_t) p];
+            const float modScale = (hasLocks && (mask & LOCK_FLAG_MODAMT)) ? rt.latchedModAmt.load() : 1.0f;
 
             auto applyMod = [&](int k, float baseVal) -> float
             {
@@ -836,54 +843,125 @@ void Forge64Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::Midi
                 return par->convertFrom0to1(clampRange(norm, 0.f, 1.f));
             };
 
-            if (mask & LOCK_FLAG_LEVEL) pp.level = applyMod(0,  rt.latchedLevel.load());
-            if (mask & LOCK_FLAG_PAN)   pp.pan   = applyMod(1,  rt.latchedPan.load());
-            if (mask & LOCK_FLAG_PITCH) pp.tune  = applyMod(2,  rt.latchedTune.load());
-            if (mask & LOCK_FLAG_DECAY)
+            const auto& bp = padBaseParams[(size_t) p];
+
+            // 1. Level & Pan
+            if (hasLocks && (mask & LOCK_FLAG_LEVEL)) pp.level = applyMod(0, rt.latchedLevel.load());
+            else if (isPLockPreview)                  pp.level = applyMod(0, bp.level);
+
+            if (hasLocks && (mask & LOCK_FLAG_PAN))   pp.pan   = applyMod(1, rt.latchedPan.load());
+            else if (isPLockPreview)                  pp.pan   = applyMod(1, bp.pan);
+
+            // 2. Tune & Decay
+            if (hasLocks && (mask & LOCK_FLAG_PITCH)) pp.tune  = applyMod(2, rt.latchedTune.load());
+            else if (isPLockPreview)                  pp.tune  = applyMod(2, bp.tune);
+
+            if (hasLocks && (mask & LOCK_FLAG_DECAY))
             {
                 const float decFactor = rt.latchedDecay.load();
-                pp.decay = juce::jlimit(0.01f, 6.0f, pp.decay * decFactor);
+                const float baseDecay = isPLockPreview ? applyMod(3, bp.decay) : pp.decay;
+                pp.decay = juce::jlimit(0.01f, 6.0f, baseDecay * decFactor);
+            }
+            else if (isPLockPreview)
+            {
+                pp.decay = applyMod(3, bp.decay);
             }
 
-            // EQ
-            if (mask & LOCK_FLAG_EQ_LF) pp.eqLF = applyMod(4, rt.latchedEqLF.load());
-            if (mask & LOCK_FLAG_EQ_LG) pp.eqLG = applyMod(5, rt.latchedEqLG.load());
-            if (mask & LOCK_FLAG_EQ_MF) pp.eqMF = applyMod(6, rt.latchedEqMF.load());
-            if (mask & LOCK_FLAG_EQ_MG) pp.eqMG = applyMod(7, rt.latchedEqMG.load());
-            if (mask & LOCK_FLAG_EQ_HF) pp.eqHF = applyMod(8, rt.latchedEqHF.load());
-            if (mask & LOCK_FLAG_EQ_HG) pp.eqHG = applyMod(9, rt.latchedEqHG.load());
+            // 3. EQ
+            if (hasLocks && (mask & LOCK_FLAG_EQ_LF)) pp.eqLF = applyMod(4, rt.latchedEqLF.load());
+            else if (isPLockPreview)                  pp.eqLF = applyMod(4, bp.eqLF);
 
-            // Compressor
-            if (mask & LOCK_FLAG_COMP_THR) pp.cThr = applyMod(10, rt.latchedCThr.load());
-            if (mask & LOCK_FLAG_COMP_RAT) pp.cRat = applyMod(11, rt.latchedCRat.load());
-            if (mask & LOCK_FLAG_COMP_ATK) pp.cAtk = applyMod(12, rt.latchedCAtk.load());
-            if (mask & LOCK_FLAG_COMP_REL) pp.cRel = applyMod(13, rt.latchedCRel.load());
+            if (hasLocks && (mask & LOCK_FLAG_EQ_LG)) pp.eqLG = applyMod(5, rt.latchedEqLG.load());
+            else if (isPLockPreview)                  pp.eqLG = applyMod(5, bp.eqLG);
 
-            if (mask & LOCK_FLAG_DRIVE) pp.drive = applyMod(14, rt.latchedDrive.load());
+            if (hasLocks && (mask & LOCK_FLAG_EQ_MF)) pp.eqMF = applyMod(6, rt.latchedEqMF.load());
+            else if (isPLockPreview)                  pp.eqMF = applyMod(6, bp.eqMF);
 
-            if (mask & LOCK_FLAG_TONE)  pp.fx1   = applyMod(16, rt.latchedTone.load());
-            if (mask & LOCK_FLAG_P2)    pp.fx2   = applyMod(17, rt.latchedP2.load());
-            if (mask & LOCK_FLAG_P3)    pp.fx3   = applyMod(18, rt.latchedP3.load());
-            if (mask & LOCK_FLAG_P4)    pp.fx4   = applyMod(19, rt.latchedP4.load());
-            if (mask & LOCK_FLAG_P5)    pp.fx5   = applyMod(20, rt.latchedP5.load());
+            if (hasLocks && (mask & LOCK_FLAG_EQ_MG)) pp.eqMG = applyMod(7, rt.latchedEqMG.load());
+            else if (isPLockPreview)                  pp.eqMG = applyMod(7, bp.eqMG);
 
-            if (mask & LOCK_FLAG_SENDA) pp.sendA = applyMod(21, rt.latchedSendA.load());
-            if (mask & LOCK_FLAG_SENDB) pp.sendB = applyMod(22, rt.latchedSendB.load());
-            if (mask & LOCK_FLAG_SENDC) pp.sendC = applyMod(23, rt.latchedSendC.load());
-            if (mask & LOCK_FLAG_SENDD) pp.sendD = applyMod(24, rt.latchedSendD.load());
+            if (hasLocks && (mask & LOCK_FLAG_EQ_HF)) pp.eqHF = applyMod(8, rt.latchedEqHF.load());
+            else if (isPLockPreview)                  pp.eqHF = applyMod(8, bp.eqHF);
 
-            // Insert Multi-FX
-            if (mask & LOCK_FLAG_IFX_TYPE) pp.ifxType = rt.latchedIfxType.load();
-            if (mask & LOCK_FLAG_IFX1)     pp.ifx1    = applyMod(36, rt.latchedIfx1.load());
-            if (mask & LOCK_FLAG_IFX2)     pp.ifx2    = applyMod(37, rt.latchedIfx2.load());
-            if (mask & LOCK_FLAG_IFX3)     pp.ifx3    = applyMod(38, rt.latchedIfx3.load());
-            if (mask & LOCK_FLAG_IFX4)     pp.ifx4    = applyMod(39, rt.latchedIfx4.load());
+            if (hasLocks && (mask & LOCK_FLAG_EQ_HG)) pp.eqHG = applyMod(9, rt.latchedEqHG.load());
+            else if (isPLockPreview)                  pp.eqHG = applyMod(9, bp.eqHG);
 
-            // VCF
-            if (mask & LOCK_FLAG_VCF_TYPE) pp.vcfType = rt.latchedVcfType.load();
-            if (mask & LOCK_FLAG_VCF_CUT)  pp.vcfCut  = applyMod(41, rt.latchedVcfCut.load());
-            if (mask & LOCK_FLAG_VCF_RES)  pp.vcfRes  = applyMod(42, rt.latchedVcfRes.load());
-            if (mask & LOCK_FLAG_VCF_ENV)  pp.vcfEnv  = applyMod(43, rt.latchedVcfEnv.load());
+            // 4. Compressor
+            if (hasLocks && (mask & LOCK_FLAG_COMP_THR)) pp.cThr = applyMod(10, rt.latchedCThr.load());
+            else if (isPLockPreview)                     pp.cThr = applyMod(10, bp.cThr);
+
+            if (hasLocks && (mask & LOCK_FLAG_COMP_RAT)) pp.cRat = applyMod(11, rt.latchedCRat.load());
+            else if (isPLockPreview)                     pp.cRat = applyMod(11, bp.cRat);
+
+            if (hasLocks && (mask & LOCK_FLAG_COMP_ATK)) pp.cAtk = applyMod(12, rt.latchedCAtk.load());
+            else if (isPLockPreview)                     pp.cAtk = applyMod(12, bp.cAtk);
+
+            if (hasLocks && (mask & LOCK_FLAG_COMP_REL)) pp.cRel = applyMod(13, rt.latchedCRel.load());
+            else if (isPLockPreview)                     pp.cRel = applyMod(13, bp.cRel);
+
+            if (hasLocks && (mask & LOCK_FLAG_COMP_MG))  pp.cMg  = applyMod(44, rt.latchedCMg.load());
+            else if (isPLockPreview)                     pp.cMg  = applyMod(44, bp.cMg);
+
+            // 5. Drive & Macro FX P1..P5
+            if (hasLocks && (mask & LOCK_FLAG_DRIVE)) pp.drive = applyMod(14, rt.latchedDrive.load());
+            else if (isPLockPreview)                  pp.drive = applyMod(14, bp.drive);
+
+            if (hasLocks && (mask & LOCK_FLAG_TONE))  pp.fx1   = applyMod(16, rt.latchedTone.load());
+            else if (isPLockPreview)                  pp.fx1   = applyMod(16, bp.fx1);
+
+            if (hasLocks && (mask & LOCK_FLAG_P2))    pp.fx2   = applyMod(17, rt.latchedP2.load());
+            else if (isPLockPreview)                  pp.fx2   = applyMod(17, bp.fx2);
+
+            if (hasLocks && (mask & LOCK_FLAG_P3))    pp.fx3   = applyMod(18, rt.latchedP3.load());
+            else if (isPLockPreview)                  pp.fx3   = applyMod(18, bp.fx3);
+
+            if (hasLocks && (mask & LOCK_FLAG_P4))    pp.fx4   = applyMod(19, rt.latchedP4.load());
+            else if (isPLockPreview)                  pp.fx4   = applyMod(19, bp.fx4);
+
+            if (hasLocks && (mask & LOCK_FLAG_P5))    pp.fx5   = applyMod(20, rt.latchedP5.load());
+            else if (isPLockPreview)                  pp.fx5   = applyMod(20, bp.fx5);
+
+            // 6. Aux Sends
+            if (hasLocks && (mask & LOCK_FLAG_SENDA)) pp.sendA = applyMod(21, rt.latchedSendA.load());
+            else if (isPLockPreview)                  pp.sendA = applyMod(21, bp.sendA);
+
+            if (hasLocks && (mask & LOCK_FLAG_SENDB)) pp.sendB = applyMod(22, rt.latchedSendB.load());
+            else if (isPLockPreview)                  pp.sendB = applyMod(22, bp.sendB);
+
+            if (hasLocks && (mask & LOCK_FLAG_SENDC)) pp.sendC = applyMod(23, rt.latchedSendC.load());
+            else if (isPLockPreview)                  pp.sendC = applyMod(23, bp.sendC);
+
+            if (hasLocks && (mask & LOCK_FLAG_SENDD)) pp.sendD = applyMod(24, rt.latchedSendD.load());
+            else if (isPLockPreview)                  pp.sendD = applyMod(24, bp.sendD);
+
+            // 7. Insert Multi-FX
+            if (hasLocks && (mask & LOCK_FLAG_IFX_TYPE)) pp.ifxType = rt.latchedIfxType.load();
+            else if (isPLockPreview)                     pp.ifxType = bp.ifxType;
+
+            if (hasLocks && (mask & LOCK_FLAG_IFX1))     pp.ifx1    = applyMod(36, rt.latchedIfx1.load());
+            else if (isPLockPreview)                     pp.ifx1    = applyMod(36, bp.ifx1);
+
+            if (hasLocks && (mask & LOCK_FLAG_IFX2))     pp.ifx2    = applyMod(37, rt.latchedIfx2.load());
+            else if (isPLockPreview)                     pp.ifx2    = applyMod(37, bp.ifx2);
+
+            if (hasLocks && (mask & LOCK_FLAG_IFX3))     pp.ifx3    = applyMod(38, rt.latchedIfx3.load());
+            else if (isPLockPreview)                     pp.ifx3    = applyMod(38, bp.ifx3);
+
+            if (hasLocks && (mask & LOCK_FLAG_IFX4))     pp.ifx4    = applyMod(39, rt.latchedIfx4.load());
+            else if (isPLockPreview)                     pp.ifx4    = applyMod(39, bp.ifx4);
+
+            // 8. VCF
+            if (hasLocks && (mask & LOCK_FLAG_VCF_TYPE)) pp.vcfType = rt.latchedVcfType.load();
+            else if (isPLockPreview)                     pp.vcfType = bp.vcfType;
+
+            if (hasLocks && (mask & LOCK_FLAG_VCF_CUT))  pp.vcfCut  = applyMod(41, rt.latchedVcfCut.load());
+            else if (isPLockPreview)                     pp.vcfCut  = applyMod(41, bp.vcfCut);
+
+            if (hasLocks && (mask & LOCK_FLAG_VCF_RES))  pp.vcfRes  = applyMod(42, rt.latchedVcfRes.load());
+            else if (isPLockPreview)                     pp.vcfRes  = applyMod(42, bp.vcfRes);
+
+            if (hasLocks && (mask & LOCK_FLAG_VCF_ENV))  pp.vcfEnv  = applyMod(43, rt.latchedVcfEnv.load());
+            else if (isPLockPreview)                     pp.vcfEnv  = applyMod(43, bp.vcfEnv);
         }
 
         const bool isSilenced = (anyPadSolo && ! rt.isSolo.load()) || rt.isMuted.load();
@@ -1118,7 +1196,7 @@ void Forge64Processor::loadFactoryKit(int kitIndex)
         setAP(p, "eqmf", 1000.f); setAP(p, "eqmg", 0.f);
         setAP(p, "eqhf", 8000.f); setAP(p, "eqhg", 0.f);
         setAP(p, "cthr", 0.f);    setAP(p, "crat", 1.f);
-        setAP(p, "catk", 5.f);    setAP(p, "crel", 100.f);
+        setAP(p, "catk", 5.f);    setAP(p, "crel", 100.f); setAP(p, "cmg", 0.f);
         setAP(p, "ifx",  0.f);
     }
 

@@ -346,7 +346,8 @@ PadEditor::PadEditor(Forge64Processor& p, ModRingKnob::Services& s, int globalPa
             saveCurrentParamsAsPLock(false);
     };
     dynKnobs = { makeKnob("cthr", "THRESH"), makeKnob("crat", "RATIO"),
-                 makeKnob("catk", "ATTACK"), makeKnob("crel", "RELEASE") };
+                 makeKnob("catk", "ATTACK"), makeKnob("crel", "RELEASE"),
+                 makeKnob("cmg",  "MAKEUP") };
 
     // ---- Card 3: Aux Sends & Insert FX ----------------------------------
     makeCaption("AUX SENDS & DEDICATED MULTI-FX INSERT");
@@ -520,6 +521,7 @@ void PadEditor::enterPLockMode(int trackIdx, int stepIdx)
         setAPVTSParam("crat", sd.pLockCRat);
         setAPVTSParam("catk", sd.pLockCAtk);
         setAPVTSParam("crel", sd.pLockCRel);
+        setAPVTSParam("cmg",  sd.pLockCMg);
 
         setAPVTSParam("ifx",  (float) sd.pLockIfxType);
         setAPVTSParam("ifx1", sd.pLockIfx1);
@@ -561,6 +563,7 @@ void PadEditor::enterPLockMode(int trackIdx, int stepIdx)
         setAPVTSParam("crat", preLockParams.cRat);
         setAPVTSParam("catk", preLockParams.cAtk);
         setAPVTSParam("crel", preLockParams.cRel);
+        setAPVTSParam("cmg",  preLockParams.cMg);
 
         setAPVTSParam("ifx",  (float) preLockParams.ifxType);
         setAPVTSParam("ifx1", preLockParams.ifx1);
@@ -633,6 +636,7 @@ void PadEditor::exitPLockMode()
         setAPVTSParam("crat", preLockParams.cRat);
         setAPVTSParam("catk", preLockParams.cAtk);
         setAPVTSParam("crel", preLockParams.cRel);
+        setAPVTSParam("cmg",  preLockParams.cMg);
 
         setAPVTSParam("ifx",  (float) preLockParams.ifxType);
         setAPVTSParam("ifx1", preLockParams.ifx1);
@@ -700,6 +704,7 @@ void PadEditor::saveCurrentParamsAsPLock(bool shouldAudition)
     sd.pLockCRat = getAPVTSParam("crat");
     sd.pLockCAtk = getAPVTSParam("catk");
     sd.pLockCRel = getAPVTSParam("crel");
+    sd.pLockCMg  = getAPVTSParam("cmg");
 
     sd.pLockIfxType = (int) getAPVTSParam("ifx");
     sd.pLockIfx1    = getAPVTSParam("ifx1");
@@ -736,6 +741,7 @@ void PadEditor::saveCurrentParamsAsPLock(bool shouldAudition)
     if (std::abs(sd.pLockCRat - preLockParams.cRat) > 0.05f) mask |= StepLockFlags::LOCK_FLAG_COMP_RAT;
     if (std::abs(sd.pLockCAtk - preLockParams.cAtk) > 0.1f) mask |= StepLockFlags::LOCK_FLAG_COMP_ATK;
     if (std::abs(sd.pLockCRel - preLockParams.cRel) > 1.0f) mask |= StepLockFlags::LOCK_FLAG_COMP_REL;
+    if (std::abs(sd.pLockCMg - preLockParams.cMg) > 0.1f) mask |= StepLockFlags::LOCK_FLAG_COMP_MG;
     if (sd.pLockIfxType != preLockParams.ifxType) mask |= StepLockFlags::LOCK_FLAG_IFX_TYPE;
     if (std::abs(sd.pLockIfx1 - preLockParams.ifx1) > 0.01f) mask |= StepLockFlags::LOCK_FLAG_IFX1;
     if (std::abs(sd.pLockIfx2 - preLockParams.ifx2) > 0.01f) mask |= StepLockFlags::LOCK_FLAG_IFX2;
@@ -807,6 +813,7 @@ void PadEditor::clearPLocksForStep()
     setAPVTSParam("crat", preLockParams.cRat);
     setAPVTSParam("catk", preLockParams.cAtk);
     setAPVTSParam("crel", preLockParams.cRel);
+    setAPVTSParam("cmg",  preLockParams.cMg);
 
     setAPVTSParam("ifx",  (float) preLockParams.ifxType);
     setAPVTSParam("ifx1", preLockParams.ifx1);
@@ -1342,7 +1349,6 @@ ModRingKnob* PadEditor::makeKnob(const char* base, const char* labelText)
     };
     k->onDragEnd = [this]
     {
-        auditionOnControlTouch();
     };
     k->onValueChange = [this]
     {
@@ -1768,7 +1774,7 @@ void PadEditor::Content::resized()
     if (owner.compGraph)
         owner.compGraph->setBounds(compX, c2Y + 22, compW, 92);
 
-    const int compKnobW = compW / 4;
+    const int compKnobW = compW / (int) owner.dynKnobs.size();
     for (size_t i = 0; i < owner.dynKnobs.size(); ++i)
         if (owner.dynKnobs[i])
             owner.dynKnobs[i]->setBounds(compX + (int) i * compKnobW, c2Y + 116, compKnobW - 4, 62);

@@ -510,6 +510,47 @@ int main(int argc, char* argv[])
         if (! p13Passed) failedPads++;
     }
 
+    // 14. Modulation Active On Unlocked Sounds Test
+    {
+        proc->getSequencer().setPlaying(false);
+        proc->getSequencer().clearCurrentPattern();
+        proc->getSequencer().setStepActive(0, 0, true);
+        proc->getSequencer().setStepVelocity(0, 0, 0.9f);
+        // Verify step has NO locks
+        bool stepHasLocks = proc->getSequencer().currentPattern().tracks[0].steps[0].hasLocks;
+        int connId = proc->mods().addConnection(f64::slotLFO(0), "p0_tune", 0.8f);
+
+        juce::AudioBuffer<float> buf(2, 512);
+        juce::MidiBuffer midi;
+        float maxOffsetSeen = 0.f;
+        float maxTuneDev = 0.f;
+
+        for (int b = 0; b < 40; ++b)
+        {
+            buf.clear();
+            proc->processBlock(buf, midi);
+            float off = proc->mods().offsetFor("p0_tune");
+            if (std::abs(off) > std::abs(maxOffsetSeen))
+                maxOffsetSeen = off;
+
+            f64::PadParams ppTest;
+            proc->fillPadParams(0, ppTest);
+            if (std::abs(ppTest.tune) > std::abs(maxTuneDev))
+                maxTuneDev = ppTest.tune;
+        }
+
+        bool p14Passed = (! stepHasLocks) && (connId >= 0) && (std::abs(maxOffsetSeen) > 0.05f) && (std::abs(maxTuneDev) > 0.5f);
+
+        std::cout << "[14] Modulation Active On Unlocked Sounds: "
+                  << (p14Passed ? "PASSED" : "FAILED")
+                  << " (stepHasLocks=" << stepHasLocks
+                  << ", maxOffset=" << maxOffsetSeen
+                  << ", maxTuneDev=" << maxTuneDev << " st)" << std::endl;
+        if (! p14Passed) failedPads++;
+
+        proc->mods().removeConnection(connId);
+    }
+
     std::cout << "All tests completed with " << failedPads << " errors." << std::endl;
     return (failedPads == 0) ? 0 : 1;
 }

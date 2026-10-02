@@ -219,10 +219,11 @@ void PadChain::process(float* L, float* R, int n, const PadParams& p)
     }
 
     // ---------------- compressor coefficients
-    const bool compOn = p.cRat > 1.01f && p.cThr > -59.5f;
+    const bool compOn = (p.cRat > 1.01f && p.cThr > -59.5f) || (p.cMg > 0.05f);
     const float atkC = std::exp(-1.f / (juce::jmax(0.1f, p.cAtk) * 0.001f * (float) sampleRate));
     const float relC = std::exp(-1.f / (juce::jmax(5.f, p.cRel) * 0.001f * (float) sampleRate));
     const float thrLin = std::pow(10.f, p.cThr / 20.f);
+    const float compGainLin = std::pow(10.f, p.cMg / 20.f);
 
     // ---------------- drive
     smDrive += (p.drive - smDrive) * 0.2f;
@@ -492,8 +493,8 @@ void PadChain::process(float* L, float* R, int n, const PadParams& p)
             }
             cGain = g < cGain ? cGain + (g - cGain) * (1.f - atkC)
                               : cGain + (g - cGain) * (1.f - relC);
-            x *= cGain;
-            y *= cGain;
+            x *= cGain * compGainLin;
+            y *= cGain * compGainLin;
         }
 
         // Drive / saturation

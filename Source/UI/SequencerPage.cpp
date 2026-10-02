@@ -1,5 +1,6 @@
 #include "SequencerPage.h"
 #include "../PluginProcessor.h"
+#include "../Presets/SequencePresetManager.h"
 
 namespace f64 {
 
@@ -367,6 +368,7 @@ private:
     int trackIdx, stepIdx;
     float dragStartVal = 0.85f;
     float dragStartY = 0.f;
+    float dragStartX = 0.f;
     bool wasActiveOnDown = false;
 };
 
@@ -578,6 +580,7 @@ void SequencerPage::StepButton::mouseDown(const juce::MouseEvent& e)
     const auto& s = trk.steps[(size_t) stepIdx];
     wasActiveOnDown = s.active;
     dragStartY = (float) e.position.y;
+    dragStartX = (float) e.position.x;
 
     if (! wasActiveOnDown)
     {
@@ -618,6 +621,7 @@ void SequencerPage::StepButton::mouseDrag(const juce::MouseEvent& e)
     if (trk.steps[(size_t) stepIdx].active)
     {
         const float deltaY = dragStartY - (float) e.position.y;
+        const float deltaX = (float) e.position.x - dragStartX;
         switch (owner.getLockViewMode())
         {
             case SequencerPage::LOCK_VIEW_PROBABILITY:
@@ -658,7 +662,7 @@ void SequencerPage::StepButton::mouseDrag(const juce::MouseEvent& e)
             }
             case SequencerPage::LOCK_VIEW_PAN:
             {
-                const float newPan = juce::jlimit(-1.0f, 1.0f, dragStartVal + deltaY / 60.0f);
+                const float newPan = juce::jlimit(-1.0f, 1.0f, dragStartVal + deltaX / 60.0f);
                 owner.seq.setStepPan(trackIdx, stepIdx, newPan);
                 break;
             }
@@ -739,6 +743,7 @@ public:
         nameLabel->setFont(uiFont(11.5f, true));
         nameLabel->setColour(juce::Label::textColourId, ui::accentHot());
         nameLabel->setJustificationType(juce::Justification::centredLeft);
+        nameLabel->setInterceptsMouseClicks(false, false);
         addAndMakeVisible(nameLabel.get());
 
         muteBtn = std::make_unique<juce::TextButton>("M");
@@ -1185,21 +1190,46 @@ SequencerPage::SequencerPage(Forge64Processor& processor)
     // Pattern Presets
     presetCombo = std::make_unique<juce::ComboBox>();
     ui::styleCombo(*presetCombo);
-    presetCombo->addItem("4-on-the-Floor Techno", 1);
-    presetCombo->addItem("Trap 808 & Rolls", 2);
-    presetCombo->addItem("Polymetric 5/7/16", 3);
-    presetCombo->addItem("Breakbeat Funk", 4);
-    presetCombo->addItem("Afro Clave", 5);
+    presetCombo->setTooltip("Sequence presets (Factory & User presets)");
+    refreshPresetCombo();
     presetCombo->onChange = [this]
     {
         const int id = presetCombo->getSelectedId();
-        if (id > 0)
+        if (id >= 1 && id <= 5)
         {
-            seq.loadFactoryPreset(id - 1);
-            refreshFromSequencer();
+            confirmLoadPreset(id, presetCombo->getText(), [this, id] { seq.loadFactoryPreset(id - 1); });
+        }
+        else if (id >= 100 && id < 900)
+        {
+            const auto name = presetCombo->getText();
+            confirmLoadPreset(id, name, [this, name]
+            {
+                SequencePresetManager::loadPreset(name, seq, seq.selectedPatternIndex());
+            });
+        }
+        else if (id == 990)
+        {
+            presetCombo->setSelectedId(lastLoadedPresetId, juce::dontSendNotification);
+            promptSaveSequence();
+        }
+        else if (id == 991)
+        {
+            presetCombo->setSelectedId(lastLoadedPresetId, juce::dontSendNotification);
+            importSequenceFile();
+        }
+        else if (id == 992)
+        {
+            presetCombo->setSelectedId(lastLoadedPresetId, juce::dontSendNotification);
+            exportSequenceFile();
         }
     };
     addAndMakeVisible(presetCombo.get());
+
+    saveSeqBtn = std::make_unique<juce::TextButton>("SAVE");
+    ui::styleButton(*saveSeqBtn);
+    saveSeqBtn->setTooltip("Save current pattern as sequence preset");
+    saveSeqBtn->onClick = [this] { promptSaveSequence(); };
+    addAndMakeVisible(saveSeqBtn.get());
 
     // Lock View & Quick Edit mode controls
     lockModeLabel = ui::makeLabel("LOCK:", 10.f, ui::dim());
@@ -1429,6 +1459,7 @@ SequencerPage::~SequencerPage()
     if (driveLockBtn != nullptr) driveLockBtn->setLookAndFeel(nullptr);
     if (levelLockBtn != nullptr) levelLockBtn->setLookAndFeel(nullptr);
     if (panLockBtn != nullptr)   panLockBtn->setLookAndFeel(nullptr);
+    if (saveSeqBtn != nullptr)   saveSeqBtn->setLookAndFeel(nullptr);
     if (copyBtn != nullptr)      copyBtn->setLookAndFeel(nullptr);
     if (pasteBtn != nullptr)     pasteBtn->setLookAndFeel(nullptr);
     if (clearBtn != nullptr)     clearBtn->setLookAndFeel(nullptr);
@@ -1594,7 +1625,8 @@ void SequencerPage::resized()
     modeBtn->setBounds(r1x, 5, 84, 24);    r1x += 88;
     playBtn->setBounds(r1x, 5, 44, 24);    r1x += 48;
     swingSlider->setBounds(r1x, 5, 50, 24); r1x += 54;
-    presetCombo->setBounds(r1x, 5, 108, 24); r1x += 114;
+    presetCombo->setBounds(r1x, 5, 114, 24); r1x += 118;
+    if (saveSeqBtn != nullptr) { saveSeqBtn->setBounds(r1x, 5, 42, 24); r1x += 46; }
 
     if (lockModeLabel != nullptr) { lockModeLabel->setBounds(r1x, 5, 36, 24); r1x += 38; }
     if (velLockBtn != nullptr)    { velLockBtn->setBounds(r1x, 5, 28, 24);    r1x += 30; }
@@ -1668,6 +1700,154 @@ void SequencerPage::resized()
     // Popover overlay center
     if (pLockPopover->isVisible())
         pLockPopover->setBounds((w - 380) / 2, (h - 430) / 2, 380, 430);
+}
+
+void SequencerPage::refreshPresetCombo()
+{
+    if (presetCombo == nullptr) return;
+    presetCombo->clear(juce::dontSendNotification);
+
+    presetCombo->addItem("--- FACTORY PRESETS ---", 900);
+    presetCombo->setItemEnabled(900, false);
+    presetCombo->addItem("4-on-the-Floor Techno", 1);
+    presetCombo->addItem("Trap 808 & Rolls", 2);
+    presetCombo->addItem("Polymetric 5/7/16", 3);
+    presetCombo->addItem("Breakbeat Funk", 4);
+    presetCombo->addItem("Afro Clave", 5);
+
+    auto userPresets = SequencePresetManager::getUserPresetNames();
+    presetCombo->addSeparator();
+    presetCombo->addItem("--- USER PRESETS ---", 901);
+    presetCombo->setItemEnabled(901, false);
+
+    if (userPresets.isEmpty())
+    {
+        presetCombo->addItem("(No Saved Presets)", 902);
+        presetCombo->setItemEnabled(902, false);
+    }
+    else
+    {
+        for (int i = 0; i < userPresets.size(); ++i)
+        {
+            presetCombo->addItem(userPresets[i], 100 + i);
+        }
+    }
+
+    presetCombo->addSeparator();
+    presetCombo->addItem("[+] Save Sequence...", 990);
+    presetCombo->addItem("Import Sequence File...", 991);
+    presetCombo->addItem("Export Sequence File...", 992);
+}
+
+void SequencerPage::confirmLoadPreset(int id, const juce::String& name, std::function<void()> loadAction)
+{
+    auto* w = new juce::AlertWindow("Load Sequence",
+                                    "Loading sequence preset '" + name + "' will overwrite your current pattern.\n"
+                                    "Any unsaved work will be lost!\n\nDo you want to proceed?",
+                                    juce::AlertWindow::WarningIcon);
+    w->addButton("Load", 1, juce::KeyPress(juce::KeyPress::returnKey));
+    w->addButton("Cancel", 0, juce::KeyPress(juce::KeyPress::escapeKey));
+    w->toFront(true);
+
+    juce::Component::SafePointer<SequencerPage> safe(this);
+    w->enterModalState(true, juce::ModalCallbackFunction::create([safe, w, id, loadAction](int result)
+    {
+        std::unique_ptr<juce::AlertWindow> deleter(w);
+        if (safe == nullptr) return;
+        if (result == 1)
+        {
+            safe->lastLoadedPresetId = id;
+            loadAction();
+            safe->refreshFromSequencer();
+            safe->repaint();
+        }
+        else
+        {
+            if (safe->presetCombo)
+                safe->presetCombo->setSelectedId(safe->lastLoadedPresetId, juce::dontSendNotification);
+        }
+    }));
+}
+
+void SequencerPage::promptSaveSequence()
+{
+    auto* w = new juce::AlertWindow("Save Sequence Preset",
+                                    "Enter a name for this sequence preset:",
+                                    juce::AlertWindow::QuestionIcon);
+    juce::String defName = seq.currentPattern().name;
+    if (defName.isEmpty() || defName.startsWith("Pattern "))
+        defName = "My Sequence";
+    w->addTextEditor("name", defName, "Preset Name:");
+    w->addButton("Save", 1, juce::KeyPress(juce::KeyPress::returnKey));
+    w->addButton("Cancel", 0, juce::KeyPress(juce::KeyPress::escapeKey));
+    w->toFront(true);
+
+    juce::Component::SafePointer<SequencerPage> safe(this);
+    w->enterModalState(true, juce::ModalCallbackFunction::create([safe, w](int result)
+    {
+        std::unique_ptr<juce::AlertWindow> deleter(w);
+        if (safe == nullptr || result != 1) return;
+        auto name = w->getTextEditorContents("name").trim();
+        if (name.isEmpty()) return;
+
+        if (SequencePresetManager::savePreset(name, safe->seq, safe->seq.selectedPatternIndex()))
+        {
+            safe->refreshPresetCombo();
+            auto userPresets = SequencePresetManager::getUserPresetNames();
+            for (int i = 0; i < userPresets.size(); ++i)
+            {
+                if (userPresets[i] == name)
+                {
+                    safe->lastLoadedPresetId = 100 + i;
+                    safe->presetCombo->setSelectedId(100 + i, juce::dontSendNotification);
+                    break;
+                }
+            }
+        }
+    }));
+}
+
+void SequencerPage::importSequenceFile()
+{
+    auto chooser = std::make_shared<juce::FileChooser>(
+        "Import Sequence File",
+        SequencePresetManager::getPresetsDirectory(),
+        "*.f64seq;*.xml");
+
+    auto folderFlags = juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles;
+    juce::Component::SafePointer<SequencerPage> safe(this);
+    chooser->launchAsync(folderFlags, [safe, chooser](const juce::FileChooser& fc)
+    {
+        auto file = fc.getResult();
+        if (file.existsAsFile() && safe != nullptr)
+        {
+            safe->confirmLoadPreset(991, file.getFileNameWithoutExtension(), [safe, file]
+            {
+                SequencePresetManager::loadPresetFromFile(file, safe->seq, safe->seq.selectedPatternIndex());
+            });
+        }
+    });
+}
+
+void SequencerPage::exportSequenceFile()
+{
+    auto chooser = std::make_shared<juce::FileChooser>(
+        "Export Sequence File",
+        SequencePresetManager::getPresetsDirectory().getChildFile(
+            juce::File::createLegalFileName(seq.currentPattern().name.isNotEmpty() ? seq.currentPattern().name : "Sequence") + ".f64seq"),
+        "*.f64seq");
+
+    auto folderFlags = juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles | juce::FileBrowserComponent::warnAboutOverwriting;
+    juce::Component::SafePointer<SequencerPage> safe(this);
+    chooser->launchAsync(folderFlags, [safe, chooser](const juce::FileChooser& fc)
+    {
+        auto file = fc.getResult();
+        if (file != juce::File() && safe != nullptr)
+        {
+            SequencePresetManager::exportPresetToFile(file, safe->seq, safe->seq.selectedPatternIndex());
+            safe->refreshPresetCombo();
+        }
+    });
 }
 
 } // namespace f64

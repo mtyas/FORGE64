@@ -17,6 +17,7 @@ ModRingKnob::ModRingKnob(juce::StringRef destId, juce::StringRef labelText,
 
 ModRingKnob::~ModRingKnob()
 {
+    stopTimer();
     services.unregisterKnob(this);
 }
 
@@ -221,6 +222,12 @@ void ModRingKnob::paint(juce::Graphics& g)
 
 void ModRingKnob::mouseDown(const juce::MouseEvent& e)
 {
+    if (isWheelDragging)
+    {
+        stopTimer();
+        isWheelDragging = false;
+        stoppedDragging();
+    }
     if (chip)
     {
         if (e.mods.isLeftButtonDown())
@@ -257,6 +264,48 @@ void ModRingKnob::mouseDoubleClick(const juce::MouseEvent&)
                        dest.contains("pan") || dest.contains("tune") ||
                        dest.contains("lg") || dest.contains("mg") || dest.contains("hg");
     setValue(isBip ? 0.0 : getMinimum(), juce::sendNotificationAsync);
+}
+
+void ModRingKnob::mouseWheelMove(const juce::MouseEvent&, const juce::MouseWheelDetails& wheel)
+{
+    if (chip || ! isEnabled() || ! isScrollWheelEnabled())
+        return;
+
+    const float delta = (wheel.deltaY != 0.0f ? wheel.deltaY : wheel.deltaX);
+    if (std::abs(delta) < 0.00001f)
+        return;
+
+    if (! isWheelDragging)
+    {
+        isWheelDragging = true;
+        startedDragging();
+    }
+
+    startTimer(350);
+
+    const double range = getMaximum() - getMinimum();
+    if (range > 0.0)
+    {
+        double step = getInterval();
+        if (step <= 0.0)
+            step = range * 0.015;
+
+        double deltaVal = (double) delta * range * 0.12;
+        if (std::abs(deltaVal) < step)
+            deltaVal = (delta > 0.0f ? step : -step);
+
+        setValue(juce::jlimit(getMinimum(), getMaximum(), getValue() + deltaVal), juce::sendNotificationSync);
+    }
+}
+
+void ModRingKnob::timerCallback()
+{
+    stopTimer();
+    if (isWheelDragging)
+    {
+        isWheelDragging = false;
+        stoppedDragging();
+    }
 }
 
 void ModRingKnob::showConnMenu()

@@ -59,8 +59,16 @@ private:
     std::unique_ptr<juce::Label> patternBarLabel;
     std::array<std::unique_ptr<juce::TextButton>, 16> patternBtns;
     std::unique_ptr<juce::ComboBox> presetCombo;
+    std::unique_ptr<juce::TextButton> saveSeqBtn;
     std::unique_ptr<juce::TextButton> copyBtn, pasteBtn, clearBtn, randBtn;
     std::array<std::unique_ptr<juce::TextButton>, 4> pageBtns;
+
+    void refreshPresetCombo();
+    void promptSaveSequence();
+    void confirmLoadPreset(int id, const juce::String& name, std::function<void()> loadAction);
+    void importSequenceFile();
+    void exportSequenceFile();
+    int lastLoadedPresetId = 0;
 
     // Lock View & Quick Edit mode controls
     StepLockViewMode lockViewMode = LOCK_VIEW_VELOCITY;

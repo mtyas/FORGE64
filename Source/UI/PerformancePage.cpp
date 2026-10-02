@@ -47,8 +47,26 @@ XYPadComponent::XYPadComponent(Forge64Processor& processor, const juce::String& 
     springToggle->onClick = [this]
     {
         springToCenter = springToggle->getToggleState();
+        if (speedSlider)
+            speedSlider->setEnabled(springToCenter);
     };
     addAndMakeVisible(springToggle.get());
+
+    speedLabel = ui::makeLabel("SPD:", 9.5f, ui::dim());
+    speedLabel->setJustificationType(juce::Justification::centredRight);
+    addAndMakeVisible(speedLabel.get());
+
+    speedSlider = std::make_unique<juce::Slider>();
+    speedSlider->setSliderStyle(juce::Slider::LinearHorizontal);
+    speedSlider->setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
+    speedSlider->setRange(0.02, 1.0, 0.01);
+    speedSlider->setValue(0.20, juce::dontSendNotification);
+    speedSlider->setColour(juce::Slider::thumbColourId, ui::accent());
+    speedSlider->setColour(juce::Slider::trackColourId, ui::accent());
+    speedSlider->setColour(juce::Slider::backgroundColourId, ui::panelHi());
+    speedSlider->setTooltip("Spring Return Speed (0.02 = Slow glide, 1.0 = Instant snap)");
+    speedSlider->setEnabled(springToCenter);
+    addAndMakeVisible(speedSlider.get());
 
     coordsLabel = ui::makeLabel("X: 0.50 | Y: 0.50", 10.5f, ui::accent());
     coordsLabel->setJustificationType(juce::Justification::centredRight);
@@ -70,13 +88,16 @@ void XYPadComponent::resized()
     coordsLabel->setBounds(topRow.removeFromRight(120));
 
     auto cfgRow = r.removeFromTop(24);
-    xDestLabel->setBounds(cfgRow.removeFromLeft(46));
-    xDestCombo->setBounds(cfgRow.removeFromLeft(90));
-    cfgRow.removeFromLeft(8);
-    yDestLabel->setBounds(cfgRow.removeFromLeft(46));
-    yDestCombo->setBounds(cfgRow.removeFromLeft(90));
-    cfgRow.removeFromLeft(8);
-    springToggle->setBounds(cfgRow.removeFromLeft(110));
+    xDestLabel->setBounds(cfgRow.removeFromLeft(36));
+    xDestCombo->setBounds(cfgRow.removeFromLeft(84));
+    cfgRow.removeFromLeft(6);
+    yDestLabel->setBounds(cfgRow.removeFromLeft(36));
+    yDestCombo->setBounds(cfgRow.removeFromLeft(84));
+    cfgRow.removeFromLeft(6);
+    springToggle->setBounds(cfgRow.removeFromLeft(80));
+    cfgRow.removeFromLeft(4);
+    speedLabel->setBounds(cfgRow.removeFromLeft(30));
+    speedSlider->setBounds(cfgRow.removeFromLeft(66));
 
     r.removeFromTop(6);
     padArea = r.toFloat();
@@ -167,9 +188,12 @@ void XYPadComponent::mouseUp(const juce::MouseEvent& /*e*/)
         isDragging = false;
         if (springToCenter)
         {
-            puckX = 0.5f;
-            puckY = 0.5f;
-            applyPuckToParams();
+            if (speedSlider != nullptr && speedSlider->getValue() >= 0.98)
+            {
+                puckX = 0.5f;
+                puckY = 0.5f;
+                applyPuckToParams();
+            }
         }
         repaint();
     }
@@ -240,6 +264,33 @@ void XYPadComponent::syncPuckFromParams()
 
 void XYPadComponent::timerCallback()
 {
+    if (! isDragging && springToCenter)
+    {
+        const float dx = 0.5f - puckX;
+        const float dy = 0.5f - puckY;
+        const float dist = std::sqrt(dx * dx + dy * dy);
+        if (dist > 0.0005f)
+        {
+            const float factor = speedSlider != nullptr ? (float) speedSlider->getValue() : 0.20f;
+            if (factor >= 0.95f || dist < 0.002f)
+            {
+                puckX = 0.5f;
+                puckY = 0.5f;
+            }
+            else
+            {
+                puckX += dx * factor;
+                puckY += dy * factor;
+            }
+            applyPuckToParams();
+            if (coordsLabel)
+                coordsLabel->setText("X: " + juce::String(puckX, 2) + " | Y: " + juce::String(puckY, 2),
+                                     juce::dontSendNotification);
+            repaint();
+            return;
+        }
+    }
+
     syncPuckFromParams();
 }
 

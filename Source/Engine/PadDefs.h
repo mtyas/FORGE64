@@ -178,15 +178,16 @@ inline constexpr PadParamDef kPadParams[] = {
     { "ifx2",  "IFX P2" },    { "ifx3",  "IFX P3" },
     { "ifx4",  "IFX P4" },
     { "vcft",  "VCF Type" },  { "vcfc",  "VCF Cut" },
-    { "vcfr",  "VCF Res" },   { "vcfe",  "VCF Env" }
+    { "vcfr",  "VCF Res" },   { "vcfe",  "VCF Env" },
+    { "cmg",   "Comp Gain" }
 };
-constexpr int kNumPadParams = (int) (sizeof(kPadParams) / sizeof(kPadParams[0])); // 44
+constexpr int kNumPadParams = (int) (sizeof(kPadParams) / sizeof(kPadParams[0])); // 45
 
 struct PadParams
 {
     float level = 0.55f, pan = 0.f, tune = 0.f, decay = 1.f;
     float eqLF = 200.f, eqLG = 0.f, eqMF = 1000.f, eqMG = 0.f, eqHF = 8000.f, eqHG = 0.f;
-    float cThr = 0.f, cRat = 1.f, cAtk = 5.f, cRel = 100.f;
+    float cThr = 0.f, cRat = 1.f, cAtk = 5.f, cRel = 100.f, cMg = 0.f;
     float drive = 0.f;
     int   fxType = 0;
     float fx1 = 0.5f, fx2 = 0.5f, fx3 = 0.5f, fx4 = 0.5f, fx5 = 0.5f;

@@ -45,6 +45,7 @@ enum StepLockFlags : uint64_t
     LOCK_FLAG_IFX3     = 1ULL << 32,
     LOCK_FLAG_IFX4         = 1ULL << 33,
     LOCK_FLAG_PAD_OVERRIDE = 1ULL << 34,
+    LOCK_FLAG_COMP_MG      = 1ULL << 35,
 
     // Aliases
     LOCK_FLAG_SEND_A       = 1ULL << 10,
@@ -98,6 +99,7 @@ struct StepData
     float pLockCRat = 1.f;        // Ratio (1 .. 20)
     float pLockCAtk = 5.f;        // Attack ms (0.1 .. 100)
     float pLockCRel = 100.f;      // Release ms (10 .. 1000)
+    float pLockCMg  = 0.f;        // Make-Up Gain dB (0 .. 24)
 
     // Dedicated Insert Multi-FX Locks
     int   pLockIfxType = 0;       // 0: Off, 1: Flanger, 2: Chorus, 3: Crusher, 4: Phaser
@@ -144,6 +146,7 @@ struct StepData
         pLockCRat = 1.f;
         pLockCAtk = 5.f;
         pLockCRel = 100.f;
+        pLockCMg  = 0.f;
         pLockIfxType = 0;
         pLockIfx1 = 0.5f;
         pLockIfx2 = 0.5f;
@@ -231,6 +234,7 @@ public:
         float cRat = 1.f;
         float cAtk = 5.f;
         float cRel = 100.f;
+        float cMg  = 0.f;
 
         // Insert Multi-FX
         int   ifxType = 0;
@@ -345,7 +349,9 @@ public:
     void bumpPatternVersion() { patternVersion.fetch_add(1, std::memory_order_relaxed); }
     uint32_t getPatternVersion() const { return patternVersion.load(std::memory_order_relaxed); }
 
-    // State serialization
+    // Pattern & State serialization
+    juce::ValueTree serializePattern(int patternIndex) const;
+    void deserializePattern(int patternIndex, const juce::ValueTree& patternTree);
     juce::ValueTree serialize() const;
     void deserialize(const juce::ValueTree& tree);
 

@@ -65,6 +65,7 @@ struct PadRuntime
     std::atomic<float>   latchedCRat { 1.f };
     std::atomic<float>   latchedCAtk { 5.f };
     std::atomic<float>   latchedCRel { 100.f };
+    std::atomic<float>   latchedCMg  { 0.f };
 
     // Latched Dedicated Insert Multi-FX
     std::atomic<int>     latchedIfxType { 0 };

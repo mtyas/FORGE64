@@ -346,6 +346,7 @@ void SequencerDrawer::showTrackSpeedMenu()
 void SequencerDrawer::setTrack(int t)
 {
     currentTrack = juce::jlimit(0, 7, t);
+    seq.setSelectedTrack(currentTrack);
     updateTrackInfo();
     for (auto& tb : trackBtns)
         tb->repaint();
@@ -403,6 +404,16 @@ void SequencerDrawer::setUnfolded(bool shouldUnfold)
 
 void SequencerDrawer::timerCallback()
 {
+    const int selTrk = seq.selectedTrackIndex();
+    if (selTrk != currentTrack)
+    {
+        currentTrack = juce::jlimit(0, 7, selTrk);
+        updateTrackInfo();
+        for (auto& tb : trackBtns)
+            tb->repaint();
+        repaint();
+    }
+
     const int curPat = seq.selectedPatternIndex();
     const uint32_t curVer = seq.getPatternVersion();
     if (curPat != lastActivePattern || curVer != lastPatternVersion)
@@ -656,30 +667,61 @@ void SequencerDrawer::StepButton::paint(juce::Graphics& g)
 
 void SequencerDrawer::StepButton::mouseDown(const juce::MouseEvent& e)
 {
-    owner.selectedStep = stepIndex;
     auto& track = owner.seq.currentPattern().tracks[(size_t) owner.currentTrack];
     auto& step = track.steps[(size_t) stepIndex];
 
     if (e.mods.isPopupMenu())
     {
-        owner.seq.setStepActive(owner.currentTrack, stepIndex, ! step.active);
+        const bool newActive = ! step.active;
+        owner.seq.setStepActive(owner.currentTrack, stepIndex, newActive);
+        if (! newActive && owner.onStepDeactivated)
+            owner.onStepDeactivated(owner.currentTrack, stepIndex);
         owner.repaint();
         return;
     }
 
+    if (e.mods.isAltDown())
+    {
+        owner.selectedStep = stepIndex;
+        const int targetPad = (step.padOverride >= 0) ? step.padOverride : track.defaultPad;
+        if (owner.onStepClicked)
+            owner.onStepClicked(owner.currentTrack, stepIndex, targetPad);
+        owner.repaint();
+        return;
+    }
+
+    const bool isPadEditOpen = (owner.isPadEditActive && owner.isPadEditActive());
+
     if (! step.active)
     {
+        owner.selectedStep = stepIndex;
         owner.seq.setStepActive(owner.currentTrack, stepIndex, true);
         step.velocity = 0.85f;
         step.padOverride = -1;
         owner.repaint();
-    }
 
-    // Left click always opens Pad panel in P-Lock edit mode and auditions the step!
-    const int targetPad = (step.padOverride >= 0) ? step.padOverride : track.defaultPad;
-    if (owner.onStepClicked)
-        owner.onStepClicked(owner.currentTrack, stepIndex, targetPad);
-    owner.repaint();
+        const int targetPad = (step.padOverride >= 0) ? step.padOverride : track.defaultPad;
+        if (owner.onStepClicked)
+            owner.onStepClicked(owner.currentTrack, stepIndex, targetPad);
+    }
+    else
+    {
+        if (isPadEditOpen && owner.selectedStep != stepIndex)
+        {
+            owner.selectedStep = stepIndex;
+            const int targetPad = (step.padOverride >= 0) ? step.padOverride : track.defaultPad;
+            if (owner.onStepClicked)
+                owner.onStepClicked(owner.currentTrack, stepIndex, targetPad);
+            owner.repaint();
+        }
+        else
+        {
+            owner.seq.setStepActive(owner.currentTrack, stepIndex, false);
+            if (owner.onStepDeactivated)
+                owner.onStepDeactivated(owner.currentTrack, stepIndex);
+            owner.repaint();
+        }
+    }
 }
 
 void SequencerDrawer::StepButton::mouseDrag(const juce::MouseEvent& e)

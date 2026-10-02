@@ -299,14 +299,22 @@ Forge64Editor::Forge64Editor(Forge64Processor& p)
         return activePad();
     };
     sequencerDrawer->onFoldStateChanged = [this](bool) { layoutCenter(); };
+    sequencerDrawer->isPadEditActive = [this] { return currentPage == Page_PadEdit; };
     sequencerDrawer->onStepClicked = [this](int trackIdx, int stepIdx, int padIdx)
     {
         selectedPad = padIdx;
         if (sequencerDrawer)
             sequencerDrawer->setSelectedStep(stepIdx);
-        setPage(Page_PadEdit);
-        if (padEdit)
+        if (currentPage == Page_PadEdit && padEdit)
             padEdit->enterPLockMode(trackIdx, stepIdx);
+    };
+    sequencerDrawer->onStepDeactivated = [this](int trackIdx, int stepIdx)
+    {
+        if (currentPage == Page_PadEdit && padEdit)
+        {
+            if (padEdit->getPLockTrack() == trackIdx && padEdit->getPLockStep() == stepIdx)
+                padEdit->exitPLockMode();
+        }
     };
     addAndMakeVisible(sequencerDrawer.get());
 

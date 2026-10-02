@@ -42,6 +42,8 @@ private:
     std::unique_ptr<juce::Label> yDestLabel;
     std::unique_ptr<juce::ComboBox> yDestCombo;
     std::unique_ptr<juce::ToggleButton> springToggle;
+    std::unique_ptr<juce::Label> speedLabel;
+    std::unique_ptr<juce::Slider> speedSlider;
     std::unique_ptr<juce::Label> coordsLabel;
 
     float puckX = 0.5f;

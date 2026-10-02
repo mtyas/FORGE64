@@ -114,7 +114,7 @@ private:
         float eqLF = 200.f, eqLG = 0.f, eqMF = 1000.f, eqMG = 0.f, eqHF = 8000.f, eqHG = 0.f;
 
         // Compressor
-        float cThr = 0.f, cRat = 1.f, cAtk = 5.f, cRel = 100.f;
+        float cThr = 0.f, cRat = 1.f, cAtk = 5.f, cRel = 100.f, cMg = 0.f;
 
         // Insert Multi-FX
         int   ifxType = 0;

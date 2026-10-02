@@ -26,6 +26,8 @@ public:
 
     std::function<void(bool unfolded)> onFoldStateChanged;
     std::function<void(int trackIdx, int stepIdx, int padIdx)> onStepClicked;
+    std::function<void(int trackIdx, int stepIdx)> onStepDeactivated;
+    std::function<bool()> isPadEditActive;
     std::function<int()> getActivePad;
 
     void paint(juce::Graphics& g) override;

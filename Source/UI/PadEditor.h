@@ -33,6 +33,8 @@ public:
     void enterPLockMode(int trackIdx, int stepIdx);
     void exitPLockMode();
     bool isPLockMode() const { return inPLockMode; }
+    int  getPLockTrack() const { return pLockTrack; }
+    int  getPLockStep() const { return pLockStep; }
 
     std::function<void(int newPad)> onPadChanged;
 
