@@ -198,6 +198,8 @@ Each of the 8 tracks has an independent step length setting (**1 to 64 steps**).
 This creates continuously evolving polyrhythms and polymetric phase relationships that never sound repetitive.
 
 ### Quick-Edit Lock Modes
+
+Right-click any lock mode button to open its menu. **Reset all locks to default** clears only that variable across the selected track, including hidden steps. **Random locks** offers 10%, 25%, 50%, 75%, or 100% randomness for every step within the track length. Lower amounts keep values closer to their defaults. Neither action changes which steps are active, and both support Undo.
 The header row provides 8 color-coded lock edit buttons. Selecting a mode instantly changes the step sliders to edit that parameter directly on the step view:
 
 | Button | Mode | Color Code | Description | Range |

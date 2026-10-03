@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: 'Release tag (e.g. v0.93)'
+        description: 'Release tag (e.g. v0.95)'
         required: false
-        default: 'v0.93'
+        default: 'v0.95'
 
 permissions:
   contents: write
@@ -72,7 +72,7 @@ jobs:
       - name: Configure CMake (Windows)
         if: runner.os == 'Windows'
         run: |
-          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DFORGE64_COPY_VST3_AFTER_BUILD=OFF
 
       - name: Install macOS Dependencies
         if: runner.os == 'macOS'
@@ -101,6 +101,9 @@ jobs:
           if ($testExe) {
             Write-Host "Running $($testExe.FullName)..."
             & $testExe.FullName
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            & $testExe.FullName --bank-lock-regression
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           } else {
             Write-Host "test_audio.exe not found, skipping."
           }
@@ -112,6 +115,7 @@ jobs:
           if [ -n "$TEST_BIN" ] && [ -x "$TEST_BIN" ]; then
             echo "Running $TEST_BIN..."
             "$TEST_BIN"
+            "$TEST_BIN" --bank-lock-regression
           else
             echo "test_audio not found, skipping."
           fi
@@ -123,6 +127,7 @@ jobs:
           if [ -n "$TEST_BIN" ] && [ -x "$TEST_BIN" ]; then
             echo "Running xvfb-run -a $TEST_BIN..."
             xvfb-run -a "$TEST_BIN"
+            xvfb-run -a "$TEST_BIN" --bank-lock-regression
           else
             echo "test_audio not found, skipping."
           fi
@@ -222,6 +227,12 @@ jobs:
             - 🪟 **Windows (x64)**: [`FORGE64-Windows.zip`](https://github.com/mtyas/FORGE64/releases/download/${{ steps.tag_info.outputs.tag }}/FORGE64-Windows.zip)
             - 🍏 **macOS (Universal arm64 + x86_64)**: [`FORGE64-macOS.zip`](https://github.com/mtyas/FORGE64/releases/download/${{ steps.tag_info.outputs.tag }}/FORGE64-macOS.zip)
             - 🐧 **Linux (x64)**: [`FORGE64-Linux.tar.gz`](https://github.com/mtyas/FORGE64/releases/download/${{ steps.tag_info.outputs.tag }}/FORGE64-Linux.tar.gz)
+
+            ### Changes in v0.95
+            - Bank pads display their own named Lua DSP preset and retain their personal scripts.
+            - Right-click VEL, PROB, TIME, PITCH, DECAY, DRIVE, LEVEL, or PAN to reset that variable on the selected track, or randomize it with 10%, 25%, 50%, 75%, or 100% strength. Both actions support Undo and preserve the rhythm.
+            - Click the top-left FORGE64 logo for credits, the current version, GPL v3 licence, and links to mtyas.com, GitHub, and Ko-fi.
+            - Multi-core pad DSP processing, bank MIDI-note mapping, and sequencer audition/step insertion improvements.
 
             ### Highlights
             - **64 Independent Drum Cells**: 4 banks (A, B, C, D) with 64 distinct default sounds and module parameter maps.

@@ -1,11 +1,93 @@
 #include <JuceHeader.h>
 #include "../PluginProcessor.h"
 #include "../Presets/ModulePresetManager.h"
+#include "../Engine/StepLockOperations.h"
+#include "../UI/PadEditor.h"
 #include <iostream>
+
+static int testBankPresetsAndLocks()
+{
+    int failures = 0;
+    auto check = [&](bool ok, const char* what)
+    {
+        if (! ok) { ++failures; std::cout << "FAILED: " << what << std::endl; }
+    };
+    juce::Random random(12345);
+    const uint64_t flags[] = { 0, 0, 0, f64::LOCK_FLAG_PITCH, f64::LOCK_FLAG_DECAY,
+                              f64::LOCK_FLAG_DRIVE, f64::LOCK_FLAG_LEVEL, f64::LOCK_FLAG_PAN };
+    for (int mode = 0; mode < 8; ++mode)
+    {
+        f64::TrackData track;
+        track.stepCount = 32;
+        for (auto& step : track.steps)
+        {
+            step.active = true;
+            step.padOverride = 7;
+            step.lockMask = f64::LOCK_FLAG_TONE | f64::LOCK_FLAG_PAD_OVERRIDE | flags[mode];
+            step.hasLocks = true;
+            step.pLockTone = 0.73f;
+        }
+        const auto parameter = static_cast<f64::StepLockParameter>(mode);
+        f64::applyTrackLocks(track, parameter, true, 0.25f, random);
+        for (const auto& step : track.steps)
+            check(step.active && step.padOverride == 7 && step.pLockTone == 0.73f, "randomization preserves rhythm and other locks");
+        check(track.steps[32].velocity == 0.85f && track.steps[32].pLockPitch == 0.f, "randomization respects track length");
+        f64::applyTrackLocks(track, parameter, false, 0.f, random);
+        for (const auto& step : track.steps)
+            check(step.lockMask == (f64::LOCK_FLAG_TONE | f64::LOCK_FLAG_PAD_OVERRIDE) && step.hasLocks,
+                  "reset clears only the requested lock, including hidden steps");
+        const auto& step = track.steps[0];
+        check(step.velocity == 0.85f && step.probability == 1.f && step.microtiming == 0.f
+              && step.pLockPitch == 0.f && step.pLockDecay == 1.f && step.pLockDrive == 0.f
+              && step.pLockLevel == 1.f && step.pLockPan == 0.f, "reset restores default values");
+        track.steps[0].lockMask = flags[mode] | f64::LOCK_FLAG_PAD_OVERRIDE;
+        f64::applyTrackLocks(track, parameter, false, 0.f, random);
+        if (flags[mode] != 0) check(! track.steps[0].hasLocks, "last parameter reset removes hasLocks");
+    }
+    struct Services : f64::ModRingKnob::Services
+    {
+        f64::ModMatrix* matrix() override { return nullptr; }
+        void connectFromDrag(int, const juce::String&) override {}
+        void registerKnob(f64::ModRingKnob*) override {}
+        void unregisterKnob(f64::ModRingKnob*) override {}
+    } services;
+    auto proc = std::make_unique<f64::Forge64Processor>();
+    const auto file = juce::File::getCurrentWorkingDirectory().getChildFile("banks presets/05_Roland_TR808.bnk");
+    std::function<juce::ComboBox*(juce::Component&)> findPreset = [&](juce::Component& component) -> juce::ComboBox*
+    {
+        if (auto* combo = dynamic_cast<juce::ComboBox*>(&component))
+            if (combo->getTooltip() == "Sound Preset / Algorithm") return combo;
+        for (auto* child : component.getChildren())
+            if (auto* result = findPreset(*child)) return result;
+        return nullptr;
+    };
+    for (int bank = 0; bank < 4; ++bank)
+    {
+        check(proc->presets().loadBank(file, bank), "bank loads");
+        for (int slot = 0; slot < 16; ++slot)
+        {
+            const int pad = bank * 16 + slot;
+            const auto state = proc->grid().padState(pad);
+            const auto script = state.getProperty("script").toString();
+            f64::PadEditor editor(*proc, services, pad, [] {});
+            auto* combo = findPreset(editor);
+            check(combo != nullptr && combo->getText() == state.getProperty("name").toString(), "pad's personal preset displays its name");
+            if (combo != nullptr)
+            {
+                combo->onChange();
+                check(state.getProperty("script").toString() == script, "reselecting personal preset keeps its Lua script");
+            }
+        }
+    }
+    std::cout << "Bank preset / step lock regression tests: " << failures << " failures." << std::endl;
+    return failures == 0 ? 0 : 1;
+}
 
 int main(int argc, char* argv[])
 {
     juce::ScopedJuceInitialiser_GUI guiInit;
+    if (argc > 1 && juce::String(argv[1]) == "--bank-lock-regression")
+        return testBankPresetsAndLocks();
 
     if (argc > 1 && juce::String(argv[1]) == "--bench")
     {

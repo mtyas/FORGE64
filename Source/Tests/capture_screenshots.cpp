@@ -16,6 +16,26 @@ int main(int argc, char* argv[])
     auto* f64Ed = dynamic_cast<f64::Forge64Editor*>(editor.get());
     f64Ed->setSize(proc->lastUIWidth, proc->lastUIHeight);
 
+    if (argc > 1 && juce::String(argv[1]) == "--about-only")
+    {
+        for (auto* child : f64Ed->getChildren())
+            if (auto* button = dynamic_cast<juce::Button*>(child); button != nullptr && button->getName() == "About FORGE64")
+                button->onClick();
+        auto image = f64Ed->createComponentSnapshot(f64Ed->getLocalBounds(), true, 1.f);
+        auto file = juce::File::getCurrentWorkingDirectory().getChildFile("build_win/FORGE64-info.png");
+        juce::FileOutputStream stream(file);
+        juce::PNGImageFormat png;
+        if (! png.writeImageToStream(image, stream)) return 1;
+        std::cout << "Saved: " << file.getFullPathName() << std::endl;
+        for (auto* child : f64Ed->getChildren())
+            if (child->getName() == "FORGE64 credits" && child->isVisible())
+            {
+                child->keyPressed(juce::KeyPress(juce::KeyPress::escapeKey));
+                return child->isVisible() ? 1 : 0;
+            }
+        return 1;
+    }
+
     auto capturePage = [&](f64::Forge64Editor::ActivePage page, const juce::String& filename)
     {
         f64Ed->setPage(page);

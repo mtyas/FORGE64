@@ -54,6 +54,7 @@ private:
     void showKitMenu();
     void showBankMenu();
     void showPadMenu();
+    void showInfoScreen();
     void doLoadKit();
     void doSaveKitAs();
     void doLoadBank();
@@ -65,7 +66,9 @@ private:
 
     Forge64Processor& processor;
 
-    std::unique_ptr<juce::Label> logo, tagline;
+    std::unique_ptr<juce::Button> logo;
+    std::unique_ptr<juce::Label> tagline;
+    std::unique_ptr<juce::Component> infoScreen;
     std::array<std::unique_ptr<juce::TextButton>, kNumBanks> bankBtns;
     std::unique_ptr<juce::TextButton> gridNavBtn, editNavBtn, mixerNavBtn, seqNavBtn, performNavBtn;
     std::unique_ptr<juce::Button> undoBtn, redoBtn, midiLearnBtn;

@@ -44,6 +44,7 @@ private:
 
     void timerCallback() override;
     void showPageContextMenu(int pageIdx, const juce::MouseEvent& e);
+    void showLockContextMenu(StepLockViewMode mode, juce::Component* button);
 
     Forge64Processor& proc;
     StepSequencer& seq;

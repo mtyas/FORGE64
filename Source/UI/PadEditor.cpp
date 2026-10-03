@@ -899,22 +899,72 @@ void PadEditor::syncModuleSelectionQuiet()
 
     currentModuleId = padModId;
     auto mod = ModulePresetManager::getModuleById(padModId);
+    const auto embeddedScript = st.getProperty("script").toString();
+    if (mod.id != padModId && embeddedScript.isNotEmpty())
+    {
+        // Unknown bank modules must not inherit the first factory module's identity.
+        mod.id = padModId;
+        mod.name = st.getProperty("name", "Custom Lua").toString();
+        mod.category = st.getProperty("category", "Custom Lua").toString();
+        mod.p1Label = mod.p2Label = mod.p3Label = mod.p4Label = mod.p5Label = {};
+    }
 
     // Sync Category combo
     if (categoryCombo != nullptr)
     {
+        bool found = false;
         for (int i = 0; i < categoryCombo->getNumItems(); ++i)
         {
             if (categoryCombo->getItemText(i) == mod.category)
             {
                 categoryCombo->setSelectedId(i + 1, juce::dontSendNotification);
+                found = true;
                 break;
             }
+        }
+        if (! found)
+        {
+            const int id = categoryCombo->getNumItems() + 1;
+            categoryCombo->addItem(mod.category, id);
+            categoryCombo->setSelectedId(id, juce::dontSendNotification);
         }
     }
 
     // Populate category sounds without loading or overwriting APVTS
     currentCategorySounds = ModulePresetManager::getSoundsForCategory(mod.category);
+    if (embeddedScript.isNotEmpty())
+    {
+        // Keep a portable preset in the pad state itself: no installed module is
+        // required to display or reselect a bank's personal DSP algorithm.
+        ModulePresetManager::CategorySoundEntry entry;
+        entry.moduleId = padModId;
+        entry.displayName = st.getProperty("name", "Custom Lua").toString();
+        auto& preset = entry.preset;
+        preset.name = entry.displayName;
+        preset.moduleId = padModId;
+        preset.category = mod.category;
+        preset.scriptCode = embeddedScript;
+        auto param = [this](const char* id, float fallback)
+        {
+            auto* value = proc.getAPVTS().getRawParameterValue(padParamId(pad, id));
+            return value != nullptr ? value->load() : fallback;
+        };
+        preset.tune = param("tune", 0.f);
+        preset.decay = param("dec", 0.5f);
+        preset.drive = param("drv", 0.f);
+        preset.p1 = param("fx1", 0.5f); preset.p2 = param("fx2", 0.5f);
+        preset.p3 = param("fx3", 0.5f); preset.p4 = param("fx4", 0.5f); preset.p5 = param("fx5", 0.5f);
+        preset.vcfType = (int) param("vcft", 0.f);
+        preset.vcfCut = param("vcfc", 20000.f);
+        preset.vcfRes = param("vcfr", 0.707f);
+        preset.vcfEnv = param("vcfe", 0.f);
+        preset.p1Label = st.getProperty("p1Label").toString();
+        preset.p2Label = st.getProperty("p2Label").toString();
+        preset.p3Label = st.getProperty("p3Label").toString();
+        preset.p4Label = st.getProperty("p4Label").toString();
+        preset.p5Label = st.getProperty("p5Label").toString();
+        currentCategorySounds.push_back(std::move(entry));
+    }
     if (soundPresetCombo != nullptr)
     {
         soundPresetCombo->clear(juce::dontSendNotification);
@@ -925,6 +975,7 @@ void PadEditor::syncModuleSelectionQuiet()
             if (currentCategorySounds[(size_t) i].moduleId == mod.id)
                 selectedIdx = i + 1;
         }
+        if (embeddedScript.isNotEmpty()) selectedIdx = (int) currentCategorySounds.size();
         soundPresetCombo->setSelectedId(selectedIdx, juce::dontSendNotification);
     }
 
@@ -982,6 +1033,8 @@ void PadEditor::loadCategorySound(int soundIndex)
     const auto& entry = currentCategorySounds[(size_t) soundIndex];
     currentModuleId = entry.moduleId;
     auto mod = ModulePresetManager::getModuleById(entry.moduleId);
+    if (mod.id != entry.moduleId)
+        mod.p1Label = mod.p2Label = mod.p3Label = mod.p4Label = mod.p5Label = {};
 
     // Determine script to use: prefer preset's scriptCode, fallback to mod's scriptCode
     juce::String scriptToUse = entry.preset.scriptCode;
@@ -1012,6 +1065,7 @@ void PadEditor::loadCategorySound(int soundIndex)
     // Save moduleId and labels to pad state
     auto padSt = proc.grid().padState(pad);
     padSt.setProperty("moduleId", entry.moduleId, nullptr);
+    padSt.setProperty("category", entry.preset.category.isNotEmpty() ? entry.preset.category : mod.category, nullptr);
     padSt.setProperty("p1Label", l1, nullptr);
     padSt.setProperty("p2Label", l2, nullptr);
     padSt.setProperty("p3Label", l3, nullptr);

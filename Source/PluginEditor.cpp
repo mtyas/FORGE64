@@ -3,6 +3,103 @@
 
 namespace f64 {
 
+class LogoButton : public juce::Button
+{
+public:
+    LogoButton() : juce::Button("About FORGE64")
+    {
+        setTooltip("Credits, links, licence and version");
+        setMouseCursor(juce::MouseCursor::PointingHandCursor);
+    }
+
+    void paintButton(juce::Graphics& g, bool over, bool down) override
+    {
+        g.setFont(uiFont(22.f, true));
+        g.setColour(over || down ? ui::accentHot().brighter(0.2f) : ui::accentHot());
+        g.drawText("FORGE64", getLocalBounds().reduced(1, 0), juce::Justification::centredLeft);
+    }
+};
+
+class InfoScreen : public juce::Component
+{
+public:
+    InfoScreen()
+    {
+        setName("FORGE64 credits");
+        setWantsKeyboardFocus(true);
+        setAlwaysOnTop(true);
+        const juce::String urls[] = { "https://mtyas.com", "https://github.com/mtyas/FORGE64",
+                                     "https://github.com/mtyas/FORGE64/blob/master/LICENSE", "https://ko-fi.com/mtyas" };
+        const juce::String labels[] = { "mtyas.com", "github.com/mtyas/FORGE64",
+                                       "GNU General Public License (GPL v3)", "ko-fi.com/mtyas" };
+        for (size_t i = 0; i < links.size(); ++i)
+        {
+            links[i] = std::make_unique<juce::HyperlinkButton>(labels[i], juce::URL(urls[i]));
+            links[i]->setFont(uiFont(14.f), false, juce::Justification::centredLeft);
+            links[i]->setColour(juce::HyperlinkButton::textColourId, ui::accentHot());
+            links[i]->setTooltip(urls[i]);
+            addAndMakeVisible(*links[i]);
+        }
+        close.setButtonText("Close");
+        ui::styleButton(close);
+        close.onClick = [this] { dismiss(); };
+        addAndMakeVisible(close);
+    }
+
+    void paint(juce::Graphics& g) override
+    {
+        g.fillAll(juce::Colours::black.withAlpha(0.68f));
+        const auto panel = panelBounds().toFloat();
+        ui::drawForgedPlate(g, panel, 10.f, true);
+        g.setColour(ui::accentHot());
+        g.setFont(uiFont(30.f, true));
+        g.drawText("FORGE64", panelBounds().withTrimmedTop(20).removeFromTop(40), juce::Justification::centred);
+        juce::String version = JucePlugin_VersionString;
+        if (version.endsWith(".0")) version = version.dropLastCharacters(2);
+        g.setFont(uiFont(12.f));
+        g.setColour(ui::dim());
+        g.drawText("VERSION " + version, panelBounds().withTrimmedTop(62).removeFromTop(22), juce::Justification::centred);
+        g.setFont(uiFont(16.f, true));
+        g.setColour(ui::txt());
+        g.drawText("Matthew Tyas (mtyas)", panelBounds().withTrimmedTop(96).removeFromTop(26), juce::Justification::centred);
+        g.setColour(ui::line());
+        g.drawHorizontalLine(panelBounds().getY() + 138, panel.getX() + 28.f, panel.getRight() - 28.f);
+    }
+
+    void resized() override
+    {
+        const auto panel = panelBounds();
+        for (size_t i = 0; i < links.size(); ++i)
+            links[i]->setBounds(panel.getX() + 28, panel.getY() + 153 + (int) i * 31, panel.getWidth() - 56, 28);
+        close.setBounds(panel.getCentreX() - 45, panel.getBottom() - 48, 90, 28);
+    }
+
+    void mouseDown(const juce::MouseEvent& e) override
+    {
+        if (! panelBounds().contains(e.getPosition())) dismiss();
+    }
+
+    bool keyPressed(const juce::KeyPress& key) override
+    {
+        if (key == juce::KeyPress::escapeKey) { dismiss(); return true; }
+        return false;
+    }
+
+private:
+    juce::Rectangle<int> panelBounds() const
+    {
+        return juce::Rectangle<int>(380, 350).withCentre(getLocalBounds().getCentre());
+    }
+    void dismiss()
+    {
+        setVisible(false);
+        if (auto* parent = getParentComponent(); parent != nullptr && parent->isShowing())
+            parent->grabKeyboardFocus();
+    }
+    std::array<std::unique_ptr<juce::HyperlinkButton>, 4> links;
+    juce::TextButton close;
+};
+
 class ToolIconButton : public juce::Button
 {
 public:
@@ -205,8 +302,8 @@ Forge64Editor::Forge64Editor(Forge64Processor& p)
     setResizable(true, true);
     setResizeLimits(980, 640, 2560, 1600);
 
-    logo = ui::makeLabel("FORGE64", 22.f, ui::accentHot());
-    logo->setFont(uiFont(22.f, true));
+    logo = std::make_unique<LogoButton>();
+    logo->onClick = [this] { showInfoScreen(); };
     addAndMakeVisible(logo.get());
 
     tagline = ui::makeLabel("A CREATION OF MTYAS", 8.0f, ui::dim().brighter(0.2f));
@@ -429,6 +526,7 @@ void Forge64Editor::resized()
 {
     const int w = getWidth();
     const int h = getHeight();
+    if (infoScreen) infoScreen->setBounds(getLocalBounds());
 
     if (isInitialized)
     {
@@ -481,6 +579,19 @@ void Forge64Editor::resized()
 
     if (modPanel) modPanel->setBounds(w - 350, 54, 350, h - 54);
     layoutCenter();
+}
+
+void Forge64Editor::showInfoScreen()
+{
+    if (! infoScreen)
+    {
+        infoScreen = std::make_unique<InfoScreen>();
+        addChildComponent(*infoScreen);
+    }
+    infoScreen->setBounds(getLocalBounds());
+    infoScreen->setVisible(true);
+    infoScreen->toFront(false);
+    if (infoScreen->isShowing()) infoScreen->grabKeyboardFocus();
 }
 
 bool Forge64Editor::keyPressed(const juce::KeyPress& key)

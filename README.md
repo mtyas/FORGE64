@@ -20,6 +20,12 @@
 
 ## 🥁 Sonic Punch & Overview
 
+### New in v0.95
+
+- Loaded bank pads show their own named Lua DSP preset and retain their personal scripts.
+- Right-click a sequencer lock button to reset that variable on the selected track or randomize it at 10–100% strength. Both actions support Undo and preserve the rhythm.
+- Click the top-left FORGE64 logo for credits, version information, GPL v3 licence, and website, GitHub, and Ko-fi links.
+
 **FORGE64** is a 64-pad modular drum workstation, procedural percussion synthesizer, and sequencing powerhouse built with modern C++20 and the JUCE 8 framework. 
 
 Blending the immediate tactile workflow of classic MPC and Elektron hardware drum machines with 31 curated real-time mathematical DSP engines, FORGE64 creates punchy, organic, and aggressive drum grooves from scratch. From sub-shaking 808/909 kicks and acoustic Poisson-distribution snare wires to 48-mode physical modal cymbals, 303 acid lines, and Karplus-Strong string strikes, FORGE64 eliminates static sample fatigue.

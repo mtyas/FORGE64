@@ -6,6 +6,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 option(FORGE64_BUILD_CLAP "Also build the CLAP target (clap-juce-extensions)" ON)
 option(FORGE64_SCRIPTING  "Embed the Lua script engine" ON)
+option(FORGE64_COPY_VST3_AFTER_BUILD "Copy the Windows VST3 to the user plugin directory" ON)
 
 include(FetchContent)
 
@@ -99,7 +100,7 @@ target_link_libraries(Forge64 PRIVATE
   juce::juce_dsp
   juce::juce_recommended_config_flags)
 
-if(WIN32)
+if(WIN32 AND FORGE64_COPY_VST3_AFTER_BUILD)
   add_custom_command(TARGET Forge64_VST3 POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
       "${CMAKE_CURRENT_BINARY_DIR}/Forge64_artefacts/$<CONFIG>/VST3/FORGE64.vst3"
@@ -159,6 +160,5 @@ if(FORGE64_SCRIPTING)
   target_compile_definitions(capture_screenshots PRIVATE FORGE64_SCRIPTING=1)
   target_link_libraries(capture_screenshots PRIVATE lua54)
 endif()
-
 
 

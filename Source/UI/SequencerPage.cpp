@@ -1,6 +1,7 @@
 #include "SequencerPage.h"
 #include "../PluginProcessor.h"
 #include "../Presets/SequencePresetManager.h"
+#include "../Engine/StepLockOperations.h"
 
 namespace f64 {
 
@@ -1236,12 +1237,29 @@ SequencerPage::SequencerPage(Forge64Processor& processor)
     lockModeLabel = ui::makeLabel("LOCK:", 10.f, ui::dim());
     addAndMakeVisible(lockModeLabel.get());
 
+    class LockButton : public juce::TextButton
+    {
+    public:
+        using juce::TextButton::TextButton;
+        std::function<void()> onContextMenu;
+        void mouseDown(const juce::MouseEvent& e) override
+        {
+            if (e.mods.isPopupMenu())
+            {
+                if (onContextMenu) onContextMenu();
+                return;
+            }
+            juce::TextButton::mouseDown(e);
+        }
+    };
     auto setupLockBtn = [this](std::unique_ptr<juce::TextButton>& btn, const char* name, const char* tip, StepLockViewMode mode)
     {
-        btn = std::make_unique<juce::TextButton>(name);
+        auto lockButton = std::make_unique<LockButton>(name);
+        lockButton->onContextMenu = [this, mode, button = lockButton.get()] { showLockContextMenu(mode, button); };
+        btn = std::move(lockButton);
         ui::styleButton(*btn);
         btn->setLookAndFeel(&compactBtnLnF);
-        btn->setTooltip(tip);
+        btn->setTooltip(juce::String(tip) + " (Right-click to reset/randomize this variable on the selected track)");
         btn->onClick = [this, mode] { setLockViewMode(mode); };
         addAndMakeVisible(btn.get());
     };
@@ -1576,6 +1594,35 @@ void SequencerPage::refreshFromSequencer()
 void SequencerPage::paint(juce::Graphics& g)
 {
     g.fillAll(ui::bg());
+}
+
+void SequencerPage::showLockContextMenu(StepLockViewMode mode, juce::Component* button)
+{
+    const int patternIndex = seq.selectedPatternIndex();
+    const int trackIndex = seq.selectedTrackIndex();
+    juce::PopupMenu menu;
+    menu.addSectionHeader("Track " + juce::String(trackIndex + 1) + " - " + button->getName());
+    menu.addItem(1, "Reset all locks to default");
+    juce::PopupMenu amounts;
+    amounts.addSectionHeader("Amount of randomness");
+    for (int percent : { 10, 25, 50, 75, 100 })
+        amounts.addItem(100 + percent, juce::String(percent) + "%");
+    menu.addSubMenu("Random locks", amounts);
+    menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(button),
+        [self = juce::Component::SafePointer<SequencerPage>(this), mode, patternIndex, trackIndex](int result)
+        {
+            if (self == nullptr || result == 0) return;
+            auto before = self->seq.getPatternCopy(patternIndex);
+            auto after = std::make_unique<PatternData>(*before);
+            juce::Random random;
+            applyTrackLocks(after->tracks[(size_t) trackIndex], static_cast<StepLockParameter>(mode),
+                            result != 1, result == 1 ? 0.f : (result - 100) / 100.f, random);
+            self->proc.getUndoManager().beginNewTransaction(result == 1 ? "Reset step locks" : "Randomize step locks");
+            self->proc.getUndoManager().perform(new SequencerPatternAction(self->seq, patternIndex, std::move(before), std::move(after)));
+            if (self->pLockPopover != nullptr) self->pLockPopover->setVisible(false);
+            self->refreshFromSequencer();
+            self->repaint();
+        });
 }
 
 void SequencerPage::setLockViewMode(StepLockViewMode mode)
