@@ -29,6 +29,7 @@ public:
     std::function<void(int trackIdx, int stepIdx)> onStepDeactivated;
     std::function<bool()> isPadEditActive;
     std::function<int()> getActivePad;
+    std::function<int()> getEditingStep;
 
     void paint(juce::Graphics& g) override;
     void resized() override;

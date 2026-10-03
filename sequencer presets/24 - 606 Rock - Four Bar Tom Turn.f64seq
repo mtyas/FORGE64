@@ -1,0 +1,76 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<PATTERN idx="0" name="606 Rock - Four Bar Tom Turn">
+  <TRACK idx="0" name="Bass Drum" pad="0" len="64" speed="1.0" swing="0.0" mute="0" solo="0">
+    <STEP idx="0" act="1" vel="0.900000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+    <STEP idx="8" act="1" vel="0.900000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+    <STEP idx="10" act="1" vel="0.900000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+    <STEP idx="16" act="1" vel="0.900000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+    <STEP idx="24" act="1" vel="0.900000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+    <STEP idx="26" act="1" vel="0.900000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+    <STEP idx="32" act="1" vel="0.900000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+    <STEP idx="40" act="1" vel="0.900000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+    <STEP idx="42" act="1" vel="0.900000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+    <STEP idx="48" act="1" vel="0.900000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+    <STEP idx="56" act="1" vel="0.900000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+    <STEP idx="58" act="1" vel="0.900000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+  </TRACK>
+  <TRACK idx="1" name="Snare Drum" pad="1" len="64" speed="1.0" swing="0.0" mute="0" solo="0">
+    <STEP idx="4" act="1" vel="0.880000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+    <STEP idx="12" act="1" vel="0.880000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+    <STEP idx="20" act="1" vel="0.880000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+    <STEP idx="28" act="1" vel="0.880000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+    <STEP idx="36" act="1" vel="0.880000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+    <STEP idx="44" act="1" vel="0.880000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+    <STEP idx="52" act="1" vel="0.880000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+    <STEP idx="60" act="1" vel="0.880000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+    <STEP idx="59" act="1" vel="0.320000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+  </TRACK>
+  <TRACK idx="2" name="Closed Hi Hat" pad="4" len="64" speed="1.0" swing="0.0" mute="0" solo="0">
+    <STEP idx="0" act="1" vel="0.720000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+    <STEP idx="2" act="1" vel="0.600000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+    <STEP idx="4" act="1" vel="0.720000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+    <STEP idx="6" act="1" vel="0.600000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+    <STEP idx="8" act="1" vel="0.720000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+    <STEP idx="10" act="1" vel="0.600000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+    <STEP idx="12" act="1" vel="0.720000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+    <STEP idx="14" act="1" vel="0.600000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+    <STEP idx="16" act="1" vel="0.720000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+    <STEP idx="18" act="1" vel="0.600000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+    <STEP idx="20" act="1" vel="0.720000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+    <STEP idx="22" act="1" vel="0.600000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+    <STEP idx="24" act="1" vel="0.720000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+    <STEP idx="26" act="1" vel="0.600000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+    <STEP idx="28" act="1" vel="0.720000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+    <STEP idx="32" act="1" vel="0.720000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+    <STEP idx="34" act="1" vel="0.600000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+    <STEP idx="36" act="1" vel="0.720000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+    <STEP idx="38" act="1" vel="0.600000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+    <STEP idx="40" act="1" vel="0.720000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+    <STEP idx="42" act="1" vel="0.600000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+    <STEP idx="44" act="1" vel="0.720000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+    <STEP idx="48" act="1" vel="0.720000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+    <STEP idx="50" act="1" vel="0.600000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+    <STEP idx="52" act="1" vel="0.720000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+    <STEP idx="54" act="1" vel="0.600000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+    <STEP idx="56" act="1" vel="0.720000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+    <STEP idx="58" act="1" vel="0.600000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+    <STEP idx="60" act="1" vel="0.720000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+    <STEP idx="62" act="1" vel="0.600000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+  </TRACK>
+  <TRACK idx="3" name="Open Hi Hat" pad="5" len="64" speed="1.0" swing="0.0" mute="0" solo="0">
+    <STEP idx="30" act="1" vel="0.570000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+    <STEP idx="46" act="1" vel="0.600000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+  </TRACK>
+  <TRACK idx="4" name="Low Tom" pad="2" len="64" speed="1.0" swing="0.0" mute="0" solo="0">
+    <STEP idx="62" act="1" vel="0.750000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+    <STEP idx="63" act="1" vel="0.620000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+  </TRACK>
+  <TRACK idx="5" name="High Tom" pad="3" len="64" speed="1.0" swing="0.0" mute="0" solo="0">
+    <STEP idx="60" act="1" vel="0.660000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+    <STEP idx="61" act="1" vel="0.480000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+  </TRACK>
+  <TRACK idx="6" name="Cymbal" pad="6" len="64" speed="1.0" swing="0.0" mute="0" solo="0">
+    <STEP idx="0" act="1" vel="0.670000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+  </TRACK>
+  <TRACK idx="7" name="Snare Brush [Var]" pad="10" len="64" speed="1.0" swing="0.0" mute="0" solo="0" />
+</PATTERN>

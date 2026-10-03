@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(FORGE64 VERSION 0.93.0 LANGUAGES C CXX)
+project(FORGE64 VERSION 0.95.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -44,7 +44,7 @@ endif()
 # ---------------------------------------------------------------- Plugin
 juce_add_plugin(Forge64
   COMPANY_NAME               "mtyas"
-  VERSION                    "0.93.0"
+  VERSION                    "0.95.0"
   IS_SYNTH                   TRUE
   NEEDS_MIDI_INPUT           TRUE
   PRODUCES_MIDI_OUTPUT       FALSE
@@ -98,6 +98,15 @@ target_link_libraries(Forge64 PRIVATE
   juce::juce_data_structures
   juce::juce_dsp
   juce::juce_recommended_config_flags)
+
+if(WIN32)
+  add_custom_command(TARGET Forge64_VST3 POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+      "${CMAKE_CURRENT_BINARY_DIR}/Forge64_artefacts/$<CONFIG>/VST3/FORGE64.vst3"
+      "$ENV{LOCALAPPDATA}/Programs/Common/VST3/FORGE64.vst3"
+    COMMENT "Copying FORGE64.vst3 to user VST3 directory"
+  )
+endif()
 
 if(FORGE64_SCRIPTING)
   target_compile_definitions(Forge64 PRIVATE FORGE64_SCRIPTING=1)

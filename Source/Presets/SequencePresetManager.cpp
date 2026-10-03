@@ -89,10 +89,41 @@ bool SequencePresetManager::exportPresetToFile(const juce::File& file, const Ste
     return xml->writeTo(file);
 }
 
+static juce::Array<juce::File> getCandidatePresetDirs(const juce::String& subFolderName)
+{
+    juce::Array<juce::File> candidates;
+    auto exe = juce::File::getSpecialLocation(juce::File::currentExecutableFile);
+    auto appDir = exe.getParentDirectory();
+
+    candidates.add(juce::File("F:/forge64").getChildFile(subFolderName));
+    candidates.add(appDir.getChildFile(subFolderName));
+    candidates.add(appDir.getParentDirectory().getChildFile(subFolderName));
+    candidates.add(appDir.getParentDirectory().getParentDirectory().getChildFile(subFolderName));
+    candidates.add(appDir.getParentDirectory().getParentDirectory().getParentDirectory().getChildFile(subFolderName));
+    candidates.add(juce::File::getCurrentWorkingDirectory().getChildFile(subFolderName));
+
+    return candidates;
+}
+
 void SequencePresetManager::initializePresetsOnDisk()
 {
-    auto dir = getPresetsDirectory();
-    if (dir.findChildFiles(juce::File::findFiles, false, "*.f64seq").isEmpty())
+    auto targetDir = getPresetsDirectory();
+
+    for (const auto& cand : getCandidatePresetDirs("sequencer presets"))
+    {
+        if (cand.isDirectory())
+        {
+            auto sourceFiles = cand.findChildFiles(juce::File::findFiles, false, "*.f64seq");
+            for (const auto& sf : sourceFiles)
+            {
+                auto destFile = targetDir.getChildFile(sf.getFileName());
+                if (! destFile.existsAsFile())
+                    sf.copyFileTo(destFile);
+            }
+        }
+    }
+
+    if (targetDir.findChildFiles(juce::File::findFiles, false, "*.f64seq").isEmpty())
     {
         auto tempSeq = std::make_unique<StepSequencer>();
         tempSeq->loadFactoryPreset(0);

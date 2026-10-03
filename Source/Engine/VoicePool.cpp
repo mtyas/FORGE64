@@ -312,6 +312,9 @@ void VoicePool::renderSegment(Voice& v, float* L, float* R, int from, int to,
     const float drumAtkCoef = 1.f - std::exp(-1.f / (0.0015f * (float) sr));
     const float ampMod = juce::jmax(0.f, 1.f + vm.amp);
     const bool isLuaSynth = (v.srcType == SRC_LUA || (grid != nullptr && grid->runtime(v.pad).scriptOn.load()));
+    const float drumRelSec = isLuaSynth ? juce::jmax(0.12f, pp.decay * 1.8f)
+                                        : juce::jmax(0.005f, pp.decay);
+    const float drumRelCoef = std::exp(-1.f / (drumRelSec * (float) sr));
 
     const float* sL = nullptr;
     const float* sR = nullptr;
@@ -385,10 +388,7 @@ void VoicePool::renderSegment(Voice& v, float* L, float* R, int from, int to,
             }
             else if (! (v.sustain && ! v.choked))
             {
-                const float relSec = isLuaSynth ? juce::jmax(0.12f, pp.decay * 1.8f)
-                                                : juce::jmax(0.005f, pp.decay);
-                const float curDecCoef = std::exp(-1.f / (relSec * (float) sr));
-                v.env *= curDecCoef;
+                v.env *= drumRelCoef;
             }
         }
 
@@ -438,57 +438,57 @@ void VoicePool::renderSegment(Voice& v, float* L, float* R, int from, int to,
         }
         else
         {
-            // Procedural drum synthesis
+            // Procedural drum synthesis (only when not synthesized by Lua DSP)
             float sig = 0.f;
-            const float tuneVal = (float) pitchSt;
-            const float decVal = pp.decay;
-            switch (v.srcType)
-            {
-                case SRC_KICK:
-                    sig = DrumSynth::renderKick(v.synth, sr, tuneVal, decVal, pp.fx1, pp.fx2, pp.fx3, pp.drive);
-                    break;
-                case SRC_SNARE:
-                    sig = DrumSynth::renderSnare(v.synth, sr, tuneVal, decVal, pp.fx1, pp.fx2, pp.fx3);
-                    break;
-                case SRC_HAT_CLOSED:
-                    sig = DrumSynth::renderHiHat(v.synth, sr, tuneVal, decVal, pp.fx1, pp.fx2, false);
-                    break;
-                case SRC_HAT_OPEN:
-                    sig = DrumSynth::renderHiHat(v.synth, sr, tuneVal, decVal, pp.fx1, pp.fx2, true);
-                    break;
-                case SRC_CLAP:
-                    sig = DrumSynth::renderClap(v.synth, sr, tuneVal, decVal, pp.fx1, pp.fx2);
-                    break;
-                case SRC_TOM:
-                    sig = DrumSynth::renderTom(v.synth, sr, tuneVal, decVal, pp.fx1, pp.fx2);
-                    break;
-                case SRC_CRASH:
-                    sig = DrumSynth::renderCrash(v.synth, sr, tuneVal, decVal, pp.fx1, pp.fx2);
-                    break;
-                case SRC_RIDE:
-                    sig = DrumSynth::renderRide(v.synth, sr, tuneVal, decVal, pp.fx1, pp.fx2);
-                    break;
-                case SRC_RIM:
-                    sig = DrumSynth::renderRim(v.synth, sr, tuneVal, decVal, pp.fx1, pp.fx2);
-                    break;
-                case SRC_BELL:
-                    sig = DrumSynth::renderBell(v.synth, sr, tuneVal, decVal, pp.fx1, pp.fx2);
-                    break;
-                case SRC_CONGA:
-                    sig = DrumSynth::renderConga(v.synth, sr, tuneVal, decVal, pp.fx1, pp.fx2);
-                    break;
-                default:
-                    sig = DrumSynth::renderTom(v.synth, sr, tuneVal, decVal, 0.4f, 0.4f);
-                    break;
-            }
             if (v.srcType == SRC_LUA || (grid != nullptr && grid->runtime(v.pad).scriptOn.load()))
             {
-                // When Lua DSP generates the audio, avoid mixing DrumSynth
+                // When Lua DSP generates the audio, avoid executing DrumSynth math
                 a = 0.f;
                 b = 0.f;
             }
             else
             {
+                const float tuneVal = (float) pitchSt;
+                const float decVal = pp.decay;
+                switch (v.srcType)
+                {
+                    case SRC_KICK:
+                        sig = DrumSynth::renderKick(v.synth, sr, tuneVal, decVal, pp.fx1, pp.fx2, pp.fx3, pp.drive);
+                        break;
+                    case SRC_SNARE:
+                        sig = DrumSynth::renderSnare(v.synth, sr, tuneVal, decVal, pp.fx1, pp.fx2, pp.fx3);
+                        break;
+                    case SRC_HAT_CLOSED:
+                        sig = DrumSynth::renderHiHat(v.synth, sr, tuneVal, decVal, pp.fx1, pp.fx2, false);
+                        break;
+                    case SRC_HAT_OPEN:
+                        sig = DrumSynth::renderHiHat(v.synth, sr, tuneVal, decVal, pp.fx1, pp.fx2, true);
+                        break;
+                    case SRC_CLAP:
+                        sig = DrumSynth::renderClap(v.synth, sr, tuneVal, decVal, pp.fx1, pp.fx2);
+                        break;
+                    case SRC_TOM:
+                        sig = DrumSynth::renderTom(v.synth, sr, tuneVal, decVal, pp.fx1, pp.fx2);
+                        break;
+                    case SRC_CRASH:
+                        sig = DrumSynth::renderCrash(v.synth, sr, tuneVal, decVal, pp.fx1, pp.fx2);
+                        break;
+                    case SRC_RIDE:
+                        sig = DrumSynth::renderRide(v.synth, sr, tuneVal, decVal, pp.fx1, pp.fx2);
+                        break;
+                    case SRC_RIM:
+                        sig = DrumSynth::renderRim(v.synth, sr, tuneVal, decVal, pp.fx1, pp.fx2);
+                        break;
+                    case SRC_BELL:
+                        sig = DrumSynth::renderBell(v.synth, sr, tuneVal, decVal, pp.fx1, pp.fx2);
+                        break;
+                    case SRC_CONGA:
+                        sig = DrumSynth::renderConga(v.synth, sr, tuneVal, decVal, pp.fx1, pp.fx2);
+                        break;
+                    default:
+                        sig = DrumSynth::renderTom(v.synth, sr, tuneVal, decVal, 0.4f, 0.4f);
+                        break;
+                }
                 a = sig;
                 b = sig;
             }

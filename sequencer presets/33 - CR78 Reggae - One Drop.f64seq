@@ -1,0 +1,46 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<PATTERN idx="0" name="CR78 Reggae - One Drop">
+  <TRACK idx="0" name="Bass Drum" pad="0" len="32" speed="1.0" swing="0.0" mute="0" solo="0">
+    <STEP idx="8" act="1" vel="0.900000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+    <STEP idx="24" act="1" vel="0.930000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+  </TRACK>
+  <TRACK idx="1" name="Snare Drum" pad="1" len="32" speed="1.0" swing="0.0" mute="0" solo="0" />
+  <TRACK idx="2" name="Hi Hat" pad="3" len="32" speed="1.0" swing="0.0" mute="0" solo="0">
+    <STEP idx="0" act="1" vel="0.720000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+    <STEP idx="2" act="1" vel="0.600000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+    <STEP idx="4" act="1" vel="0.720000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+    <STEP idx="6" act="1" vel="0.600000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+    <STEP idx="8" act="1" vel="0.720000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+    <STEP idx="10" act="1" vel="0.600000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+    <STEP idx="12" act="1" vel="0.720000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+    <STEP idx="14" act="1" vel="0.600000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+    <STEP idx="16" act="1" vel="0.720000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+    <STEP idx="18" act="1" vel="0.600000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+    <STEP idx="20" act="1" vel="0.720000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+    <STEP idx="22" act="1" vel="0.600000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+    <STEP idx="24" act="1" vel="0.720000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+    <STEP idx="26" act="1" vel="0.600000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+    <STEP idx="28" act="1" vel="0.720000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+    <STEP idx="30" act="1" vel="0.600000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+  </TRACK>
+  <TRACK idx="3" name="Tambourine" pad="11" len="32" speed="1.0" swing="0.0" mute="0" solo="0">
+    <STEP idx="2" act="1" vel="0.450000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+    <STEP idx="6" act="1" vel="0.480000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+    <STEP idx="10" act="1" vel="0.430000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+    <STEP idx="14" act="1" vel="0.510000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+    <STEP idx="18" act="1" vel="0.460000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+    <STEP idx="22" act="1" vel="0.490000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+    <STEP idx="26" act="1" vel="0.440000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+    <STEP idx="30" act="1" vel="0.540000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+  </TRACK>
+  <TRACK idx="4" name="Rim Shot" pad="2" len="32" speed="1.0" swing="0.0" mute="0" solo="0">
+    <STEP idx="8" act="1" vel="0.800000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+    <STEP idx="24" act="1" vel="0.840000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+  </TRACK>
+  <TRACK idx="5" name="Low Conga" pad="6" len="32" speed="1.0" swing="0.0" mute="0" solo="0">
+    <STEP idx="15" act="1" vel="0.400000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+    <STEP idx="31" act="1" vel="0.480000" pad="-1" prob="1.0" ratch="1" mtime="0.000000" />
+  </TRACK>
+  <TRACK idx="6" name="High Conga" pad="7" len="32" speed="1.0" swing="0.0" mute="0" solo="0" />
+  <TRACK idx="7" name="Claves" pad="8" len="32" speed="1.0" swing="0.0" mute="0" solo="0" />
+</PATTERN>

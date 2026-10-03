@@ -146,6 +146,46 @@ void StepSequencer::setStepActive(int trackIdx, int stepIdx, bool active)
     }
 }
 
+void StepSequencer::setStepActiveWithPad(int trackIdx, int stepIdx, bool active, int padOverride)
+{
+    std::lock_guard<std::mutex> lock(seqMutex);
+    if (trackIdx >= 0 && trackIdx < 8 && stepIdx >= 0 && stepIdx < 64)
+    {
+        auto& s = currentPattern().tracks[(size_t) trackIdx].steps[(size_t) stepIdx];
+        s.active = active;
+        if (! active)
+        {
+            s.resetStep();
+        }
+        else
+        {
+            if (padOverride >= 0 && padOverride < kNumPads)
+            {
+                s.padOverride = padOverride;
+                s.lockMask |= StepLockFlags::LOCK_FLAG_PAD_OVERRIDE;
+            }
+            else if ((s.lockMask & StepLockFlags::LOCK_FLAG_PAD_OVERRIDE) == 0)
+            {
+                s.padOverride = -1;
+            }
+        }
+    }
+}
+
+void StepSequencer::copyStep(int trackIdx, int srcStepIdx, int dstStepIdx)
+{
+    std::lock_guard<std::mutex> lock(seqMutex);
+    if (trackIdx >= 0 && trackIdx < 8 &&
+        srcStepIdx >= 0 && srcStepIdx < 64 &&
+        dstStepIdx >= 0 && dstStepIdx < 64)
+    {
+        const auto& src = currentPattern().tracks[(size_t) trackIdx].steps[(size_t) srcStepIdx];
+        auto& dst = currentPattern().tracks[(size_t) trackIdx].steps[(size_t) dstStepIdx];
+        dst = src;
+        dst.active = true;
+    }
+}
+
 void StepSequencer::setStepVelocity(int trackIdx, int stepIdx, float vel)
 {
     std::lock_guard<std::mutex> lock(seqMutex);

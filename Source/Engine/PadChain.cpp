@@ -207,13 +207,13 @@ void PadChain::process(float* L, float* R, int n, const PadParams& p)
         const float gLo = std::pow(10.f, juce::jlimit(-24.f, 24.f, smEq[1]) / 20.f);
         const float gMd = std::pow(10.f, juce::jlimit(-24.f, 24.f, smEq[3]) / 20.f);
         const float gHi = std::pow(10.f, juce::jlimit(-24.f, 24.f, smEq[5]) / 20.f);
-        *eqL[0].coefficients = *juce::dsp::IIR::Coefficients<float>::makeLowShelf(
+        *eqL[0].coefficients = juce::dsp::IIR::ArrayCoefficients<float>::makeLowShelf(
             sampleRate, juce::jlimit(20.f, 18000.f, smEq[0]), 0.707f, gLo);
         *eqR[0].coefficients = *eqL[0].coefficients;
-        *eqL[1].coefficients = *juce::dsp::IIR::Coefficients<float>::makePeakFilter(
+        *eqL[1].coefficients = juce::dsp::IIR::ArrayCoefficients<float>::makePeakFilter(
             sampleRate, juce::jlimit(40.f, 18000.f, smEq[2]), 1.0f, gMd);
         *eqR[1].coefficients = *eqL[1].coefficients;
-        *eqL[2].coefficients = *juce::dsp::IIR::Coefficients<float>::makeHighShelf(
+        *eqL[2].coefficients = juce::dsp::IIR::ArrayCoefficients<float>::makeHighShelf(
             sampleRate, juce::jlimit(100.f, 19000.f, smEq[4]), 0.707f, gHi);
         *eqR[2].coefficients = *eqL[2].coefficients;
     }
@@ -378,9 +378,9 @@ void PadChain::process(float* L, float* R, int n, const PadParams& p)
     {
         lastVowelPos = targetF1;
         lastReso = reso;
-        *formantF1_L.coefficients = *juce::dsp::IIR::Coefficients<float>::makeBandPass(sampleRate, targetF1, reso);
+        *formantF1_L.coefficients = juce::dsp::IIR::ArrayCoefficients<float>::makeBandPass(sampleRate, targetF1, reso);
         *formantF1_R.coefficients = *formantF1_L.coefficients;
-        *formantF2_L.coefficients = *juce::dsp::IIR::Coefficients<float>::makeBandPass(sampleRate, targetF2, reso);
+        *formantF2_L.coefficients = juce::dsp::IIR::ArrayCoefficients<float>::makeBandPass(sampleRate, targetF2, reso);
         *formantF2_R.coefficients = *formantF2_L.coefficients;
     }
     const float f2Gain = 0.5f + p.ifx3 * 1.5f;
@@ -605,15 +605,16 @@ void PadChain::process(float* L, float* R, int n, const PadParams& p)
                 {
                     outs[k] = plateBuf[k][(size_t) plateWrite[k]];
                     plateDamp[k] += (outs[k] - plateDamp[k]) * revDampAlpha;
+                    if (std::abs(plateDamp[k]) < 1e-7f) plateDamp[k] = 0.f;
                 }
                 const float h0 = 0.5f * ( plateDamp[0] + plateDamp[1] + plateDamp[2] + plateDamp[3]);
                 const float h1 = 0.5f * ( plateDamp[0] - plateDamp[1] + plateDamp[2] - plateDamp[3]);
                 const float h2 = 0.5f * ( plateDamp[0] + plateDamp[1] - plateDamp[2] - plateDamp[3]);
                 const float h3 = 0.5f * ( plateDamp[0] - plateDamp[1] - plateDamp[2] + plateDamp[3]);
-                plateBuf[0][(size_t) plateWrite[0]] = inSum + h0 * revFb;
-                plateBuf[1][(size_t) plateWrite[1]] = inSum + h1 * revFb;
-                plateBuf[2][(size_t) plateWrite[2]] = inSum + h2 * revFb;
-                plateBuf[3][(size_t) plateWrite[3]] = inSum + h3 * revFb;
+                plateBuf[0][(size_t) plateWrite[0]] = std::tanh(inSum + h0 * revFb);
+                plateBuf[1][(size_t) plateWrite[1]] = std::tanh(inSum + h1 * revFb);
+                plateBuf[2][(size_t) plateWrite[2]] = std::tanh(inSum + h2 * revFb);
+                plateBuf[3][(size_t) plateWrite[3]] = std::tanh(inSum + h3 * revFb);
                 for (int k = 0; k < 4; ++k)
                     plateWrite[k] = (plateWrite[k] + 1) % (int) plateBuf[k].size();
                 x += (outs[0] + outs[2]) * 0.5f * revMix;
@@ -679,6 +680,7 @@ void PadChain::process(float* L, float* R, int n, const PadParams& p)
                 {
                     outs[k] = hallBuf[k][(size_t) hallWrite[k]];
                     hallDamp[k] += (outs[k] - hallDamp[k]) * hallDampAlpha;
+                    if (std::abs(hallDamp[k]) < 1e-7f) hallDamp[k] = 0.f;
                 }
                 // 8x8 Householder reflection matrix
                 float sumDamp = 0.f;
@@ -687,7 +689,7 @@ void PadChain::process(float* L, float* R, int n, const PadParams& p)
 
                 for (int k = 0; k < 8; ++k)
                 {
-                    hallBuf[k][(size_t) hallWrite[k]] = inSum + (hallDamp[k] - hSub) * hallFb;
+                    hallBuf[k][(size_t) hallWrite[k]] = std::tanh(inSum + (hallDamp[k] - hSub) * hallFb);
                     hallWrite[k] = (hallWrite[k] + 1) % (int) hallBuf[k].size();
                 }
                 const float wetL = (outs[0] + outs[2] + outs[4] + outs[6]) * 0.25f;

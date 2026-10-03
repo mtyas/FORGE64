@@ -694,15 +694,28 @@ void SequencerDrawer::StepButton::mouseDown(const juce::MouseEvent& e)
 
     if (! step.active)
     {
+        const int editingStep = (owner.getEditingStep) ? owner.getEditingStep() : -1;
+        const int targetPad = (owner.getActivePad) ? owner.getActivePad() : track.defaultPad;
+
+        if (isPadEditOpen && editingStep >= 0 && editingStep < (int) track.steps.size() && editingStep != stepIndex)
+        {
+            owner.seq.copyStep(owner.currentTrack, editingStep, stepIndex);
+        }
+        else
+        {
+            owner.seq.setStepActiveWithPad(owner.currentTrack, stepIndex, true, targetPad);
+            step.velocity = 0.85f;
+        }
+
         owner.selectedStep = stepIndex;
-        owner.seq.setStepActive(owner.currentTrack, stepIndex, true);
-        step.velocity = 0.85f;
-        step.padOverride = -1;
         owner.repaint();
 
-        const int targetPad = (step.padOverride >= 0) ? step.padOverride : track.defaultPad;
+        const int finalPad = (track.steps[(size_t) stepIndex].padOverride >= 0)
+                                 ? track.steps[(size_t) stepIndex].padOverride
+                                 : track.defaultPad;
+
         if (owner.onStepClicked)
-            owner.onStepClicked(owner.currentTrack, stepIndex, targetPad);
+            owner.onStepClicked(owner.currentTrack, stepIndex, finalPad);
     }
     else
     {

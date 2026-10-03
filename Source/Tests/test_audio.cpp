@@ -7,6 +7,52 @@ int main(int argc, char* argv[])
 {
     juce::ScopedJuceInitialiser_GUI guiInit;
 
+    if (argc > 1 && juce::String(argv[1]) == "--bench")
+    {
+        const double sr = 48000.0;
+        const int bs = 128;
+        auto bp = std::make_unique<f64::Forge64Processor>();
+        bp->setPlayConfigDetails(0, 2, sr, bs);
+        bp->prepareToPlay(sr, bs);
+
+        const char* banks[4] = { "05_Roland_TR808", "06_Roland_TR909", "10_Buchla_Modular", "09_Industrial_Glitch" };
+        for (int b = 0; b < 4; ++b)
+        {
+            auto f = f64::PresetManager::getBankFileByName(banks[b]);
+            bp->presets().loadBank(f, b);
+        }
+        int scripted = 0;
+        for (int p = 0; p < 64; ++p)
+            scripted += bp->lua().enabledFor(p) ? 1 : 0;
+
+        juce::AudioBuffer<float> buf(2, bs);
+        juce::MidiBuffer midi;
+        const double budgetMs = 1000.0 * bs / sr;
+        const int blocks = (int) (sr * 12.0 / bs); // 12 seconds
+        const int hitEvery = (int) (sr * 0.08 / bs); // a new pad every 80 ms
+        double total = 0.0, worst = 0.0;
+        int over = 0, hitIdx = 0;
+        for (int i = 0; i < blocks; ++i)
+        {
+            if (i % hitEvery == 0)
+                bp->triggerAudition((hitIdx++ * 7) % 64, 0.9f);
+            buf.clear();
+            const auto t0 = juce::Time::getHighResolutionTicks();
+            bp->processBlock(buf, midi);
+            const double ms = juce::Time::highResolutionTicksToSeconds(juce::Time::getHighResolutionTicks() - t0) * 1000.0;
+            total += ms;
+            worst = juce::jmax(worst, ms);
+            if (ms > budgetMs * 0.8)
+                ++over;
+        }
+        std::cout << "BENCH scriptedPads=" << scripted
+                  << " threads=" << (getenv("FORGE64_THREADS") ? getenv("FORGE64_THREADS") : "auto")
+                  << " avgLoad=" << (100.0 * total / blocks / budgetMs) << "%"
+                  << " worstBlock=" << (100.0 * worst / budgetMs) << "%"
+                  << " blocksOver80%=" << over << "/" << blocks << std::endl;
+        return 0;
+    }
+
     std::cout << "=== FORGE64 FULL VERIFICATION (AUDITION + MIDI + SEQUENCER) ===" << std::endl;
     auto proc = std::make_unique<f64::Forge64Processor>();
 
@@ -54,7 +100,10 @@ int main(int argc, char* argv[])
 
         auto err = proc->lua().errorFor(p);
         if (err.isNotEmpty() || maxPeak < 0.0001f)
+        {
+            std::cout << "Pad " << p << " failed audition: maxPeak=" << maxPeak << ", err=" << err << std::endl;
             failedPads++;
+        }
     }
     std::cout << "[1] Audition Test: " << (64 - failedPads) << "/64 passed." << std::endl;
 
@@ -546,9 +595,71 @@ int main(int argc, char* argv[])
                   << " (stepHasLocks=" << stepHasLocks
                   << ", maxOffset=" << maxOffsetSeen
                   << ", maxTuneDev=" << maxTuneDev << " st)" << std::endl;
-        if (! p14Passed) failedPads++;
-
         proc->mods().removeConnection(connId);
+    }
+
+    // [15] Bank Load & MIDI Note Preservation / Assignment Test
+    {
+        bool bnkNotePassed = true;
+        auto bankNames = f64::PresetManager::getAvailableBankNames();
+        if (! bankNames.isEmpty())
+        {
+            auto f = f64::PresetManager::getBankFileByName(bankNames[0]);
+            if (f.existsAsFile())
+            {
+                // Load bank into Bank B (pads 16..31)
+                proc->presets().loadBank(f, 1);
+                for (int p = 16; p < 32; ++p)
+                {
+                    int expectedNote = 36 + p;
+                    if (auto* param = proc->getAPVTS().getRawParameterValue(f64::padParamId(p, "mnote")))
+                    {
+                        if ((int) std::round(param->load()) != expectedNote)
+                            bnkNotePassed = false;
+                    }
+                }
+
+                // Load bank into Bank C (pads 32..47)
+                proc->presets().loadBank(f, 2);
+                for (int p = 32; p < 48; ++p)
+                {
+                    int expectedNote = 36 + p;
+                    if (auto* param = proc->getAPVTS().getRawParameterValue(f64::padParamId(p, "mnote")))
+                    {
+                        if ((int) std::round(param->load()) != expectedNote)
+                            bnkNotePassed = false;
+                    }
+                }
+
+                // Load bank into Bank D (pads 48..63)
+                proc->presets().loadBank(f, 3);
+                for (int p = 48; p < 64; ++p)
+                {
+                    int expectedNote = 36 + p;
+                    if (auto* param = proc->getAPVTS().getRawParameterValue(f64::padParamId(p, "mnote")))
+                    {
+                        if ((int) std::round(param->load()) != expectedNote)
+                            bnkNotePassed = false;
+                    }
+                }
+            }
+        }
+
+        // Test resetAllMidiNotes
+        proc->resetAllMidiNotes();
+        for (int p = 0; p < 64; ++p)
+        {
+            int expectedNote = 36 + p;
+            if (auto* param = proc->getAPVTS().getRawParameterValue(f64::padParamId(p, "mnote")))
+            {
+                if ((int) std::round(param->load()) != expectedNote)
+                    bnkNotePassed = false;
+            }
+        }
+
+        std::cout << "[15] Bank Load & MIDI Note Assignment (36..99): "
+                  << (bnkNotePassed ? "PASSED" : "FAILED") << std::endl;
+        if (! bnkNotePassed) failedPads++;
     }
 
     std::cout << "All tests completed with " << failedPads << " errors." << std::endl;

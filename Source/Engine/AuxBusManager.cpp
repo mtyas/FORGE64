@@ -300,20 +300,28 @@ void AuxBusManager::processAux(int b, float* L, float* R, int n, const AuxBusPar
             const float cutoff = juce::jlimit(40.f, 18000.f, 80.f + std::pow(p.p1, 2.5f) * 17900.f);
             const float q = juce::jlimit(0.5f, 9.f, 0.7f + p.p2 * 7.5f);
             const int mode = juce::jlimit(0, 2, (int) std::floor(p.p3 * 2.999f));
-            if (mode == 0)
+            if (std::abs(cutoff - lastFilterCutoff[b]) > 1.f ||
+                std::abs(q - lastFilterQ[b]) > 0.05f ||
+                mode != lastFilterMode[b])
             {
-                filterL[b].coefficients = juce::dsp::IIR::Coefficients<float>::makeLowPass(sampleRate, cutoff, q);
-                filterR[b].coefficients = juce::dsp::IIR::Coefficients<float>::makeLowPass(sampleRate, cutoff, q);
-            }
-            else if (mode == 1)
-            {
-                filterL[b].coefficients = juce::dsp::IIR::Coefficients<float>::makeBandPass(sampleRate, cutoff, q);
-                filterR[b].coefficients = juce::dsp::IIR::Coefficients<float>::makeBandPass(sampleRate, cutoff, q);
-            }
-            else
-            {
-                filterL[b].coefficients = juce::dsp::IIR::Coefficients<float>::makeHighPass(sampleRate, cutoff, q);
-                filterR[b].coefficients = juce::dsp::IIR::Coefficients<float>::makeHighPass(sampleRate, cutoff, q);
+                lastFilterCutoff[b] = cutoff;
+                lastFilterQ[b] = q;
+                lastFilterMode[b] = mode;
+                if (mode == 0)
+                {
+                    *filterL[b].coefficients = juce::dsp::IIR::ArrayCoefficients<float>::makeLowPass(sampleRate, cutoff, q);
+                    *filterR[b].coefficients = *filterL[b].coefficients;
+                }
+                else if (mode == 1)
+                {
+                    *filterL[b].coefficients = juce::dsp::IIR::ArrayCoefficients<float>::makeBandPass(sampleRate, cutoff, q);
+                    *filterR[b].coefficients = *filterL[b].coefficients;
+                }
+                else
+                {
+                    *filterL[b].coefficients = juce::dsp::IIR::ArrayCoefficients<float>::makeHighPass(sampleRate, cutoff, q);
+                    *filterR[b].coefficients = *filterL[b].coefficients;
+                }
             }
 
             const float drive = 1.0f + p.p4 * 3.5f;
@@ -722,19 +730,30 @@ void AuxBusManager::processMasterChain(float* L, float* R, int n, const MasterFX
     // 2. Master 4-Band EQ
     if (p.eqOn)
     {
-        const float lg = std::pow(10.f, p.eqLowGain / 20.f);
-        const float lmg = std::pow(10.f, p.eqLowMidGain / 20.f);
-        const float hmg = std::pow(10.f, p.eqHiMidGain / 20.f);
-        const float hg = std::pow(10.f, p.eqHighGain / 20.f);
+        if (std::abs(p.eqLowGain - lastEqLowGain) > 0.05f ||
+            std::abs(p.eqLowMidGain - lastEqLowMidGain) > 0.05f ||
+            std::abs(p.eqHiMidGain - lastEqHiMidGain) > 0.05f ||
+            std::abs(p.eqHighGain - lastEqHighGain) > 0.05f)
+        {
+            lastEqLowGain = p.eqLowGain;
+            lastEqLowMidGain = p.eqLowMidGain;
+            lastEqHiMidGain = p.eqHiMidGain;
+            lastEqHighGain = p.eqHighGain;
 
-        masterEqL[0].coefficients = juce::dsp::IIR::Coefficients<float>::makeLowShelf(sampleRate, 80.f, 0.707f, lg);
-        masterEqR[0].coefficients = juce::dsp::IIR::Coefficients<float>::makeLowShelf(sampleRate, 80.f, 0.707f, lg);
-        masterEqL[1].coefficients = juce::dsp::IIR::Coefficients<float>::makePeakFilter(sampleRate, 450.f, 0.9f, lmg);
-        masterEqR[1].coefficients = juce::dsp::IIR::Coefficients<float>::makePeakFilter(sampleRate, 450.f, 0.9f, lmg);
-        masterEqL[2].coefficients = juce::dsp::IIR::Coefficients<float>::makePeakFilter(sampleRate, 2500.f, 0.9f, hmg);
-        masterEqR[2].coefficients = juce::dsp::IIR::Coefficients<float>::makePeakFilter(sampleRate, 2500.f, 0.9f, hmg);
-        masterEqL[3].coefficients = juce::dsp::IIR::Coefficients<float>::makeHighShelf(sampleRate, 10000.f, 0.707f, hg);
-        masterEqR[3].coefficients = juce::dsp::IIR::Coefficients<float>::makeHighShelf(sampleRate, 10000.f, 0.707f, hg);
+            const float lg = std::pow(10.f, p.eqLowGain / 20.f);
+            const float lmg = std::pow(10.f, p.eqLowMidGain / 20.f);
+            const float hmg = std::pow(10.f, p.eqHiMidGain / 20.f);
+            const float hg = std::pow(10.f, p.eqHighGain / 20.f);
+
+            *masterEqL[0].coefficients = juce::dsp::IIR::ArrayCoefficients<float>::makeLowShelf(sampleRate, 80.f, 0.707f, lg);
+            *masterEqR[0].coefficients = *masterEqL[0].coefficients;
+            *masterEqL[1].coefficients = juce::dsp::IIR::ArrayCoefficients<float>::makePeakFilter(sampleRate, 450.f, 0.9f, lmg);
+            *masterEqR[1].coefficients = *masterEqL[1].coefficients;
+            *masterEqL[2].coefficients = juce::dsp::IIR::ArrayCoefficients<float>::makePeakFilter(sampleRate, 2500.f, 0.9f, hmg);
+            *masterEqR[2].coefficients = *masterEqL[2].coefficients;
+            *masterEqL[3].coefficients = juce::dsp::IIR::ArrayCoefficients<float>::makeHighShelf(sampleRate, 10000.f, 0.707f, hg);
+            *masterEqR[3].coefficients = *masterEqL[3].coefficients;
+        }
 
         for (int i = 0; i < n; ++i)
         {

@@ -12,6 +12,7 @@
 #include "Modulation/ModMatrix.h"
 #include "Scripting/LuaEngine.h"
 #include "Presets/PresetManager.h"
+#include "Engine/PadWorkerPool.h"
 #include <array>
 #include <memory>
 #include <string>
@@ -88,6 +89,10 @@ public:
     void loadFactoryKit(int kitIndex);
     static juce::StringArray getFactoryKitNames();
 
+    void resetPadMidiNote(int pad);
+    void resetBankMidiNotes(int bankIndex);
+    void resetAllMidiNotes();
+
     float getMasterPeakL() const { return masterPeakL.load(); }
     float getMasterPeakR() const { return masterPeakR.load(); }
 
@@ -162,6 +167,31 @@ private:
     std::vector<float> scratchL, scratchR;
     std::array<std::vector<VoicePool::TimedEvent>, kNumPads> padEvents;
     std::array<int, kNumPads> padTailHold {};
+
+    // Multi-core per-pad rendering: each sounding pad gets its own buffer,
+    // and the heavy per-pad DSP (Lua script + insert chain) runs in parallel.
+    struct PadJob
+    {
+        int pad = 0;
+        bool runLua = false;
+        bool newTrig = false;
+        bool lastTail = false;
+        float vel = 0.f;
+        double age = 0.0;
+        int note = 60;
+        float luaTuneOffset = 0.f;
+        PadParams pp;
+    };
+    std::vector<float> padBuf;
+    int padBufStride = 0;
+    float* padBufL(int p) { return padBuf.data() + (size_t) p * 2 * (size_t) padBufStride; }
+    float* padBufR(int p) { return padBufL(p) + padBufStride; }
+    std::array<PadJob, kNumPads> padJobs {};
+    int numPadJobs = 0;
+    int jobBlockSize = 0;
+    double jobSampleRate = 48000.0;
+    PadWorkerPool workerPool;
+    static void runPadJob(void* self, int jobIndex);
     float dynamicSummingGain = 1.0f;
     std::array<std::vector<int>, 128> noteMap;
     std::array<int, 17> chromMap {};

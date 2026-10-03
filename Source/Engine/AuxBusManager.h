@@ -359,6 +359,10 @@ private:
     float masterLimiterEnv = 0.f;
     std::atomic<float> masterCompGR { 0.f };
     juce::dsp::IIR::Filter<float> masterEqL[4], masterEqR[4];
+    float lastEqLowGain = -999.f, lastEqLowMidGain = -999.f, lastEqHiMidGain = -999.f, lastEqHighGain = -999.f;
+    float lastFilterCutoff[4] = { -1.f, -1.f, -1.f, -1.f };
+    float lastFilterQ[4] = { -1.f, -1.f, -1.f, -1.f };
+    int   lastFilterMode[4] = { -1, -1, -1, -1 };
     std::atomic<float> auxMeters[4];
 };
 

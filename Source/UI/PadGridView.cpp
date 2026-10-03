@@ -147,7 +147,15 @@ public:
 
         g.setFont(uiFont(13.f, true));
         g.setColour(selected ? accent().brighter(0.4f) : txt());
-        g.drawText(padCoord, topRow.removeFromLeft(42.f), juce::Justification::centredLeft);
+        g.drawText(padCoord, topRow.removeFromLeft(36.f), juce::Justification::centredLeft);
+
+        int midiNote = juce::jmin(127, 36 + pad);
+        if (auto* p = proc.getAPVTS().getRawParameterValue(padParamId(pad, "mnote")))
+            midiNote = juce::jlimit(0, 127, (int) std::round(p->load()));
+        const juce::String noteStr = juce::MidiMessage::getMidiNoteName(midiNote, true, true, 3);
+        g.setFont(uiFont(10.f, false));
+        g.setColour(selected ? accent().brighter(0.2f) : ui::dim().brighter(0.3f));
+        g.drawText(noteStr, topRow.removeFromLeft(38.f), juce::Justification::centredLeft);
 
         int srcType = SRC_SAMPLE;
         if (auto* p = proc.getAPVTS().getRawParameterValue(padParamId(pad, "src")))
@@ -211,14 +219,8 @@ public:
         }
     }
 
-    void mouseDoubleClick(const juce::MouseEvent& e) override
+    void mouseDoubleClick(const juce::MouseEvent&) override
     {
-        if (e.mods.isLeftButtonDown())
-        {
-            const float posFactor = 1.0f - ((float) e.y / (float) juce::jmax(1, getHeight()));
-            const float velVal = juce::jlimit(0.35f, 1.0f, 0.45f + posFactor * 0.55f);
-            owner.proc().triggerAudition(pad, velVal);
-        }
     }
 
     void mouseDrag(const juce::MouseEvent& e) override

@@ -128,6 +128,7 @@ Forge64Processor::Forge64Processor()
 {
     ScriptPresetManager::initializePresetsOnDisk();
     SequencePresetManager::initializePresetsOnDisk();
+    PresetManager::initializePresetsOnDisk();
 
     kitRoot = juce::ValueTree("FORGE64KIT");
     kitRoot.appendChild(apvts.state, nullptr);
@@ -300,6 +301,19 @@ void Forge64Processor::prepareToPlay(double sr, int maxBlock)
     scratchL.assign((size_t) maxBlock, 0.f);
     scratchR.assign((size_t) maxBlock, 0.f);
 
+    padBufStride = juce::jmax(1, maxBlock);
+    padBuf.assign((size_t) kNumPads * 2 * (size_t) padBufStride, 0.f);
+
+    {
+        const int cores = juce::SystemStats::getNumCpus();
+        int wanted = juce::jlimit(0, 7, cores - 1);
+        const auto envThreads = juce::SystemStats::getEnvironmentVariable("FORGE64_THREADS", {});
+        if (envThreads.isNotEmpty())
+            wanted = juce::jlimit(0, 15, envThreads.getIntValue());
+        if (workerPool.numWorkers() != wanted)
+            workerPool.start(wanted);
+    }
+
     busOffset.fill(0);
     busActive.fill(false);
     int off = 0;
@@ -426,6 +440,11 @@ void Forge64Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::Midi
     {
         scratchL.resize((size_t) n);
         scratchR.resize((size_t) n);
+    }
+    if (padBufStride < n)
+    {
+        padBufStride = n;
+        padBuf.assign((size_t) kNumPads * 2 * (size_t) padBufStride, 0.f);
     }
 
     // 1) Latch MIDI modulation sources and collect timed note events.
@@ -802,6 +821,10 @@ void Forge64Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::Midi
     const float sumSmoothRate = (targetSumGain < dynamicSummingGain) ? 0.30f : 0.08f;
     dynamicSummingGain += (targetSumGain - dynamicSummingGain) * sumSmoothRate;
 
+    numPadJobs = 0;
+    jobBlockSize = n;
+    jobSampleRate = getSampleRate();
+
     for (int p = 0; p < kNumPads; ++p)
     {
         const bool hasEvents = ! padEvents[(size_t) p].empty();
@@ -816,8 +839,10 @@ void Forge64Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::Midi
 
         const bool isLastTailBlock = (! vActive && ! hasEvents && padTailHold[(size_t) p] == 0);
 
-        std::fill(scratchL.begin(), scratchL.begin() + n, 0.f);
-        std::fill(scratchR.begin(), scratchR.begin() + n, 0.f);
+        float* const pL = padBufL(p);
+        float* const pR = padBufR(p);
+        std::fill(pL, pL + n, 0.f);
+        std::fill(pR, pR + n, 0.f);
 
         auto& rt = gridPtr->runtime(p);
         auto pp = eff[(size_t) p];
@@ -986,22 +1011,9 @@ void Forge64Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::Midi
         if (isNewTrig)
             rt.lastHitStamp.store(clockNow);
 
-        voices.renderPad(p, scratchL.data(), scratchR.data(), n, sr, pp, padEvents[(size_t) p]);
+        voices.renderPad(p, pL, pR, n, sr, pp, padEvents[(size_t) p]);
 
         const bool padIsSounding = voices.padActive(p);
-        if (padIsSounding && (rt.scriptOn.load() || pp.srcType != SRC_SAMPLE))
-        {
-            const int64_t hit = rt.lastHitStamp.load();
-            const double age = hit > 0 ? (double) (clockNow - hit) / sr : 0.0;
-            PadParams ppLua = pp;
-            if (pp.mode == 1) // Chromatic mode: transpose by incoming MIDI note relative to base note
-            {
-                ppLua.tune += (float) (rt.lastNote.load() - pp.mnote);
-            }
-            luaEngine.process(p, scratchL.data(), scratchR.data(), n, sr,
-                              rt.lastVel.load(), juce::jmax(0.0, age), ppLua, isNewTrig,
-                              rt.lastNote.load());
-        }
 
         if (! padIsSounding && ! hasEvents)
         {
@@ -1009,25 +1021,37 @@ void Forge64Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::Midi
             padTailHold[(size_t) p] = juce::jmin(padTailHold[(size_t) p], 4);
         }
 
-        const float gt = rt.gainTrim.load();
-        chains[(size_t) p].process(scratchL.data(), scratchR.data(), n, pp);
-
-        if (isLastTailBlock)
+        // Queue the heavy per-pad DSP (Lua script + insert chain) for parallel execution.
+        auto& job = padJobs[(size_t) numPadJobs++];
+        job.pad = p;
+        job.pp = pp;
+        job.lastTail = isLastTailBlock;
+        job.newTrig = isNewTrig;
+        job.runLua = padIsSounding && (rt.scriptOn.load() || pp.srcType == SRC_LUA);
+        if (job.runLua)
         {
-            const int fadeLen = juce::jmin(n, 64);
-            for (int i = 0; i < fadeLen; ++i)
-            {
-                const float g = 0.5f * (1.0f + std::cos((float) i * juce::MathConstants<float>::pi / (float) fadeLen));
-                scratchL[(size_t) i] *= g;
-                scratchR[(size_t) i] *= g;
-            }
-            for (int i = fadeLen; i < n; ++i)
-            {
-                scratchL[(size_t) i] = 0.f;
-                scratchR[(size_t) i] = 0.f;
-            }
+            const int64_t hit = rt.lastHitStamp.load();
+            job.age = juce::jmax(0.0, hit > 0 ? (double) (clockNow - hit) / sr : 0.0);
+            job.vel = rt.lastVel.load();
+            job.note = rt.lastNote.load();
+            // Chromatic mode: transpose by incoming MIDI note relative to base note
+            job.luaTuneOffset = (pp.mode == 1) ? (float) (job.note - pp.mnote) : 0.f;
         }
+    }
 
+    // 5b) Parallel: every queued pad is independent (own Lua VM, own PadChain, own buffer).
+    workerPool.run(numPadJobs, &Forge64Processor::runPadJob, this);
+
+    // 5c) Serial mix of the rendered pad buffers into buses and aux sends.
+    for (int j = 0; j < numPadJobs; ++j)
+    {
+        const auto& job = padJobs[(size_t) j];
+        const int p = job.pad;
+        const auto& pp = job.pp;
+        const float* pL = padBufL(p);
+        const float* pR = padBufR(p);
+
+        const float gt = gridPtr->runtime(p).gainTrim.load();
         const float lvl = pp.level * master * gt * 0.75f * dynamicSummingGain; // Equal-power dynamic summing headroom
         const float pan = clampRange(pp.pan, -1.0f, 1.0f);
         const float panAngle = (pan + 1.0f) * 0.25f * 3.14159265358979323846f;
@@ -1049,8 +1073,8 @@ void Forge64Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::Midi
 
         for (int i = 0; i < n; ++i)
         {
-            const float l = scratchL[(size_t) i] * lvl * panL;
-            const float r = scratchR[(size_t) i] * lvl * panR;
+            const float l = pL[i] * lvl * panL;
+            const float r = pR[i] * lvl * panR;
             bL[i] += l;
             bR[i] += r;
             if (sa > 0.f) { aL[i] += l * sa; aR[i] += r * sa; }
@@ -1121,6 +1145,45 @@ void Forge64Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::Midi
         {
             buffer.addFrom(busOffset[0], 0, busScratch, b * 2, 0, n);
             buffer.addFrom(busOffset[0] + 1, 0, busScratch, b * 2 + 1, 0, n);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Runs on the audio thread or a DSP worker thread. Touches only this pad's
+// buffer, Lua VM and PadChain, so pads can be processed concurrently.
+void Forge64Processor::runPadJob(void* self, int jobIndex)
+{
+    auto& proc = *static_cast<Forge64Processor*>(self);
+    const auto& job = proc.padJobs[(size_t) jobIndex];
+    const int p = job.pad;
+    const int n = proc.jobBlockSize;
+    float* L = proc.padBufL(p);
+    float* R = proc.padBufR(p);
+
+    if (job.runLua)
+    {
+        PadParams ppLua = job.pp;
+        ppLua.tune += job.luaTuneOffset;
+        proc.luaEngine.process(p, L, R, n, proc.jobSampleRate, job.vel, job.age, ppLua,
+                               job.newTrig, job.note);
+    }
+
+    proc.chains[(size_t) p].process(L, R, n, job.pp);
+
+    if (job.lastTail)
+    {
+        const int fadeLen = juce::jmin(n, 64);
+        for (int i = 0; i < fadeLen; ++i)
+        {
+            const float g = 0.5f * (1.0f + std::cos((float) i * juce::MathConstants<float>::pi / (float) fadeLen));
+            L[i] *= g;
+            R[i] *= g;
+        }
+        for (int i = fadeLen; i < n; ++i)
+        {
+            L[i] = 0.f;
+            R[i] = 0.f;
         }
     }
 }
@@ -1554,6 +1617,34 @@ void Forge64Processor::loadFactoryKit(int kitIndex)
     }
 
     onPresetLoaded();
+}
+
+void Forge64Processor::resetPadMidiNote(int pad)
+{
+    if (pad >= 0 && pad < kNumPads)
+    {
+        if (auto* param = apvts.getParameter(padParamId(pad, "mnote")))
+        {
+            const float defNote = (float) juce::jmin(127, 36 + pad);
+            param->setValueNotifyingHost(param->convertTo0to1(defNote));
+        }
+    }
+}
+
+void Forge64Processor::resetBankMidiNotes(int bankIndex)
+{
+    if (bankIndex >= 0 && bankIndex < kNumBanks)
+    {
+        const int start = bankIndex * kPadsPerBank;
+        for (int p = start; p < start + kPadsPerBank; ++p)
+            resetPadMidiNote(p);
+    }
+}
+
+void Forge64Processor::resetAllMidiNotes()
+{
+    for (int p = 0; p < kNumPads; ++p)
+        resetPadMidiNote(p);
 }
 
 void Forge64Processor::getStateInformation(juce::MemoryBlock& destData)

@@ -116,7 +116,11 @@ bool PresetManager::saveParamSubset(const juce::File& f, const char* tag,
         auto* paramsEl = new juce::XmlElement("PARAMS");
         for (auto* child : fullParams->getChildIterator())
         {
-            const int pad = padIndexOfParamId(child->getStringAttribute("id"));
+            const auto id = child->getStringAttribute("id");
+            if (id.endsWith("_mnote"))
+                continue; // Do not bake hardware trigger MIDI notes into sound presets
+
+            const int pad = padIndexOfParamId(id);
             if (pad >= firstPad && pad < firstPad + padCount)
                 paramsEl->addChildElement(new juce::XmlElement(*child));
         }
@@ -157,6 +161,17 @@ bool PresetManager::loadParamSubset(const juce::File& f, const char* tag,
         }
     }
 
+    // Ensure all pads in this bank/slot have their default associated MIDI note
+    // (e.g. Bank A = 36..51, Bank B = 52..67, Bank C = 68..83, Bank D = 84..99)
+    for (int p = destFirstPad; p < destFirstPad + padCount; ++p)
+    {
+        if (auto* param = apvts.getParameter(padParamId(p, "mnote")))
+        {
+            const float defNote = (float) juce::jmin(127, 36 + p);
+            param->setValueNotifyingHost(param->convertTo0to1(defNote));
+        }
+    }
+
     // parameter subset: remap pad index into destination range
     if (auto* paramsEl = xml->getChildByName("PARAMS"))
     {
@@ -167,8 +182,11 @@ bool PresetManager::loadParamSubset(const juce::File& f, const char* tag,
             if (pad < 0)
                 continue;
 
-            const int mappedPad = destFirstPad + (pad % padCount);
             const auto base = id.substring(id.indexOf("_") + 1);
+            if (base == "mnote")
+                continue; // Do not let bank/pad presets overwrite the destination pad's MIDI note!
+
+            const int mappedPad = destFirstPad + (pad % padCount);
             if (auto* param = apvts.getParameter(padParamId(mappedPad, base)))
                 param->setValueNotifyingHost((float) child->getDoubleAttribute("value", 0.0));
         }
@@ -198,6 +216,66 @@ bool PresetManager::savePad(const juce::File& f, int pad)
 bool PresetManager::loadPad(const juce::File& f, int pad)
 {
     return loadParamSubset(f, "FORGE64PAD", pad, 1);
+}
+
+juce::File PresetManager::getBanksDirectory()
+{
+    auto dir = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)
+                   .getChildFile("Forge64")
+                   .getChildFile("Banks");
+    if (! dir.exists())
+        dir.createDirectory();
+    return dir;
+}
+
+juce::StringArray PresetManager::getAvailableBankNames()
+{
+    juce::StringArray names;
+    auto dir = getBanksDirectory();
+    if (dir.isDirectory())
+    {
+        auto files = dir.findChildFiles(juce::File::findFiles, false, "*.bnk");
+        for (const auto& f : files)
+            names.add(f.getFileNameWithoutExtension());
+    }
+    names.sort(true);
+    return names;
+}
+
+juce::File PresetManager::getBankFileByName(const juce::String& name)
+{
+    auto dir = getBanksDirectory();
+    return dir.getChildFile(name.trim() + ".bnk");
+}
+
+void PresetManager::initializePresetsOnDisk()
+{
+    auto targetDir = getBanksDirectory();
+
+    juce::Array<juce::File> candidates;
+    auto exe = juce::File::getSpecialLocation(juce::File::currentExecutableFile);
+    auto appDir = exe.getParentDirectory();
+
+    candidates.add(juce::File("F:/forge64").getChildFile("banks presets"));
+    candidates.add(appDir.getChildFile("banks presets"));
+    candidates.add(appDir.getParentDirectory().getChildFile("banks presets"));
+    candidates.add(appDir.getParentDirectory().getParentDirectory().getChildFile("banks presets"));
+    candidates.add(appDir.getParentDirectory().getParentDirectory().getParentDirectory().getChildFile("banks presets"));
+    candidates.add(juce::File::getCurrentWorkingDirectory().getChildFile("banks presets"));
+
+    for (const auto& cand : candidates)
+    {
+        if (cand.isDirectory())
+        {
+            auto sourceFiles = cand.findChildFiles(juce::File::findFiles, false, "*.bnk");
+            for (const auto& sf : sourceFiles)
+            {
+                auto destFile = targetDir.getChildFile(sf.getFileName());
+                if (! destFile.existsAsFile())
+                    sf.copyFileTo(destFile);
+            }
+        }
+    }
 }
 
 } // namespace f64

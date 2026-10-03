@@ -182,6 +182,23 @@ public:
     }
 };
 
+class BankTabButton : public juce::TextButton
+{
+public:
+    using juce::TextButton::TextButton;
+    std::function<void(const juce::MouseEvent&)> onRightClick;
+    void mouseDown(const juce::MouseEvent& e) override
+    {
+        if (e.mods.isPopupMenu() || e.mods.isRightButtonDown())
+        {
+            if (onRightClick)
+                onRightClick(e);
+            return;
+        }
+        juce::TextButton::mouseDown(e);
+    }
+};
+
 Forge64Editor::Forge64Editor(Forge64Processor& p)
     : AudioProcessorEditor(p), processor(p)
 {
@@ -198,13 +215,18 @@ Forge64Editor::Forge64Editor(Forge64Processor& p)
     static const char* bankNames[kNumBanks] = { "A", "B", "C", "D" };
     for (int i = 0; i < kNumBanks; ++i)
     {
-        auto b = std::make_unique<juce::TextButton>(bankNames[i]);
+        auto b = std::make_unique<BankTabButton>(bankNames[i]);
         ui::styleButton(*b);
         b->setClickingTogglesState(true);
         b->setTooltip("Show bank " + juce::String(bankNames[i]) + " (pads "
                       + juce::String(i * kPadsPerBank + 1) + "-"
-                      + juce::String((i + 1) * kPadsPerBank) + ")");
+                      + juce::String((i + 1) * kPadsPerBank) + "). Right-click to load/save bank presets.");
         b->onClick = [this, i] { setBank(i); };
+        b->onRightClick = [this, i](const juce::MouseEvent&)
+        {
+            setBank(i);
+            showBankMenu();
+        };
         addAndMakeVisible(b.get());
         bankBtns[(size_t) i] = std::move(b);
     }
@@ -286,6 +308,12 @@ Forge64Editor::Forge64Editor(Forge64Processor& p)
     addChildComponent(mixerPage.get());
 
     seqPage = std::make_unique<SequencerPage>(processor);
+    seqPage->getActivePad = [this]
+    {
+        if (currentPage == Page_PadEdit && padEdit != nullptr)
+            return padEdit->padIndex();
+        return activePad();
+    };
     addChildComponent(seqPage.get());
 
     performPage = std::make_unique<PerformancePage>(processor, *this);
@@ -297,6 +325,12 @@ Forge64Editor::Forge64Editor(Forge64Processor& p)
         if (currentPage == Page_PadEdit && padEdit != nullptr)
             return padEdit->padIndex();
         return activePad();
+    };
+    sequencerDrawer->getEditingStep = [this]
+    {
+        if (currentPage == Page_PadEdit && padEdit != nullptr && padEdit->isPLockMode())
+            return padEdit->getPLockStep();
+        return -1;
     };
     sequencerDrawer->onFoldStateChanged = [this](bool) { layoutCenter(); };
     sequencerDrawer->isPadEditActive = [this] { return currentPage == Page_PadEdit; };
@@ -661,16 +695,27 @@ void Forge64Editor::showKitMenu()
     for (int i = 0; i < factoryKits.size(); ++i)
         factoryMenu.addItem(100 + i, factoryKits[i]);
     menu.addSubMenu("Factory Kits", factoryMenu);
+    auto bankNames = PresetManager::getAvailableBankNames();
+    if (! bankNames.isEmpty())
+    {
+        juce::PopupMenu factoryBankMenu;
+        for (int i = 0; i < bankNames.size(); ++i)
+            factoryBankMenu.addItem(200 + i, bankNames[i]);
+        menu.addSubMenu("Factory Banks (Load into Bank A)", factoryBankMenu);
+    }
+
     menu.addSeparator();
 
     menu.addItem(1, "Load Kit from File...");
     menu.addItem(2, lastKit == juce::File() ? "Save Kit As..."
                                             : "Save Kit (" + lastKit.getFileName() + ")");
     menu.addItem(3, "Save Kit As...");
+    menu.addSeparator();
+    menu.addItem(4, "Reset All 64 Pad MIDI Notes (C1 - D#6 / 36-99)");
 
     juce::Component::SafePointer<Forge64Editor> safe(this);
     menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(kitBtn.get()),
-                       [safe, factoryKits](int result)
+                       [safe, factoryKits, bankNames](int result)
     {
         if (safe == nullptr)
             return;
@@ -679,6 +724,17 @@ void Forge64Editor::showKitMenu()
             safe->processor.loadFactoryKit(result - 100);
             safe->lastKit = juce::File();
             safe->afterPresetOp(true);
+        }
+        else if (result >= 200 && result < 200 + bankNames.size())
+        {
+            const int idx = result - 200;
+            auto f = PresetManager::getBankFileByName(bankNames[idx]);
+            if (f.existsAsFile())
+            {
+                safe->processor.presets().loadBank(f, 0);
+                safe->setBank(0);
+                safe->afterPresetOp(true);
+            }
         }
         else if (result == 1)
             safe->doLoadKit();
@@ -691,6 +747,11 @@ void Forge64Editor::showKitMenu()
         }
         else if (result == 3)
             safe->doSaveKitAs();
+        else if (result == 4)
+        {
+            safe->processor.resetAllMidiNotes();
+            safe->afterPresetOp(true);
+        }
     });
 }
 
@@ -701,31 +762,76 @@ void Forge64Editor::showBankMenu()
     menu.addItem(1, juce::String("Load Bank into ") + letters[currentBank] + "...");
     menu.addItem(2, juce::String("Save Bank ") + letters[currentBank] + " As...");
 
+    const int bStart = currentBank * kPadsPerBank;
+    const int startNote = 36 + bStart;
+    const int endNote = startNote + kPadsPerBank - 1;
+    const auto startName = juce::MidiMessage::getMidiNoteName(startNote, true, true, 3);
+    const auto endName = juce::MidiMessage::getMidiNoteName(endNote, true, true, 3);
+    menu.addSeparator();
+    menu.addItem(3, juce::String("Reset MIDI Notes for Bank ") + letters[currentBank]
+                    + " (" + startName + " - " + endName + " / " + juce::String(startNote) + "-" + juce::String(endNote) + ")");
+
+    auto bankNames = PresetManager::getAvailableBankNames();
+    if (! bankNames.isEmpty())
+    {
+        menu.addSeparator();
+        juce::PopupMenu factoryMenu;
+        for (int i = 0; i < bankNames.size(); ++i)
+        {
+            factoryMenu.addItem(100 + i, bankNames[i]);
+        }
+        menu.addSubMenu("Factory / Installed Banks", factoryMenu);
+    }
+
     juce::Component::SafePointer<Forge64Editor> safe(this);
     menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(bankMenuBtn.get()),
-                       [safe](int result)
+                       [safe, bankNames](int result)
     {
         if (safe == nullptr)
             return;
         if (result == 1) safe->doLoadBank();
         else if (result == 2) safe->doSaveBankAs();
+        else if (result == 3)
+        {
+            safe->processor.resetBankMidiNotes(safe->currentBank);
+            safe->afterPresetOp(true);
+        }
+        else if (result >= 100 && result < 100 + bankNames.size())
+        {
+            const int idx = result - 100;
+            auto f = PresetManager::getBankFileByName(bankNames[idx]);
+            if (f.existsAsFile())
+                safe->afterPresetOp(safe->processor.presets().loadBank(f, safe->currentBank));
+        }
     });
 }
 
 void Forge64Editor::showPadMenu()
 {
+    const int p = activePad();
+    const int defNote = juce::jmin(127, 36 + p);
+    const auto noteName = juce::MidiMessage::getMidiNoteName(defNote, true, true, 3);
+
     juce::PopupMenu menu;
-    menu.addItem(1, "Load Pad into PAD " + juce::String(activePad() + 1) + "...");
-    menu.addItem(2, "Save PAD " + juce::String(activePad() + 1) + " As...");
+    menu.addItem(1, "Load Pad into PAD " + juce::String(p + 1) + "...");
+    menu.addItem(2, "Save PAD " + juce::String(p + 1) + " As...");
+    menu.addSeparator();
+    menu.addItem(3, "Reset MIDI Note for PAD " + juce::String(p + 1)
+                    + " (" + noteName + " / " + juce::String(defNote) + ")");
 
     juce::Component::SafePointer<Forge64Editor> safe(this);
     menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(padMenuBtn.get()),
-                       [safe](int result)
+                       [safe, p](int result)
     {
         if (safe == nullptr)
             return;
         if (result == 1) safe->doLoadPad();
         else if (result == 2) safe->doSavePadAs();
+        else if (result == 3)
+        {
+            safe->processor.resetPadMidiNote(p);
+            safe->afterPresetOp(true);
+        }
     });
 }
 

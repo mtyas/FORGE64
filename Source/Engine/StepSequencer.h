@@ -289,6 +289,8 @@ public:
     void setTrackMute(int trackIdx, bool mute);
     void setTrackSolo(int trackIdx, bool solo);
     void setStepActive(int trackIdx, int stepIdx, bool active);
+    void setStepActiveWithPad(int trackIdx, int stepIdx, bool active, int padOverride);
+    void copyStep(int trackIdx, int srcStepIdx, int dstStepIdx);
     void setStepVelocity(int trackIdx, int stepIdx, float vel);
     void setStepProbability(int trackIdx, int stepIdx, float prob);
     void setStepMicrotiming(int trackIdx, int stepIdx, float micro);

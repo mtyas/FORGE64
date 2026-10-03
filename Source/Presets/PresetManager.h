@@ -28,6 +28,10 @@ public:
 
     static void copyTreeInPlace(juce::ValueTree dst, const juce::ValueTree& src);
     static int padIndexOfParamId(const juce::String& id);
+    static juce::File getBanksDirectory();
+    static juce::StringArray getAvailableBankNames();
+    static juce::File getBankFileByName(const juce::String& name);
+    static void initializePresetsOnDisk();
 
 private:
     bool saveParamSubset(const juce::File& f, const char* tag, int firstPad, int padCount, int bankOrPad);

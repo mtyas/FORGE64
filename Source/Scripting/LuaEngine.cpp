@@ -1,4 +1,5 @@
 #include "LuaEngine.h"
+#include <cstring>
 
 namespace f64 {
 
@@ -76,7 +77,7 @@ int lf_outR(lua_State* Ls)
 
 int lf_rnd(lua_State* Ls)
 {
-    static uint32_t seed = 123456789;
+    static thread_local uint32_t seed = 123456789;
     seed = seed * 1664525u + 1013904223u;
     const float f = (float) seed / 4294967296.0f;
     const int top = lua_gettop(Ls);
@@ -176,27 +177,27 @@ int lf_param(lua_State* Ls)
         if (name != nullptr)
         {
             const auto& p = *ctx->params;
-            const juce::String s(name);
-            if      (s == "level")                v = p.level;
-            else if (s == "pan")                  v = p.pan;
-            else if (s == "tune" || s == "pitch") v = p.tune;
-            else if (s == "decay" || s == "dec")  v = p.decay;
-            else if (s == "drive" || s == "drv")  v = p.drive;
-            else if (s == "fx1" || s == "p1")     v = p.fx1;
-            else if (s == "fx2" || s == "p2")     v = p.fx2;
-            else if (s == "fx3" || s == "p3")     v = p.fx3;
-            else if (s == "fx4" || s == "p4")     v = p.fx4;
-            else if (s == "fx5" || s == "p5")     v = p.fx5;
-            else if (s == "fxtype")               v = (float) p.fxType;
-            else if (s == "vcft")                 v = (float) p.vcfType;
-            else if (s == "vcfc")                 v = p.vcfCut;
-            else if (s == "vcfr")                 v = p.vcfRes;
-            else if (s == "vcfe")                 v = p.vcfEnv;
-            else if (s == "senda")                v = p.sendA;
-            else if (s == "sendb")                v = p.sendB;
-            else if (s == "eqlg")                 v = p.eqLG;
-            else if (s == "eqmg")                 v = p.eqMG;
-            else if (s == "eqhg")                 v = p.eqHG;
+            auto is = [name](const char* k) { return std::strcmp(name, k) == 0; };
+            if      (is("level"))                 v = p.level;
+            else if (is("pan"))                   v = p.pan;
+            else if (is("tune") || is("pitch"))   v = p.tune;
+            else if (is("decay") || is("dec"))    v = p.decay;
+            else if (is("drive") || is("drv"))    v = p.drive;
+            else if (is("fx1") || is("p1"))       v = p.fx1;
+            else if (is("fx2") || is("p2"))       v = p.fx2;
+            else if (is("fx3") || is("p3"))       v = p.fx3;
+            else if (is("fx4") || is("p4"))       v = p.fx4;
+            else if (is("fx5") || is("p5"))       v = p.fx5;
+            else if (is("fxtype"))                v = (float) p.fxType;
+            else if (is("vcft"))                  v = (float) p.vcfType;
+            else if (is("vcfc"))                  v = p.vcfCut;
+            else if (is("vcfr"))                  v = p.vcfRes;
+            else if (is("vcfe"))                  v = p.vcfEnv;
+            else if (is("senda"))                 v = p.sendA;
+            else if (is("sendb"))                 v = p.sendB;
+            else if (is("eqlg"))                  v = p.eqLG;
+            else if (is("eqmg"))                  v = p.eqMG;
+            else if (is("eqhg"))                  v = p.eqHG;
         }
     }
     lua_pushnumber(Ls, v);
@@ -376,7 +377,9 @@ void LuaEngine::process(int pad, float* L, float* R, int n, double sr,
     {
         // pcall catches script errors; the instruction hook cannot longjmp
         // past this frame, so the C++ lock scope stays intact.
-        lua_sethook(Ls, luaHook, LUA_MASKCOUNT, 8000000);
+        // Scale budget to ~1,500 instructions per sample (e.g. 768k instructions for a 512-sample buffer).
+        const int instructionBudget = juce::jmax(250000, n * 1500);
+        lua_sethook(Ls, luaHook, LUA_MASKCOUNT, instructionBudget);
         if (lua_pcall(Ls, 0, 0, 0) != 0)
         {
             const char* msg = lua_tostring(Ls, -1);

@@ -71,7 +71,8 @@ private:
 #endif
 
     Slot slots[kNumPads];
-    Ctx* activeCtx = nullptr; // audio thread only
+    // Per-thread: pads may be processed concurrently on DSP worker threads.
+    static inline thread_local Ctx* activeCtx = nullptr;
 };
 
 } // namespace f64

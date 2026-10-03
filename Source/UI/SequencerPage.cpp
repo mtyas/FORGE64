@@ -584,7 +584,8 @@ void SequencerPage::StepButton::mouseDown(const juce::MouseEvent& e)
 
     if (! wasActiveOnDown)
     {
-        owner.seq.setStepActive(trackIdx, stepIdx, true);
+        const int targetPad = (owner.getActivePad) ? owner.getActivePad() : trk.defaultPad;
+        owner.seq.setStepActiveWithPad(trackIdx, stepIdx, true, targetPad);
         switch (owner.getLockViewMode())
         {
             case SequencerPage::LOCK_VIEW_PROBABILITY: owner.seq.setStepProbability(trackIdx, stepIdx, 1.0f); break;

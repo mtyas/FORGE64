@@ -34,6 +34,8 @@ public:
     StepLockViewMode getLockViewMode() const { return lockViewMode; }
     void refreshFromSequencer();
 
+    std::function<int()> getActivePad;
+
 private:
     class StepButton;
     class TrackLane;

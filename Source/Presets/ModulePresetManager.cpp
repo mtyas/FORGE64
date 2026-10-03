@@ -1318,21 +1318,16 @@ end
         m.defTune = 0.f; m.defDecay = 1.20f; m.defDrive = 0.08f;
         m.defP1 = 0.65f; m.defP2 = 0.60f; m.defP3 = 0.50f; m.defP4 = 0.30f; m.defP5 = 0.55f;
         m.scriptCode =
-R"(-- Physical Modal Crash Cymbal (48 Modes + Buffer Accumulation)
-local NUM_MODES = 48
+R"(-- Physical Modal Crash Cymbal (18 Optimized Resonant Modes)
+local NUM_MODES = 18
 local mode_f = {}
-local mode_pL = {}
-local mode_pR = {}
+local mode_p = {}
 local mode_amp = {}
-local accL = {}
-local accR = {}
-for k = 0, 1024 do accL[k] = 0.0; accR[k] = 0.0 end
 
 do
     for m = 1, NUM_MODES do
-        mode_f[m] = 320.0 * math.pow(m, 1.22) * (0.97 + rnd() * 0.06)
-        mode_pL[m] = 0.0
-        mode_pR[m] = 0.0
+        mode_f[m] = 320.0 * math.pow(m, 1.25) * (0.97 + rnd() * 0.06)
+        mode_p[m] = 0.0
         mode_amp[m] = 1.0 / math.sqrt(m)
     end
 end
@@ -1349,48 +1344,51 @@ function process()
 
     if trig then
         for m = 1, NUM_MODES do
-            mode_pL[m] = 0.0
-            mode_pR[m] = 0.0
+            mode_p[m] = 0.0
         end
+    end
+
+    local env = math.exp(-age / dec)
+    if env <= 0.0001 then
+        for i = 0, n - 1 do
+            outL(i, 0.0)
+            outR(i, 0.0)
+        end
+        return
     end
 
     local pitchMult = math.pow(2.0, fTune / 12.0)
     local dt = 1.0 / sr
+    local nzGain = shimmer * 0.25 * env
+    local drvGain = 1.0 + drv * 3.0
 
     for i = 0, n - 1 do
-        accL[i] = 0.0
-        accR[i] = 0.0
-    end
+        local accL = 0.0
+        local accR = 0.0
 
-    local env = math.exp(-age / dec)
-    if env > 0.0001 then
         for m = 1, NUM_MODES do
             local f = mode_f[m] * pitchMult
-            local posWeight = (m < 16) and (1.0 - hitPos * 0.5) or (0.5 + hitPos * 0.8)
-            local brightWeight = math.pow(m / NUM_MODES, 1.5 - brightness)
-            local mAmp = mode_amp[m] * posWeight * brightWeight * env * 0.08
+            mode_p[m] = (mode_p[m] + f * dt) % 1.0
 
-            local panL = 0.5 - spread * 0.4 * ((m % 2 == 0) and 1.0 or -1.0)
+            local posWeight = (m < 8) and (1.0 - hitPos * 0.5) or (0.5 + hitPos * 0.8)
+            local brightWeight = math.pow(m / NUM_MODES, 1.5 - brightness)
+            local mAmp = mode_amp[m] * posWeight * brightWeight * env * 0.18
+
+            local panL = 0.5 - spread * 0.35 * ((m % 2 == 0) and 1.0 or -1.0)
             local panR = 1.0 - panL
 
-            for i = 0, n - 1 do
-                mode_pL[m] = (mode_pL[m] + f * dt) % 1.0
-                local s = math.sin(mode_pL[m] * 6.2831853) * mAmp
-                accL[i] = accL[i] + s * panL
-                accR[i] = accR[i] + s * panR
-            end
+            local s = math.sin(mode_p[m] * 6.2831853) * mAmp
+            accL = accL + s * panL
+            accR = accR + s * panR
         end
-    end
 
-    local nzGain = shimmer * 0.25 * env
-    for i = 0, n - 1 do
         local nz = (rnd() * 2.0 - 1.0) * nzGain
-        local sL = (accL[i] + nz) * vel * 2.8
-        local sR = (accR[i] + nz) * vel * 2.8
+        local sL = (accL + nz) * vel * 2.8
+        local sR = (accR + nz) * vel * 2.8
 
         if drv > 0.01 then
-            sL = math.tanh(sL * (1.0 + drv * 3.0))
-            sR = math.tanh(sR * (1.0 + drv * 3.0))
+            sL = math.tanh(sL * drvGain)
+            sR = math.tanh(sR * drvGain)
         end
         outL(i, sL)
         outR(i, sR)
