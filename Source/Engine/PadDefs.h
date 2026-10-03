@@ -19,7 +19,7 @@ constexpr int kNumBuses     = 16;
 constexpr int kNumChokes    = 16;
 constexpr int kMaxVoices    = 64;
 constexpr int kMaxPolyphony = 24;
-constexpr int kEnvInstances = 16;
+constexpr int kEnvInstances = kMaxVoices;
 
 constexpr int kNumLFO = 10, kNumRnd = 10, kNumEnv = 10, kNumSeq = 10;
 constexpr int kNumMidiSrc = 5, kNumMacros = 8;
@@ -179,9 +179,9 @@ inline constexpr PadParamDef kPadParams[] = {
     { "ifx4",  "IFX P4" },
     { "vcft",  "VCF Type" },  { "vcfc",  "VCF Cut" },
     { "vcfr",  "VCF Res" },   { "vcfe",  "VCF Env" },
-    { "cmg",   "Comp Gain" }
+    { "cmg",   "Comp Gain" }, { "vcfd", "VCF Drive" }
 };
-constexpr int kNumPadParams = (int) (sizeof(kPadParams) / sizeof(kPadParams[0])); // 45
+constexpr int kNumPadParams = (int) (sizeof(kPadParams) / sizeof(kPadParams[0])); // 46
 
 struct PadParams
 {
@@ -199,7 +199,8 @@ struct PadParams
     int   vcfType = 0; // 0: Bypass, 1: LP, 2: HP, 3: BP, 4: Notch
     float vcfCut = 20000.f;
     float vcfRes = 0.707f;
-    float vcfEnv = 0.0f;
+    float vcfEnv = 0.0f; // Legacy parameter for saved sessions.
+    float vcfDrive = 0.0f;
 };
 
 inline juce::String padParamId(int pad, juce::StringRef base)

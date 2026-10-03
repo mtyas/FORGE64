@@ -288,13 +288,24 @@ void EnvSource::advance(Instance& in, float* out, int n)
                     if (p >= 1.f)
                     {
                         if (lp) { in.stage = 0; in.t = 0.f; }
-                        else    in.stage = 4;
+                        else { in.stage = 4; in.t = 0.f; }
                     }
                     break;
                 }
-                default:
+                case 4:
                     in.level = sSus;
+                    // Drum modulation is a one-shot DAHDSR envelope. Sustain
+                    // lasts 200 ms, matching the curve shown in the editor.
+                    if (in.t >= 0.2f) { in.stage = 5; in.t = 0.f; in.releaseStart = in.level; }
                     break;
+                case 5:
+                {
+                    const float duration = juce::jmax(0.0005f, rel.load());
+                    const float p = juce::jlimit(0.f, 1.f, in.t / duration);
+                    in.level = in.releaseStart * std::pow(1.f - p, ed);
+                    if (p >= 1.f) { in.stage = -1; in.level = 0.f; }
+                    break;
+                }
             }
         }
         else
@@ -310,7 +321,17 @@ void EnvSource::advance(Instance& in, float* out, int n)
 
 void EnvSource::render(float* out, int n)
 {
-    advance(globalInst, out, n);
+    std::sort(triggerOffsets.begin(), triggerOffsets.end());
+    int position = 0;
+    for (int offset : triggerOffsets)
+    {
+        const int next = juce::jlimit(position, n, offset);
+        advance(globalInst, out + position, next - position);
+        globalInst.trigReq.store(true);
+        position = next;
+    }
+    advance(globalInst, out + position, n - position);
+    triggerOffsets.clear();
     if (! enabled.load())
         std::fill_n(out, n, 0.f);
 }

@@ -289,16 +289,17 @@ void VoicePool::renderSegment(Voice& v, float* L, float* R, int from, int to,
     v.ageSec += (float) n / (float) sr;
 
     ModMatrix::VoiceMods vm;
+    const bool sampleEnvelope = mod != nullptr && mod->hasVoiceEnvelopes(v.voiceId);
     if (mod != nullptr)
-        mod->renderVoice(v.voiceId, vm, n);
+        mod->renderVoice(v.voiceId, vm, sampleEnvelope ? 1 : n);
 
     const double pitchSt = (double) pp.tune + (double) vm.pitch
         + (pp.mode == 1 ? (double) (v.note - pp.mnote) : 0.0);
-    const double rate = v.baseRate * std::pow(2.0, clampRange(pitchSt, -60.0, 60.0) / 12.0);
+    double rate = v.baseRate * std::pow(2.0, clampRange(pitchSt, -60.0, 60.0) / 12.0);
 
     const float panLim = clampRange(pp.pan + vm.pan, -1.f, 1.f);
-    const float gainL = std::cos((panLim + 1.f) * 0.25f * juce::MathConstants<float>::pi);
-    const float gainR = std::sin((panLim + 1.f) * 0.25f * juce::MathConstants<float>::pi);
+    float gainL = std::cos((panLim + 1.f) * 0.25f * juce::MathConstants<float>::pi);
+    float gainR = std::sin((panLim + 1.f) * 0.25f * juce::MathConstants<float>::pi);
 
     const float atkSec = juce::jmax(0.0005f, pp.smplAtk * 2.0f);
     const float decSec = juce::jmax(0.005f,  pp.smplDec * 4.0f);
@@ -310,7 +311,7 @@ void VoicePool::renderSegment(Voice& v, float* L, float* R, int from, int to,
     const float relCoef = std::exp(-1.f / (relSec * (float) sr));
     const float rawDecCoef = std::exp(-1.f / (juce::jmax(0.005f, pp.decay) * (float) sr));
     const float drumAtkCoef = 1.f - std::exp(-1.f / (0.0015f * (float) sr));
-    const float ampMod = juce::jmax(0.f, 1.f + vm.amp);
+    float ampMod = juce::jmax(0.f, 1.f + vm.amp);
     const bool isLuaSynth = (v.srcType == SRC_LUA || (grid != nullptr && grid->runtime(v.pad).scriptOn.load()));
     const float drumRelSec = isLuaSynth ? juce::jmax(0.12f, pp.decay * 1.8f)
                                         : juce::jmax(0.005f, pp.decay);
@@ -329,6 +330,16 @@ void VoicePool::renderSegment(Voice& v, float* L, float* R, int from, int to,
     bool ended = false;
     for (int i = from; i < to; ++i)
     {
+        if (sampleEnvelope && i != from)
+        {
+            mod->renderVoice(v.voiceId, vm, 1);
+            const double pitch = pp.tune + vm.pitch + (pp.mode == 1 ? v.note - pp.mnote : 0);
+            rate = v.baseRate * std::pow(2.0, clampRange(pitch, -60.0, 60.0) / 12.0);
+            const float pan = clampRange(pp.pan + vm.pan, -1.f, 1.f);
+            gainL = std::cos((pan + 1.f) * 0.25f * juce::MathConstants<float>::pi);
+            gainR = std::sin((pan + 1.f) * 0.25f * juce::MathConstants<float>::pi);
+            ampMod = juce::jmax(0.f, 1.f + vm.amp);
+        }
         if (v.srcType == SRC_SAMPLE)
         {
             if (v.inRelease || v.stage == 3)

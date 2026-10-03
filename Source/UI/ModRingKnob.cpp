@@ -222,6 +222,9 @@ void ModRingKnob::paint(juce::Graphics& g)
 
 void ModRingKnob::mouseDown(const juce::MouseEvent& e)
 {
+    if (! chip && e.mods.isLeftButtonDown())
+        if (auto* learn = services.midiLearn(); learn != nullptr && learn->currentLearningTarget() == "ANY")
+            learn->startLearning(dest);
     if (isWheelDragging)
     {
         stopTimer();
@@ -270,6 +273,8 @@ void ModRingKnob::mouseWheelMove(const juce::MouseEvent&, const juce::MouseWheel
 {
     if (chip || ! isEnabled() || ! isScrollWheelEnabled())
         return;
+    if (auto* learn = services.midiLearn(); learn != nullptr && learn->currentLearningTarget() == "ANY")
+        learn->startLearning(dest);
 
     const float delta = (wheel.deltaY != 0.0f ? wheel.deltaY : wheel.deltaX);
     if (std::abs(delta) < 0.00001f)

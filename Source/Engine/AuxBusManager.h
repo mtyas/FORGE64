@@ -357,6 +357,8 @@ private:
     // --- Master Bus FX ---
     float masterCompEnv = 0.f, masterCompGain = 1.f;
     float masterLimiterEnv = 0.f;
+    float masterTapeMakeup = 1.f;
+    std::array<float, 4> auxTapeMakeup { 1.f, 1.f, 1.f, 1.f };
     std::atomic<float> masterCompGR { 0.f };
     juce::dsp::IIR::Filter<float> masterEqL[4], masterEqR[4];
     float lastEqLowGain = -999.f, lastEqLowMidGain = -999.f, lastEqHiMidGain = -999.f, lastEqHighGain = -999.f;

@@ -36,6 +36,9 @@ bool PresetManager::saveKit(const juce::File& f)
     if (onBeforeSave)
         onBeforeSave();
 
+    kit.removeChild(kit.getChildWithName("PARAMS"), nullptr);
+    kit.appendChild(apvts.copyState(), nullptr);
+
     auto xml = kit.createXml();
     if (! xml)
     {
@@ -70,7 +73,13 @@ bool PresetManager::loadKit(const juce::File& f)
 
     auto params = incoming.getChildWithName("PARAMS");
     if (params.isValid())
+    {
+        for (int pad = 0; pad < kNumPads; ++pad)
+            if (! params.getChildWithProperty("id", padParamId(pad, "vcfd")).isValid())
+                if (auto* drive = apvts.getParameter(padParamId(pad, "vcfd")))
+                    drive->setValueNotifyingHost(0.f);
         apvts.replaceState(params);
+    }
 
     for (const char* name : { "PADS", "MODSRC", "MODMAT", "SEQUENCER", "AUX_MASTER_FX", "MIDI_LEARN" })
     {
@@ -111,7 +120,7 @@ bool PresetManager::saveParamSubset(const juce::File& f, const char* tag,
                 root.addChildElement(x);
     }
 
-    if (auto fullParams = apvts.state.createXml())
+    if (auto fullParams = apvts.copyState().createXml())
     {
         auto* paramsEl = new juce::XmlElement("PARAMS");
         for (auto* child : fullParams->getChildIterator())
@@ -165,6 +174,8 @@ bool PresetManager::loadParamSubset(const juce::File& f, const char* tag,
     // (e.g. Bank A = 36..51, Bank B = 52..67, Bank C = 68..83, Bank D = 84..99)
     for (int p = destFirstPad; p < destFirstPad + padCount; ++p)
     {
+        if (auto* drive = apvts.getParameter(padParamId(p, "vcfd")))
+            drive->setValueNotifyingHost(0.f); // Old banks contain no filter-drive parameter.
         if (auto* param = apvts.getParameter(padParamId(p, "mnote")))
         {
             const float defNote = (float) juce::jmin(127, 36 + p);

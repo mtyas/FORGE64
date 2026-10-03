@@ -703,6 +703,12 @@ void Forge64Editor::setPage(ActivePage p)
 
 void Forge64Editor::timerCallback()
 {
+    for (auto* knob : knobList)
+    {
+        float normalized = 0.f;
+        if (processor.getMidiLearn().consumeControlValue(knob->dest, normalized))
+            knob->setValue(knob->proportionOfLengthToValue(normalized), juce::sendNotificationSync);
+    }
     if (grid && currentPage == Page_Grid)
         grid->tick();
 

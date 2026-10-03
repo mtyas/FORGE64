@@ -110,7 +110,7 @@ private:
 
     // VCF Filter
     juce::ComboBox *vcfTypeCombo = nullptr;
-    ModRingKnob *vcfCutKnob = nullptr, *vcfResKnob = nullptr, *vcfEnvKnob = nullptr;
+    ModRingKnob *vcfCutKnob = nullptr, *vcfResKnob = nullptr, *vcfDriveKnob = nullptr;
     std::vector<ModRingKnob*> vcfKnobs;
 
     // Routing & FX

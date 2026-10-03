@@ -166,9 +166,16 @@ void PadChain::process(float* L, float* R, int n, const PadParams& p)
         vcfR.setCutoffFrequency(smVcfCut);
         vcfL.setResonance(smVcfRes);
         vcfR.setResonance(smVcfRes);
+        const float filterDrive = juce::jlimit(0.f, 1.f, p.vcfDrive);
+        const float filterGain = 1.f + filterDrive * filterDrive * 31.f;
 
         for (int i = 0; i < n; ++i)
         {
+            if (filterDrive > 0.001f)
+            {
+                L[i] = std::tanh(L[i] * filterGain) / std::sqrt(filterGain);
+                R[i] = std::tanh(R[i] * filterGain) / std::sqrt(filterGain);
+            }
             if (vType == 4) // Notch = input - bandpass
             {
                 const float bpL = vcfL.processSample(0, L[i]);

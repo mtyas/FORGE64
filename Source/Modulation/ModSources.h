@@ -101,6 +101,7 @@ public:
     void syncFromState() override;
     void render(float* out, int n) override;
     void retrigger() override { globalInst.trigReq = true; }
+    void scheduleTrigger(int sampleOffset) { triggerOffsets.push_back(juce::jmax(0, sampleOffset)); }
 
     void  triggerInstance(int i) { inst[(size_t) i].trigReq = true; }
     void  renderInstance(int i, int n);
@@ -116,11 +117,12 @@ private:
     struct Instance
     {
         int   stage = -1;
-        float t = 0.f, level = 0.f, last = 0.f;
+        float t = 0.f, level = 0.f, last = 0.f, releaseStart = 0.f;
         std::atomic<bool> trigReq { false };
     };
     void advance(Instance& in, float* out, int n);
     Instance globalInst;
+    std::vector<int> triggerOffsets;
     std::array<Instance, kEnvInstances> inst;
 };
 

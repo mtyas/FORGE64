@@ -50,6 +50,7 @@ public:
     void bind(int channel, int cc, const juce::String& paramId)
     {
         std::lock_guard<std::mutex> lock(mutex);
+        if (paramId.isEmpty() || paramId == "ANY") return;
         // Remove any previous binding for this param
         for (auto it = ccToParam.begin(); it != ccToParam.end(); )
         {
@@ -59,6 +60,8 @@ public:
                 ++it;
         }
         const uint32_t key = makeKey(channel, cc);
+        if (auto previous = ccToParam.find(key); previous != ccToParam.end())
+            paramToKey.erase(previous->second);
         ccToParam[key] = paramId;
         paramToKey[paramId] = key;
     }
@@ -96,6 +99,22 @@ public:
         return -1;
     }
 
+    void queueControlValue(const juce::String& paramId, float value)
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        pendingControlValues[paramId] = value;
+    }
+
+    bool consumeControlValue(const juce::String& paramId, float& value)
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        auto it = pendingControlValues.find(paramId);
+        if (it == pendingControlValues.end()) return false;
+        value = it->second;
+        pendingControlValues.erase(it);
+        return true;
+    }
+
     juce::ValueTree serialize() const
     {
         std::lock_guard<std::mutex> lock(mutex);
@@ -118,6 +137,7 @@ public:
         std::lock_guard<std::mutex> lock(mutex);
         ccToParam.clear();
         paramToKey.clear();
+        pendingControlValues.clear();
         if (! tree.isValid()) return;
 
         for (int i = 0; i < tree.getNumChildren(); ++i)
@@ -128,7 +148,7 @@ public:
                 const int chan = child.getProperty("chan", 0);
                 const int cc   = child.getProperty("cc", -1);
                 const juce::String param = child.getProperty("param", "").toString();
-                if (cc >= 0 && ! param.isEmpty())
+                if (cc >= 0 && cc <= 127 && chan >= 0 && chan <= 16 && param.isNotEmpty() && param != "ANY")
                 {
                     const uint32_t key = makeKey(chan, cc);
                     ccToParam[key] = param;
@@ -149,6 +169,7 @@ private:
     juce::String learningTarget;
     std::unordered_map<uint32_t, juce::String> ccToParam;
     std::unordered_map<juce::String, uint32_t> paramToKey;
+    std::unordered_map<juce::String, float> pendingControlValues;
 };
 
 } // namespace f64

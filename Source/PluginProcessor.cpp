@@ -6,7 +6,7 @@
 
 namespace f64 {
 
-static_assert(kNumPadParams == 45, "PadParams field mapping below must match kPadParams order");
+static_assert(kNumPadParams == 46, "PadParams field mapping below must match kPadParams order");
 
 // ---------------------------------------------------------------------------
 // Buses: main stereo + 15 additional stereo pairs (16 total), each pad
@@ -116,6 +116,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout Forge64Processor::makeParams
         addF(id("vcfr"), n + "VCF Res",   { 0.1f, 10.f, 0.01f, 0.35f },     defVcfRes);
         addF(id("vcfe"), n + "VCF Env",   { -1.f, 1.f, 0.001f },            defVcfEnv);
         addF(id("cmg"),  n + "Comp Gain", { 0.f, 24.f, 0.1f },              0.f);
+        addF(id("vcfd"), n + "VCF Drive", { 0.f, 1.f, 0.001f },             0.f);
     }
 
     return { params.begin(), params.end() };
@@ -246,6 +247,7 @@ void Forge64Processor::triggerStepAudition(int pad, float velocity, const StepDa
         tr.vcfCut  = stepData.pLockVcfCut;
         tr.vcfRes  = stepData.pLockVcfRes;
         tr.vcfEnv  = stepData.pLockVcfEnv;
+        tr.vcfDrive = stepData.pLockVcfDrive;
         tr.eqLF    = stepData.pLockEqLF;
         tr.eqLG    = stepData.pLockEqLG;
         tr.eqMF    = stepData.pLockEqMF;
@@ -379,6 +381,7 @@ void Forge64Processor::fillPadParams(int pad, PadParams& out, float modScale)
     out.vcfRes  = getF(42);
     out.vcfEnv  = getF(43);
     out.cMg     = getF(44);
+    out.vcfDrive = getF(45);
 }
 
 // ---------------------------------------------------------------------------
@@ -462,19 +465,20 @@ void Forge64Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::Midi
             if (midiLearn.isLearning())
             {
                 auto target = midiLearn.currentLearningTarget();
-                if (! target.isEmpty())
+                if (target.isNotEmpty() && target != "ANY")
                 {
                     midiLearn.bind(chan, cc, target);
                     midiLearn.stopLearning();
                 }
             }
-            else
             {
                 auto bound = midiLearn.getBoundParam(chan, cc);
                 if (! bound.isEmpty())
                 {
                     if (auto* par = dynamic_cast<juce::RangedAudioParameter*>(apvts.getParameter(bound)))
                         par->setValueNotifyingHost(normVal);
+                    else if (applyLearnedControl(bound, normVal))
+                        midiLearn.queueControlValue(bound, normVal);
                 }
             }
         }
@@ -496,7 +500,7 @@ void Forge64Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::Midi
         }
     }
 
-    auto retriggerEnvsForPad = [&](int padIndex, int noteNum)
+    auto retriggerEnvsForPad = [&](int padIndex, int noteNum, int sampleOffset = 0)
     {
         lastTriggeredPad.store(padIndex);
         for (int i = 0; i < kNumEnv; ++i)
@@ -506,14 +510,10 @@ void Forge64Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::Midi
                 const int tp = env->triggerPad.load();
                 const int tn = env->triggerNote.load();
                 if ((tp == -1 && tn == -1) || tp == padIndex || (tn >= 0 && tn == noteNum))
-                    env->retrigger();
+                    env->scheduleTrigger(sampleOffset);
             }
         }
     };
-
-    // 2) Modulation sources -> per-destination block offsets.
-    modPtr->renderSources(n);
-    modPtr->computeOffsets();
 
     // 3) Effective (modulated) pad parameters.
     for (int p = 0; p < kNumPads; ++p)
@@ -549,7 +549,7 @@ void Forge64Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::Midi
                 rt.lastNote.store(re.note);
                 rt.lastHitStamp.store(clockNow);
                 padEvents[(size_t) cp].push_back({ re.pos, { cp, re.vel, re.note, re.chan, false } });
-                retriggerEnvsForPad(cp, re.note);
+                retriggerEnvsForPad(cp, re.note, re.pos);
             }
             else
             {
@@ -564,7 +564,7 @@ void Forge64Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::Midi
                         rt.lastNote.store(re.note);
                         rt.lastHitStamp.store(clockNow);
                         padEvents[(size_t) p].push_back({ re.pos, { p, re.vel, re.note, re.chan, false } });
-                        retriggerEnvsForPad(p, re.note);
+                        retriggerEnvsForPad(p, re.note, re.pos);
                     }
                 }
             }
@@ -617,6 +617,7 @@ void Forge64Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::Midi
                     rt.latchedVcfCut.store(a.vcfCut);
                     rt.latchedVcfRes.store(a.vcfRes);
                     rt.latchedVcfEnv.store(a.vcfEnv);
+                    rt.latchedVcfDrive.store(a.vcfDrive);
 
                     rt.latchedEqLF.store(a.eqLF);
                     rt.latchedEqLG.store(a.eqLG);
@@ -654,7 +655,7 @@ void Forge64Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::Midi
         if (st.pad >= 0 && st.pad < kNumPads)
         {
             padEvents[(size_t) st.pad].push_back({ st.pos, { st.pad, st.vel, 60, 1, false } });
-            retriggerEnvsForPad(st.pad, 60);
+            retriggerEnvsForPad(st.pad, 60, st.pos);
 
             auto& rt = gridPtr->runtime(st.pad);
             rt.lastVel.store(st.vel);
@@ -682,6 +683,7 @@ void Forge64Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::Midi
                 rt.latchedVcfCut.store(st.vcfCut);
                 rt.latchedVcfRes.store(st.vcfRes);
                 rt.latchedVcfEnv.store(st.vcfEnv);
+                rt.latchedVcfDrive.store(st.vcfDrive);
 
                 rt.latchedEqLF.store(st.eqLF);
                 rt.latchedEqLG.store(st.eqLG);
@@ -708,6 +710,13 @@ void Forge64Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::Midi
             rt.isNewTrigger.store(true);
         }
     }
+
+    // Apply triggers before rendering envelopes. The previous order used a
+    // stale sustain value for the first block of every retriggered note.
+    modPtr->renderSources(n);
+    modPtr->computeOffsets();
+    for (int p = 0; p < kNumPads; ++p)
+        fillPadParams(p, eff[(size_t) p]);
 
     // 5) Render pads: voices -> optional Lua -> pad chain -> bus/aux routing.
     const double sr = getSampleRate();
@@ -987,6 +996,8 @@ void Forge64Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::Midi
 
             if (hasLocks && (mask & LOCK_FLAG_VCF_ENV))  pp.vcfEnv  = applyMod(43, rt.latchedVcfEnv.load());
             else if (isPLockPreview)                     pp.vcfEnv  = applyMod(43, bp.vcfEnv);
+            if (hasLocks && (mask & LOCK_FLAG_VCF_DRIVE)) pp.vcfDrive = applyMod(45, rt.latchedVcfDrive.load());
+            else if (isPLockPreview) pp.vcfDrive = applyMod(45, bp.vcfDrive);
         }
 
         const bool isSilenced = (anyPadSolo && ! rt.isSolo.load()) || rt.isMuted.load();
@@ -1213,6 +1224,39 @@ void Forge64Processor::onPresetLoaded()
     voices.allNotesOff();
 }
 
+bool Forge64Processor::applyLearnedControl(const juce::String& id, float value)
+{
+    value = juce::jlimit(0.f, 1.f, value);
+    if (id.startsWith("aux") && id.length() > 5)
+    {
+        const int index = id.substring(3, 4).getIntValue();
+        if (index < 0 || index >= 4) return false;
+        auto& p = auxManager.auxParams[index];
+        const auto name = id.substring(5);
+        if (name == "P1") p.p1 = value;
+        else if (name == "P2") p.p2 = value;
+        else if (name == "P3") p.p3 = value;
+        else if (name == "P4") p.p4 = value;
+        else if (name == "RETURN") p.returnLevel = value * 1.5f;
+        else if (name == "PAN") p.returnPan = value * 2.f - 1.f;
+        else return false;
+        return true;
+    }
+    auto& p = auxManager.masterParams;
+    if (id == "m_drv") p.drive = value;
+    else if (id == "m_cthr") p.compThresh = -40.f + value * 40.f;
+    else if (id == "m_crat") p.compRatio = 1.f + value * 19.f;
+    else if (id == "m_cgan") p.compMakeup = value * 18.f;
+    else if (id == "m_catk") p.compAtk = 0.1f + value * 99.9f;
+    else if (id == "m_crel") p.compRel = 10.f + value * 990.f;
+    else if (id == "m_eqlg") p.eqLowGain = -12.f + value * 24.f;
+    else if (id == "m_eqlmg") p.eqLowMidGain = -12.f + value * 24.f;
+    else if (id == "m_eqhmg") p.eqHiMidGain = -12.f + value * 24.f;
+    else if (id == "m_eqhg") p.eqHighGain = -12.f + value * 24.f;
+    else return false;
+    return true;
+}
+
 juce::StringArray Forge64Processor::getFactoryKitNames()
 {
     return {
@@ -1255,6 +1299,7 @@ void Forge64Processor::loadFactoryKit(int kitIndex)
         setAP(p, "vcfc", pre.vcfCut);
         setAP(p, "vcfr", pre.vcfRes);
         setAP(p, "vcfe", pre.vcfEnv);
+        setAP(p, "vcfd", 0.f);
         setAP(p, "eqlf", 200.f);  setAP(p, "eqlg", 0.f);
         setAP(p, "eqmf", 1000.f); setAP(p, "eqmg", 0.f);
         setAP(p, "eqhf", 8000.f); setAP(p, "eqhg", 0.f);
@@ -1338,6 +1383,7 @@ void Forge64Processor::loadFactoryKit(int kitIndex)
         setAP(p, "vcfc", vcfc);
         setAP(p, "vcfr", vcfr);
         setAP(p, "vcfe", vcfe);
+        setAP(p, "vcfd", 0.f);
         setAP(p, "eqlg", eqlg);
         setAP(p, "eqmg", eqmg);
         setAP(p, "eqhg", eqhg);
@@ -1649,6 +1695,10 @@ void Forge64Processor::resetAllMidiNotes()
 
 void Forge64Processor::getStateInformation(juce::MemoryBlock& destData)
 {
+    // Flush parameter changes and refresh the snapshot after replaceState().
+    kitRoot.removeChild(kitRoot.getChildWithName("PARAMS"), nullptr);
+    kitRoot.appendChild(apvts.copyState(), nullptr);
+
     // Save UI dimensions
     kitRoot.setProperty("uiWidth", lastUIWidth, nullptr);
     kitRoot.setProperty("uiHeight", lastUIHeight, nullptr);
@@ -1685,7 +1735,13 @@ void Forge64Processor::setStateInformation(const void* data, int sizeInBytes)
 
     auto params = incoming.getChildWithName("PARAMS");
     if (params.isValid())
+    {
+        for (int pad = 0; pad < kNumPads; ++pad)
+            if (! params.getChildWithProperty("id", padParamId(pad, "vcfd")).isValid())
+                if (auto* drive = apvts.getParameter(padParamId(pad, "vcfd")))
+                    drive->setValueNotifyingHost(0.f);
         apvts.replaceState(params);
+    }
 
     for (const char* name : { "PADS", "MODSRC", "MODMAT" })
     {

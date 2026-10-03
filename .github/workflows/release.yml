@@ -104,6 +104,8 @@ jobs:
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             & $testExe.FullName --bank-lock-regression
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            & $testExe.FullName --dsp-midi-regression
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           } else {
             Write-Host "test_audio.exe not found, skipping."
           }
@@ -116,6 +118,7 @@ jobs:
             echo "Running $TEST_BIN..."
             "$TEST_BIN"
             "$TEST_BIN" --bank-lock-regression
+            "$TEST_BIN" --dsp-midi-regression
           else
             echo "test_audio not found, skipping."
           fi
@@ -128,6 +131,7 @@ jobs:
             echo "Running xvfb-run -a $TEST_BIN..."
             xvfb-run -a "$TEST_BIN"
             xvfb-run -a "$TEST_BIN" --bank-lock-regression
+            xvfb-run -a "$TEST_BIN" --dsp-midi-regression
           else
             echo "test_audio not found, skipping."
           fi
@@ -232,6 +236,11 @@ jobs:
             - 🐧 **Linux (x64)**: [`FORGE64-Linux.tar.gz`](https://github.com/mtyas/FORGE64/releases/download/${{ steps.tag_info.outputs.tag }}/FORGE64-Linux.tar.gz)
 
             ### Changes in v0.95
+            - Modulation envelopes retrigger from zero with corrected timing and independent per-voice envelopes.
+            - The pad resonant filter has a Drive control, saved with presets, sessions, and step locks.
+            - Aux tape saturation includes level compensation, and master Tape Drive has a stronger saturation range.
+            - Learned MIDI controls respond immediately, including aux and master controls.
+            - Session and kit saves capture the latest parameter changes correctly.
             - Bank pads display their own named Lua DSP preset and retain their personal scripts.
             - Right-click VEL, PROB, TIME, PITCH, DECAY, DRIVE, LEVEL, or PAN to reset that variable on the selected track, or randomize it with 10%, 25%, 50%, 75%, or 100% strength. Both actions support Undo and preserve the rhythm.
             - Click the top-left FORGE64 logo for credits, the current version, GPL v3 licence, and links to mtyas.com, GitHub, and Ko-fi.

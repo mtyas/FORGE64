@@ -51,6 +51,7 @@ struct PadRuntime
     std::atomic<float>   latchedVcfCut  { 20000.f };
     std::atomic<float>   latchedVcfRes  { 0.707f };
     std::atomic<float>   latchedVcfEnv  { 0.f };
+    std::atomic<float>   latchedVcfDrive { 0.f };
 
     // Latched 3-Band Parametric EQ
     std::atomic<float>   latchedEqLF { 200.f };

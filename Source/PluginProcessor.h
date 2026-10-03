@@ -99,6 +99,7 @@ public:
     void fillPadParams(int pad, PadParams& out, float modScale = 1.0f);
 
 private:
+    bool applyLearnedControl(const juce::String& id, float normalized);
     std::atomic<float> masterPeakL { 0.f }, masterPeakR { 0.f };
     std::atomic<int> lastTriggeredPad { -1 };
     struct AuditionTrigger
@@ -114,6 +115,7 @@ private:
         // VCF
         int   vcfType = 0;
         float vcfCut = 20000.f, vcfRes = 0.707f, vcfEnv = 0.f;
+        float vcfDrive = 0.f;
 
         // EQ
         float eqLF = 200.f, eqLG = 0.f, eqMF = 1000.f, eqMG = 0.f, eqHF = 8000.f, eqHG = 0.f;

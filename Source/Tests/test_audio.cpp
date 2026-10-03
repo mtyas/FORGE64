@@ -3,7 +3,149 @@
 #include "../Presets/ModulePresetManager.h"
 #include "../Engine/StepLockOperations.h"
 #include "../UI/PadEditor.h"
+#include "../Engine/Saturation.h"
 #include <iostream>
+
+static int testDspAndMidiFixes()
+{
+    int failures = 0;
+    auto check = [&](bool ok, const char* what)
+    {
+        if (! ok) { ++failures; std::cout << "FAILED: " << what << std::endl; }
+    };
+    f64::EnvSource envelope;
+    envelope.prepare(48000., 256);
+    envelope.enabled = true;
+    envelope.atk = 0.1f; envelope.dec = 0.1f; envelope.sus = 0.7f; envelope.rel = 0.1f;
+    std::vector<float> values(48000);
+    envelope.retrigger();
+    envelope.render(values.data(), (int) values.size());
+    check(values[0] == 0.f && values[100] < 0.03f && values[4800] > 0.99f, "envelope starts at zero and follows attack");
+    check(values.back() == 0.f, "one-shot envelope finishes its release");
+    envelope.retrigger(); envelope.render(values.data(), 12000);
+    envelope.scheduleTrigger(64); envelope.render(values.data(), 256);
+    check(values[0] > 0.6f && values[64] == 0.f && values[100] < 0.02f, "sample-timed retrigger resets sustain to zero");
+
+    constexpr int n = 512;
+    std::vector<float> dry(n), left(n), right(n);
+    for (int i = 0; i < n; ++i) dry[i] = 0.08f * std::sin(juce::MathConstants<float>::twoPi * i / 64.f);
+    auto rms = [](const std::vector<float>& samples)
+    {
+        double energy = 0.; for (float value : samples) energy += value * value;
+        return std::sqrt(energy / samples.size());
+    };
+    f64::AuxBusManager effects;
+    effects.prepare(48000., n);
+    f64::AuxBusParams aux;
+    aux.fxType = f64::AUX_FX_DRIVE; aux.p1 = 1.f; aux.p2 = 1.f; aux.returnLevel = 1.f;
+    for (int block = 0; block < 4; ++block) {
+        left = right = dry;
+        effects.processAux(0, left.data(), right.data(), n, aux);
+    }
+    check(rms(left) <= rms(dry) * 1.01, "aux tape does not amplify the input level");
+    f64::MasterFXParams master;
+    master.compOn = master.eqOn = master.limiterOn = false;
+    master.driveOn = true; master.drive = 1.f;
+    for (int block = 0; block < 4; ++block) {
+        left = right = dry;
+        effects.processMasterChain(left.data(), right.data(), n, master);
+    }
+    double difference = 0.;
+    for (int i = 0; i < n; ++i) difference += std::abs(left[i] - dry[i]);
+    check(difference / n > 0.008 && std::abs(rms(left) / rms(dry) - 1.) < 0.02, "master tape changes timbre at matched RMS");
+    for (int i = 0; i < n; ++i) left[i] = right[i] = dry[i] * 0.001f;
+    effects.processMasterChain(left.data(), right.data(), n, master);
+    check(rms(left) < rms(dry) * 0.0013, "tape makeup cannot boost a quiet block after a loud one");
+
+    auto proc = std::make_unique<f64::Forge64Processor>();
+    proc->setPlayConfigDetails(0, 2, 48000., n);
+    proc->prepareToPlay(48000., n);
+    juce::AudioBuffer<float> buffer(2, n);
+    auto sendCC = [&](int cc, int value)
+    {
+        juce::MidiBuffer midi; midi.addEvent(juce::MidiMessage::controllerEvent(1, cc, value), 0);
+        buffer.clear(); proc->processBlock(buffer, midi);
+    };
+    auto& learn = proc->getMidiLearn();
+    learn.setLearnActive(true); sendCC(20, 100);
+    check(learn.isLearning() && learn.getBoundParam(1, 20).isEmpty(), "header ANY is never bound to a CC");
+    learn.startLearning("p0_pan"); sendCC(20, 127);
+    check(! learn.isLearning() && proc->getAPVTS().getRawParameterValue("p0_pan")->load() == 1.f, "learning applies the first CC value");
+    sendCC(20, 0);
+    check(proc->getAPVTS().getRawParameterValue("p0_pan")->load() == -1.f, "learned pad control responds after learning");
+    learn.startLearning("m_drv"); sendCC(21, 127); sendCC(21, 64);
+    check(std::abs(proc->getAuxManager().masterParams.drive - 64.f / 127.f) < 0.001f, "master MIDI control works without an open editor");
+    learn.startLearning("aux0_RETURN"); sendCC(22, 127);
+    check(proc->getAuxManager().auxParams[0].returnLevel == 1.5f, "aux MIDI control works without an open editor");
+    learn.bind(1, 20, "p0_lvl");
+    check(learn.getBoundCC("p0_pan") == -1 && learn.getBoundParam(1, 20) == "p0_lvl", "rebinding removes stale mapping");
+    f64::MidiLearnManager restored;
+    restored.deserialize(learn.serialize());
+    check(restored.getBoundParam(1, 21) == "m_drv", "MIDI bindings persist through state restore");
+
+    auto* env = static_cast<f64::EnvSource*>(proc->mods().sourceAt(f64::slotEnv(0)));
+    env->state.setProperty("enabled", true, nullptr);
+    env->state.setProperty("atk", 0.1f, nullptr);
+    proc->mods().addConnection(f64::slotEnv(0), "v_pitch", 12.f);
+    env->retrigger(); proc->mods().renderSources(12000); proc->mods().computeOffsets();
+    check(proc->mods().offsetFor("v_pitch") == 0.f, "voice envelopes are not also applied as global offsets");
+    for (int voice = 0; voice < f64::kMaxVoices; ++voice) proc->mods().triggerVoice(voice);
+    f64::ModMatrix::VoiceMods mods;
+    proc->mods().renderVoice(0, mods, 1);
+    check(mods.pitch == 0.f, "first voice-envelope sample is zero");
+    proc->mods().renderVoice(0, mods, 100);
+    const float advancedPitch = mods.pitch;
+    proc->mods().renderVoice(16, mods, 1);
+    check(mods.pitch == 0.f && advancedPitch > 0.f, "simultaneous voices have independent envelopes");
+    env->state.setProperty("sus", 0.7f, nullptr);
+    proc->mods().renderSources(12000);
+    juce::MidiBuffer note;
+    note.addEvent(juce::MidiMessage::noteOn(1, 36, (juce::uint8) 100), 64);
+    buffer.clear(); proc->processBlock(buffer, note);
+    // The first 64 samples retain sustain; the remaining 448 restart attack.
+    check(proc->mods().sourceAverage(f64::slotEnv(0)) < 0.15f, "note retriggers envelope in the current block");
+
+    f64::PadParams params; params.vcfType = 1; params.vcfCut = 12000.f; params.vcfRes = 0.707f;
+    f64::PadChain cleanFilter, drivenFilter;
+    cleanFilter.prepare(48000., n); drivenFilter.prepare(48000., n);
+    std::vector<float> clean(n), cleanRight(n);
+    for (int block = 0; block < 8; ++block) {
+        clean = cleanRight = dry; left = right = dry;
+        params.vcfDrive = 0.f; cleanFilter.process(clean.data(), cleanRight.data(), n, params);
+        params.vcfDrive = 1.f; drivenFilter.process(left.data(), right.data(), n, params);
+    }
+    difference = 0.; for (int i = 0; i < n; ++i) difference += std::abs(left[i] - clean[i]);
+    check(difference / n > 0.01, "filter drive changes the processed signal");
+    auto* drive = proc->getAPVTS().getParameter("p0_vcfd");
+    drive->setValueNotifyingHost(0.8f);
+    const auto bank = juce::File::getCurrentWorkingDirectory().getChildFile("banks presets/05_Roland_TR808.bnk");
+    check(proc->presets().loadBank(bank, 0) && proc->getAPVTS().getRawParameterValue("p0_vcfd")->load() == 0.f, "legacy bank loading resets filter drive to zero");
+    drive->setValueNotifyingHost(0.64f);
+    juce::MemoryBlock savedState;
+    proc->getStateInformation(savedState);
+    drive->setValueNotifyingHost(0.f);
+    proc->setStateInformation(savedState.getData(), (int) savedState.getSize());
+    check(std::abs(proc->getAPVTS().getRawParameterValue("p0_vcfd")->load() - 0.64f) < 0.001f, "filter drive persists through plugin state restore");
+    auto legacyXml = juce::XmlDocument::parse(juce::String::fromUTF8((const char*) savedState.getData(), (int) savedState.getSize()));
+    auto legacy = juce::ValueTree::fromXml(*legacyXml);
+    auto legacyParams = legacy.getChildWithName("PARAMS");
+    for (int index = legacyParams.getNumChildren() - 1; index >= 0; --index)
+        if (legacyParams.getChild(index).getProperty("id").toString().endsWith("_vcfd"))
+            legacyParams.removeChild(index, nullptr);
+    const auto legacyText = legacy.createXml()->toString();
+    proc->setStateInformation(legacyText.toRawUTF8(), (int) legacyText.getNumBytesAsUTF8());
+    check(proc->getAPVTS().getRawParameterValue("p0_vcfd")->load() == 0.f, "legacy plugin state restores filter drive as zero");
+    auto pattern = proc->getSequencer().getPatternCopy(0);
+    auto& step = pattern->tracks[0].steps[0];
+    step.active = true; step.hasLocks = true; step.lockMask = f64::LOCK_FLAG_VCF_DRIVE; step.pLockVcfDrive = 0.6f;
+    proc->getSequencer().setPattern(0, *pattern);
+    const auto sequence = proc->getSequencer().serializePattern(0);
+    proc->getSequencer().clearCurrentPattern();
+    proc->getSequencer().deserializePattern(0, sequence);
+    check(proc->getSequencer().currentPattern().tracks[0].steps[0].pLockVcfDrive == 0.6f, "filter drive step locks persist");
+    std::cout << "DSP / MIDI regression tests: " << failures << " failures." << std::endl;
+    return failures == 0 ? 0 : 1;
+}
 
 static int testBankPresetsAndLocks()
 {
@@ -86,6 +228,8 @@ static int testBankPresetsAndLocks()
 int main(int argc, char* argv[])
 {
     juce::ScopedJuceInitialiser_GUI guiInit;
+    if (argc > 1 && juce::String(argv[1]) == "--dsp-midi-regression")
+        return testDspAndMidiFixes();
     if (argc > 1 && juce::String(argv[1]) == "--bank-lock-regression")
         return testBankPresetsAndLocks();
 

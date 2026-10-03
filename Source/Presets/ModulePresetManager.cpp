@@ -2363,6 +2363,7 @@ std::vector<SoundPreset> ModulePresetManager::getSoundPresetsForModule(const juc
             sp.vcfCut  = (float) (double) json["vcfCut"];
             sp.vcfRes  = (float) (double) json["vcfRes"];
             sp.vcfEnv  = (float) (double) json["vcfEnv"];
+            sp.vcfDrive = (float) (double) json["vcfDrive"];
             sp.p1Label = json.hasProperty("p1Label") ? json["p1Label"].toString() : "";
             sp.p2Label = json.hasProperty("p2Label") ? json["p2Label"].toString() : "";
             sp.p3Label = json.hasProperty("p3Label") ? json["p3Label"].toString() : "";
@@ -2426,6 +2427,7 @@ bool ModulePresetManager::saveSoundPreset(const SoundPreset& preset)
     obj->setProperty("vcfCut", preset.vcfCut);
     obj->setProperty("vcfRes", preset.vcfRes);
     obj->setProperty("vcfEnv", preset.vcfEnv);
+    obj->setProperty("vcfDrive", preset.vcfDrive);
     obj->setProperty("p1Label", preset.p1Label);
     obj->setProperty("p2Label", preset.p2Label);
     obj->setProperty("p3Label", preset.p3Label);
@@ -2553,6 +2555,7 @@ std::vector<ModulePresetManager::CategorySoundEntry> ModulePresetManager::getSou
                         sp.vcfCut  = (float) (double) json["vcfCut"];
                         sp.vcfRes  = (float) (double) json["vcfRes"];
                         sp.vcfEnv  = (float) (double) json["vcfEnv"];
+                        sp.vcfDrive = (float) (double) json["vcfDrive"];
                         sp.p1Label = json.hasProperty("p1Label") ? json["p1Label"].toString() : "";
                         sp.p2Label = json.hasProperty("p2Label") ? json["p2Label"].toString() : "";
                         sp.p3Label = json.hasProperty("p3Label") ? json["p3Label"].toString() : "";

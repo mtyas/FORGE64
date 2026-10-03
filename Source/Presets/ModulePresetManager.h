@@ -45,6 +45,7 @@ struct SoundPreset
     float vcfCut = 20000.f;
     float vcfRes = 0.707f;
     float vcfEnv = 0.0f;
+    float vcfDrive = 0.f;
     juce::String category;
     juce::String scriptCode;
     juce::String p1Label;

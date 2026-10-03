@@ -46,6 +46,7 @@ enum StepLockFlags : uint64_t
     LOCK_FLAG_IFX4         = 1ULL << 33,
     LOCK_FLAG_PAD_OVERRIDE = 1ULL << 34,
     LOCK_FLAG_COMP_MG      = 1ULL << 35,
+    LOCK_FLAG_VCF_DRIVE    = 1ULL << 36,
 
     // Aliases
     LOCK_FLAG_SEND_A       = 1ULL << 10,
@@ -85,6 +86,7 @@ struct StepData
     float pLockVcfCut  = 20000.f; // Cutoff Hz
     float pLockVcfRes  = 0.707f;  // Resonance
     float pLockVcfEnv  = 0.0f;    // Env Amount (-1.0 .. +1.0)
+    float pLockVcfDrive = 0.f;
 
     // 3-Band Parametric EQ Locks
     float pLockEqLF = 200.f;      // Lo Freq Hz
@@ -136,6 +138,7 @@ struct StepData
         pLockVcfCut  = 20000.f;
         pLockVcfRes  = 0.707f;
         pLockVcfEnv  = 0.0f;
+        pLockVcfDrive = 0.f;
         pLockEqLF = 200.f;
         pLockEqLG = 0.f;
         pLockEqMF = 1000.f;
@@ -220,6 +223,7 @@ public:
         float vcfCut  = 20000.f;
         float vcfRes  = 0.707f;
         float vcfEnv  = 0.f;
+        float vcfDrive = 0.f;
 
         // EQ
         float eqLF = 200.f;

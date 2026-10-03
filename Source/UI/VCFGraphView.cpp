@@ -67,15 +67,15 @@ void VCFGraphView::timerCallback()
     const int curType = (int) getP("vcft", 0.f);
     const float curCut = getP("vcfc", 20000.f);
     const float curRes = getP("vcfr", 0.707f);
-    const float curEnv = getP("vcfe", 0.f);
+    const float curDrive = getP("vcfd", 0.f);
 
     if (curType != filterType || std::abs(curCut - cutoff) > 0.5f ||
-        std::abs(curRes - resonance) > 0.01f || std::abs(curEnv - envAmt) > 0.01f)
+        std::abs(curRes - resonance) > 0.01f || std::abs(curDrive - drive) > 0.01f)
     {
         filterType = curType;
         cutoff = curCut;
         resonance = curRes;
-        envAmt = curEnv;
+        drive = curDrive;
         repaint();
     }
 }

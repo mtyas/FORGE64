@@ -318,8 +318,8 @@ PadEditor::PadEditor(Forge64Processor& p, ModRingKnob::Services& s, int globalPa
 
     vcfCutKnob = makeKnob("vcfc", "CUTOFF");
     vcfResKnob = makeKnob("vcfr", "RESON");
-    vcfEnvKnob = makeKnob("vcfe", "ENV AMT");
-    vcfKnobs = { vcfCutKnob, vcfResKnob, vcfEnvKnob };
+    vcfDriveKnob = makeKnob("vcfd", "DRIVE");
+    vcfKnobs = { vcfCutKnob, vcfResKnob, vcfDriveKnob };
 
     // 3-Band Parametric EQ (Center Column)
     eqGraph = new EQGraphView(proc.getAPVTS(), pad);
@@ -508,7 +508,7 @@ void PadEditor::enterPLockMode(int trackIdx, int stepIdx)
         setAPVTSParam("vcft", (float) sd.pLockVcfType);
         setAPVTSParam("vcfc", sd.pLockVcfCut);
         setAPVTSParam("vcfr", sd.pLockVcfRes);
-        setAPVTSParam("vcfe", sd.pLockVcfEnv);
+        setAPVTSParam("vcfd", sd.pLockVcfDrive);
 
         setAPVTSParam("eqlf", sd.pLockEqLF);
         setAPVTSParam("eqlg", sd.pLockEqLG);
@@ -550,7 +550,7 @@ void PadEditor::enterPLockMode(int trackIdx, int stepIdx)
         setAPVTSParam("vcft", (float) preLockParams.vcfType);
         setAPVTSParam("vcfc", preLockParams.vcfCut);
         setAPVTSParam("vcfr", preLockParams.vcfRes);
-        setAPVTSParam("vcfe", preLockParams.vcfEnv);
+        setAPVTSParam("vcfd", preLockParams.vcfDrive);
 
         setAPVTSParam("eqlf", preLockParams.eqLF);
         setAPVTSParam("eqlg", preLockParams.eqLG);
@@ -623,7 +623,7 @@ void PadEditor::exitPLockMode()
         setAPVTSParam("vcft", (float) preLockParams.vcfType);
         setAPVTSParam("vcfc", preLockParams.vcfCut);
         setAPVTSParam("vcfr", preLockParams.vcfRes);
-        setAPVTSParam("vcfe", preLockParams.vcfEnv);
+        setAPVTSParam("vcfd", preLockParams.vcfDrive);
 
         setAPVTSParam("eqlf", preLockParams.eqLF);
         setAPVTSParam("eqlg", preLockParams.eqLG);
@@ -691,7 +691,7 @@ void PadEditor::saveCurrentParamsAsPLock(bool shouldAudition)
     sd.pLockVcfType = (int) getAPVTSParam("vcft");
     sd.pLockVcfCut  = getAPVTSParam("vcfc");
     sd.pLockVcfRes  = getAPVTSParam("vcfr");
-    sd.pLockVcfEnv  = getAPVTSParam("vcfe");
+    sd.pLockVcfDrive  = getAPVTSParam("vcfd");
 
     sd.pLockEqLF = getAPVTSParam("eqlf");
     sd.pLockEqLG = getAPVTSParam("eqlg");
@@ -730,7 +730,7 @@ void PadEditor::saveCurrentParamsAsPLock(bool shouldAudition)
     if (sd.pLockVcfType != preLockParams.vcfType) mask |= StepLockFlags::LOCK_FLAG_VCF_TYPE;
     if (std::abs(sd.pLockVcfCut - preLockParams.vcfCut) > 10.f) mask |= StepLockFlags::LOCK_FLAG_VCF_CUT;
     if (std::abs(sd.pLockVcfRes - preLockParams.vcfRes) > 0.01f) mask |= StepLockFlags::LOCK_FLAG_VCF_RES;
-    if (std::abs(sd.pLockVcfEnv - preLockParams.vcfEnv) > 0.01f) mask |= StepLockFlags::LOCK_FLAG_VCF_ENV;
+    if (std::abs(sd.pLockVcfDrive - preLockParams.vcfDrive) > 0.01f) mask |= StepLockFlags::LOCK_FLAG_VCF_DRIVE;
     if (std::abs(sd.pLockEqLF - preLockParams.eqLF) > 5.f) mask |= StepLockFlags::LOCK_FLAG_EQ_LF;
     if (std::abs(sd.pLockEqLG - preLockParams.eqLG) > 0.01f) mask |= StepLockFlags::LOCK_FLAG_EQ_LG;
     if (std::abs(sd.pLockEqMF - preLockParams.eqMF) > 10.f) mask |= StepLockFlags::LOCK_FLAG_EQ_MF;
@@ -800,7 +800,7 @@ void PadEditor::clearPLocksForStep()
     setAPVTSParam("vcft", (float) preLockParams.vcfType);
     setAPVTSParam("vcfc", preLockParams.vcfCut);
     setAPVTSParam("vcfr", preLockParams.vcfRes);
-    setAPVTSParam("vcfe", preLockParams.vcfEnv);
+    setAPVTSParam("vcfd", preLockParams.vcfDrive);
 
     setAPVTSParam("eqlf", preLockParams.eqLF);
     setAPVTSParam("eqlg", preLockParams.eqLG);
@@ -957,7 +957,7 @@ void PadEditor::syncModuleSelectionQuiet()
         preset.vcfType = (int) param("vcft", 0.f);
         preset.vcfCut = param("vcfc", 20000.f);
         preset.vcfRes = param("vcfr", 0.707f);
-        preset.vcfEnv = param("vcfe", 0.f);
+        preset.vcfDrive = param("vcfd", 0.f);
         preset.p1Label = st.getProperty("p1Label").toString();
         preset.p2Label = st.getProperty("p2Label").toString();
         preset.p3Label = st.getProperty("p3Label").toString();
@@ -1100,7 +1100,7 @@ void PadEditor::loadCategorySound(int soundIndex)
     setAPVTSParam("vcft", (float) sp.vcfType);
     setAPVTSParam("vcfc", sp.vcfCut);
     setAPVTSParam("vcfr", sp.vcfRes);
-    setAPVTSParam("vcfe", sp.vcfEnv);
+    setAPVTSParam("vcfd", sp.vcfDrive);
 
     if (scriptStatusBadge != nullptr)
     {
@@ -1282,7 +1282,7 @@ void PadEditor::saveCurrentSoundPreset(const juce::String& name, const juce::Str
     sp.vcfType = mod.defVcfType;
     sp.vcfCut = mod.defVcfCut;
     sp.vcfRes = mod.defVcfRes;
-    sp.vcfEnv = getAPVTSParam("vcfe");
+    sp.vcfDrive = getAPVTSParam("vcfd");
     sp.p1Label = p1;
     sp.p2Label = p2;
     sp.p3Label = p3;

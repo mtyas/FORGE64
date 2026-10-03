@@ -151,6 +151,10 @@ void ModMatrix::computeOffsets()
     {
         if (c.muted || std::abs(c.amount) < 0.005f)
             continue;
+        const int envIndex = c.slot - slotEnv(0);
+        if (envIndex >= 0 && envIndex < kNumEnv
+            && (c.dest == idVoiceAmp || c.dest == idVoicePitch || c.dest == idVoicePan))
+            continue; // Voice envelopes are evaluated per voice, never added twice.
         float v = srcAvg[(size_t) clampRange(c.slot, 0, kNumSlots - 1)].load();
         v = shapeCurve(v, c.curve);
         if (c.invert)
@@ -182,7 +186,7 @@ void ModMatrix::triggerVoice(int voiceId)
         if (c->envVoice[(size_t) e].empty())
             continue;
         auto* env = static_cast<EnvSource*>(sources[(size_t) slotEnv(e)].get());
-        const int instIdx = (rrInst[(size_t) e]++) % kEnvInstances;
+        const int instIdx = voiceId; // Each active voice owns its envelope instance.
         env->triggerInstance(instIdx);
         refs.push_back({ slotEnv(e), instIdx });
     }
@@ -250,7 +254,7 @@ void ModMatrix::rebuildCache()
             if (conn.dest == idVoiceAmp)   destIdx = 0;
             if (conn.dest == idVoicePitch) destIdx = 1;
             if (conn.dest == idVoicePan)   destIdx = 2;
-            if (destIdx >= 0)
+            if (destIdx >= 0 && ! conn.muted && std::abs(conn.amount) >= 0.005f)
                 c->envVoice[(size_t) envIdx].push_back({ destIdx, conn.amount, conn.invert, conn.curve });
         }
     }

@@ -1,4 +1,5 @@
 #include "AuxBusManager.h"
+#include "Saturation.h"
 #include <cmath>
 
 namespace f64 {
@@ -103,6 +104,8 @@ void AuxBusManager::reset()
     masterCompGain = 1.f;
     masterCompGR.store(0.f);
     masterLimiterEnv = 0.f;
+    masterTapeMakeup = 1.f;
+    auxTapeMakeup.fill(1.f);
 }
 
 // 4-point Hermite cubic interpolation for silky-smooth pitch transposition without aliasing
@@ -250,15 +253,13 @@ void AuxBusManager::processAux(int b, float* L, float* R, int n, const AuxBusPar
 
         case AUX_FX_DRIVE:
         {
-            const float k = 1.0f + p.p1 * 18.0f;
+            saturateStereo(L, R, n, p.p1, 20.f, auxTapeMakeup[(size_t) b]);
             const float tone = p.p2;
             for (int i = 0; i < n; ++i)
             {
-                float xL = L[i] * k;
-                float xR = R[i] * k;
+                float xL = L[i];
+                float xR = R[i];
                 // Soft saturation curve
-                xL = std::tanh(xL);
-                xR = std::tanh(xR);
                 // Simple tone lowpass smoothing
                 L[i] = xL * (0.4f + tone * 0.6f);
                 R[i] = xR * (0.4f + tone * 0.6f);
@@ -771,12 +772,7 @@ void AuxBusManager::processMasterChain(float* L, float* R, int n, const MasterFX
     // 3. Master Tape Drive & Ceiling Limiter
     if (p.driveOn && p.drive > 0.001f)
     {
-        const float k = 1.0f + p.drive * 1.8f;
-        for (int i = 0; i < n; ++i)
-        {
-            L[i] = std::tanh(L[i] * k) / k;
-            R[i] = std::tanh(R[i] * k) / k;
-        }
+        saturateStereo(L, R, n, p.drive, 64.f, masterTapeMakeup);
     }
 
     if (p.limiterOn)

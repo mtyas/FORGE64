@@ -730,6 +730,7 @@ void StepSequencer::process(int numSamples, double bpm, bool hostPlaying, std::v
                 ev.vcfCut  = s.pLockVcfCut;
                 ev.vcfRes  = s.pLockVcfRes;
                 ev.vcfEnv  = s.pLockVcfEnv;
+                ev.vcfDrive = s.pLockVcfDrive;
                 ev.eqLF    = s.pLockEqLF;
                 ev.eqLG    = s.pLockEqLG;
                 ev.eqMF    = s.pLockEqMF;
@@ -994,6 +995,7 @@ static juce::ValueTree serializePatternRaw(const f64::PatternData& pat, int p)
                     sTree.setProperty("lvc", step.pLockVcfCut, nullptr);
                     sTree.setProperty("lvr", step.pLockVcfRes, nullptr);
                     sTree.setProperty("lve", step.pLockVcfEnv, nullptr);
+                    sTree.setProperty("lvd", step.pLockVcfDrive, nullptr);
                     sTree.setProperty("lelf", step.pLockEqLF, nullptr);
                     sTree.setProperty("lelg", step.pLockEqLG, nullptr);
                     sTree.setProperty("lemf", step.pLockEqMF, nullptr);
@@ -1082,6 +1084,7 @@ static void deserializePatternRaw(f64::PatternData& pat, const juce::ValueTree& 
                         step.pLockVcfCut  = sTree.getProperty("lvc", 20000.f);
                         step.pLockVcfRes  = sTree.getProperty("lvr", 0.707f);
                         step.pLockVcfEnv  = sTree.getProperty("lve", 0.0f);
+                        step.pLockVcfDrive = sTree.getProperty("lvd", 0.f);
                         step.pLockEqLF    = sTree.getProperty("lelf", 200.f);
                         step.pLockEqLG    = sTree.getProperty("lelg", 0.0f);
                         step.pLockEqMF    = sTree.getProperty("lemf", 1000.f);

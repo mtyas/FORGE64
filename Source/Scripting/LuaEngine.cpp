@@ -193,6 +193,7 @@ int lf_param(lua_State* Ls)
             else if (is("vcfc"))                  v = p.vcfCut;
             else if (is("vcfr"))                  v = p.vcfRes;
             else if (is("vcfe"))                  v = p.vcfEnv;
+            else if (is("vcfd"))                  v = p.vcfDrive;
             else if (is("senda"))                 v = p.sendA;
             else if (is("sendb"))                 v = p.sendB;
             else if (is("eqlg"))                  v = p.eqLG;

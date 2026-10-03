@@ -45,6 +45,7 @@ public:
     void triggerVoice(int voiceId);
     void releaseVoice(int voiceId) { voiceEnvs[(size_t) voiceId].clear(); }
     void renderVoice(int voiceId, VoiceMods& out, int n);
+    bool hasVoiceEnvelopes(int voiceId) const { return ! voiceEnvs[(size_t) voiceId].empty(); }
 
     // ---- message thread / UI ----
     int  addConnection(int slot, juce::StringRef dest, float amount = 0.5f);
@@ -93,7 +94,6 @@ private:
 
     struct VoiceEnvRef { int srcIdx; int inst; };
     std::array<std::vector<VoiceEnvRef>, kMaxVoices> voiceEnvs; // audio thread only
-    std::array<int, kNumEnv> rrInst { 0 };
 
     double tempo = 120.0;
     bool transportPlaying = false;

@@ -35,7 +35,7 @@ private:
     int filterType = 0; // 0 Bypass, 1 LP, 2 HP, 3 BP, 4 Notch
     float cutoff = 20000.f;
     float resonance = 0.707f;
-    float envAmt = 0.f;
+    float drive = 0.f;
 
     bool isDragging = false;
     juce::Rectangle<float> plotArea;
