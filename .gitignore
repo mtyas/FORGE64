@@ -3,6 +3,7 @@ build_win/
 Builds/
 *.kit
 *.bnk
+!/banks presets/*.bnk
 *.pad
 *.user
 *.exe

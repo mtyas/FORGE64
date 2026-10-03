@@ -144,6 +144,7 @@ jobs:
           New-Item -ItemType Directory -Path staging/FORGE64/docs -Force
           Copy-Item -Path docs/MANUAL.md -Destination staging/FORGE64/docs/
           Copy-Item -Path docs/images -Destination staging/FORGE64/docs/ -Recurse
+          Copy-Item -LiteralPath 'banks presets', 'sequencer presets' -Destination staging/FORGE64/ -Recurse
           Compress-Archive -Path staging/FORGE64 -DestinationPath FORGE64-Windows.zip
 
       - name: Package Binaries (macOS)
@@ -156,6 +157,7 @@ jobs:
           cp README.md LICENSE staging/FORGE64/
           cp docs/MANUAL.md staging/FORGE64/docs/
           cp -R docs/images staging/FORGE64/docs/
+          cp -R "banks presets" "sequencer presets" staging/FORGE64/
           cd staging
           zip -r -y ../FORGE64-macOS.zip FORGE64
           cd ..
@@ -171,6 +173,7 @@ jobs:
           cp README.md LICENSE staging/FORGE64/
           cp docs/MANUAL.md staging/FORGE64/docs/
           cp -R docs/images staging/FORGE64/docs/
+          cp -R "banks presets" "sequencer presets" staging/FORGE64/
           tar -czvf FORGE64-Linux.tar.gz -C staging FORGE64
 
       - name: Upload Package Artifact
