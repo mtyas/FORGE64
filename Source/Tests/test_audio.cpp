@@ -195,6 +195,27 @@ static int testBankPresetsAndLocks()
     } services;
     auto proc = std::make_unique<f64::Forge64Processor>();
     const auto file = juce::File::getCurrentWorkingDirectory().getChildFile("banks presets/05_Roland_TR808.bnk");
+    // Seed the stale snapshot that used to be restored by every sound load.
+    juce::MemoryBlock initialState;
+    proc->getStateInformation(initialState);
+    auto& sequencer = proc->getSequencer();
+    for (int index : { 0, 3 })
+    {
+        auto pattern = sequencer.getPatternCopy(index);
+        pattern->name = "Preserve pattern " + juce::String(index);
+        auto& track = pattern->tracks[2];
+        track.stepCount = 23;
+        track.swing = 0.21f;
+        track.steps[5].active = true;
+        track.steps[5].velocity = 0.63f;
+        track.steps[5].probability = 0.71f;
+        track.steps[5].microtiming = -0.15f;
+        track.steps[5].hasLocks = true;
+        track.steps[5].lockMask = f64::LOCK_FLAG_VCF_DRIVE;
+        track.steps[5].pLockVcfDrive = 0.47f;
+        sequencer.setPattern(index, *pattern);
+    }
+    const auto sequenceBeforeLoads = sequencer.serialize().createXml()->toString();
     std::function<juce::ComboBox*(juce::Component&)> findPreset = [&](juce::Component& component) -> juce::ComboBox*
     {
         if (auto* combo = dynamic_cast<juce::ComboBox*>(&component))
@@ -206,6 +227,8 @@ static int testBankPresetsAndLocks()
     for (int bank = 0; bank < 4; ++bank)
     {
         check(proc->presets().loadBank(file, bank), "bank loads");
+        check(sequencer.serialize().createXml()->toString() == sequenceBeforeLoads,
+              "bank loading preserves all sequence patterns and locks");
         for (int slot = 0; slot < 16; ++slot)
         {
             const int pad = bank * 16 + slot;
@@ -221,6 +244,18 @@ static int testBankPresetsAndLocks()
             }
         }
     }
+    juce::TemporaryFile padFile(".pad"), kitFile(".kit");
+    check(proc->presets().savePad(padFile.getFile(), 0), "pad saves");
+    check(proc->presets().loadPad(padFile.getFile(), 19), "pad loads into another bank");
+    check(sequencer.serialize().createXml()->toString() == sequenceBeforeLoads,
+          "pad loading preserves all sequence patterns and locks");
+    check(proc->presets().saveKit(kitFile.getFile()), "kit saves its sequences");
+    sequencer.clearCurrentPattern();
+    check(sequencer.serialize().createXml()->toString() != sequenceBeforeLoads,
+          "sequence changed after kit save");
+    check(proc->presets().loadKit(kitFile.getFile()), "kit loads");
+    check(sequencer.serialize().createXml()->toString() == sequenceBeforeLoads,
+          "kit loading restores its saved sequences and locks");
     std::cout << "Bank preset / step lock regression tests: " << failures << " failures." << std::endl;
     return failures == 0 ? 0 : 1;
 }

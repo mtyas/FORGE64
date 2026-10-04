@@ -146,6 +146,15 @@ Forge64Processor::Forge64Processor()
                                          kitRoot.getChildWithName("MODMAT"), apvts);
     presetPtr = std::make_unique<PresetManager>(kitRoot, apvts);
     presetPtr->onLoaded = [this] { onPresetLoaded(); };
+    presetPtr->onKitLoaded = [this](const juce::ValueTree& incoming)
+    {
+        if (auto seq = incoming.getChildWithName("SEQUENCER"); seq.isValid())
+            sequencer.deserialize(seq);
+        if (auto aux = incoming.getChildWithName("AUX_MASTER_FX"); aux.isValid())
+            auxManager.deserialize(aux);
+        if (auto ml = incoming.getChildWithName("MIDI_LEARN"); ml.isValid())
+            midiLearn.deserialize(ml);
+    };
     presetPtr->onBeforeSave = [this]
     {
         kitRoot.removeChild(kitRoot.getChildWithName("MIDI_LEARN"), nullptr);
@@ -1205,14 +1214,6 @@ void Forge64Processor::onPresetLoaded()
     gridPtr->syncAllAtomics();
     gridPtr->reloadSamples();
     modPtr->syncAllFromTrees();
-
-    auto seq = kitRoot.getChildWithName("SEQUENCER");
-    if (seq.isValid())
-        sequencer.deserialize(seq);
-
-    auto aux = kitRoot.getChildWithName("AUX_MASTER_FX");
-    if (aux.isValid())
-        auxManager.deserialize(aux);
 
     for (int p = 0; p < kNumPads; ++p)
     {

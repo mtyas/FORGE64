@@ -95,6 +95,8 @@ bool PresetManager::loadKit(const juce::File& f)
     }
 
     err = {};
+    if (onKitLoaded)
+        onKitLoaded(incoming);
     if (onLoaded)
         onLoaded();
     return true;

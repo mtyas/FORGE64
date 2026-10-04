@@ -13,6 +13,7 @@ class PresetManager
 {
 public:
     std::function<void()> onLoaded;
+    std::function<void(const juce::ValueTree&)> onKitLoaded;
     std::function<void()> onBeforeSave;
 
     PresetManager(juce::ValueTree& kitRoot, juce::AudioProcessorValueTreeState& apvtsIn);
