@@ -433,11 +433,22 @@ Forge64Editor::Forge64Editor(Forge64Processor& p)
     sequencerDrawer->isPadEditActive = [this] { return currentPage == Page_PadEdit; };
     sequencerDrawer->onStepClicked = [this](int trackIdx, int stepIdx, int padIdx)
     {
-        selectedPad = padIdx;
+        selectedPad = clampRange(padIdx, 0, kNumPads - 1);
         if (sequencerDrawer)
             sequencerDrawer->setSelectedStep(stepIdx);
-        if (currentPage == Page_PadEdit && padEdit)
+        if (currentPage == Page_PadEdit)
+        {
+            if (padEdit == nullptr || padEdit->padIndex() != selectedPad)
+            {
+                // Restore the previous pad before constructing attachments for
+                // the selected step's pad and capturing its base parameters.
+                if (padEdit) padEdit->exitPLockMode();
+                zoomedPad = selectedPad;
+                setBank(selectedPad / kPadsPerBank);
+                rebuildPadEditor();
+            }
             padEdit->enterPLockMode(trackIdx, stepIdx);
+        }
     };
     sequencerDrawer->onStepDeactivated = [this](int trackIdx, int stepIdx)
     {

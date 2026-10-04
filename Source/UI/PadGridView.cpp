@@ -295,6 +295,13 @@ private:
     void showMenu()
     {
         juce::PopupMenu menu;
+        menu.addItem(20, "Load Pad...");
+        menu.addItem(21, "Save Pad...");
+        menu.addSeparator();
+        menu.addItem(22, "Cut Pad");
+        menu.addItem(23, "Copy Pad");
+        menu.addItem(24, "Paste Pad...", owner.proc().presets().hasPadClipboard());
+        menu.addSeparator();
         menu.addItem(1, "Load Sample...");
         menu.addItem(2, "Clear Sample");
         menu.addItem(3, "Clear Pad (keeps params)");
@@ -313,7 +320,17 @@ private:
             if (safe == nullptr)
                 return;
             auto& cell = *safe;
-            if (result == 1)
+            if (result == 20 || result == 21)
+                cell.owner.choosePadPreset(cell.pad, result == 21);
+            else if (result == 22 || result == 23)
+            {
+                if (result == 22) cell.owner.proc().presets().cutPad(cell.pad);
+                else cell.owner.proc().presets().copyPad(cell.pad);
+                cell.owner.refreshPads();
+            }
+            else if (result == 24)
+                cell.owner.confirmPastePad(cell.pad);
+            else if (result == 1)
                 cell.owner.chooseSampleFor(cell.pad);
             else if (result == 2)
             {
@@ -434,6 +451,47 @@ void PadGridView::chooseSampleFor(int pad)
             safe->refreshPads();
         }
     });
+}
+
+void PadGridView::choosePadPreset(int pad, bool save)
+{
+    chooser = std::make_unique<juce::FileChooser>(
+        save ? "Save pad" : "Load pad", juce::File(), "*.pad", this);
+    juce::Component::SafePointer<PadGridView> safe(this);
+    const int flags = juce::FileBrowserComponent::canSelectFiles
+        | (save ? juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::warnAboutOverwriting
+                : juce::FileBrowserComponent::openMode);
+    chooser->launchAsync(flags, [safe, pad, save](const juce::FileChooser& fc)
+    {
+        if (safe == nullptr) return;
+        auto file = fc.getResult();
+        if (file == juce::File()) return;
+        if (save && file.getFileExtension().isEmpty()) file = file.withFileExtension(".pad");
+        const bool ok = save ? safe->processor.presets().savePad(file, pad)
+                             : safe->processor.presets().loadPad(file, pad);
+        if (! ok)
+            juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon,
+                "Pad preset", safe->processor.presets().lastError(), "OK", safe.getComponent());
+        safe->refreshPads();
+    });
+}
+
+void PadGridView::confirmPastePad(int pad)
+{
+    if (! processor.presets().hasPadClipboard()) return;
+    const auto name = processor.grid().padState(pad).getProperty("name").toString();
+    juce::Component::SafePointer<PadGridView> safe(this);
+    juce::AlertWindow::showOkCancelBox(juce::MessageBoxIconType::QuestionIcon,
+        "Overwrite pad?", "Paste will overwrite PAD " + juce::String(pad + 1)
+            + (name.isNotEmpty() ? " (" + name + ")" : "") + ". Continue?",
+        "Paste", "Cancel", this, juce::ModalCallbackFunction::create([safe, pad](int result)
+        {
+            if (safe != nullptr && result == 1)
+            {
+                safe->processor.presets().pastePad(pad);
+                safe->refreshPads();
+            }
+        }));
 }
 
 } // namespace f64

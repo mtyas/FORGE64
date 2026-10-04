@@ -231,6 +231,53 @@ bool PresetManager::loadPad(const juce::File& f, int pad)
     return loadParamSubset(f, "FORGE64PAD", pad, 1);
 }
 
+bool PresetManager::copyPad(int pad)
+{
+    if (pad < 0 || pad >= kNumPads) return false;
+    padClipboard = kit.getChildWithName("PADS").getChild(pad).createCopy();
+    padClipboardParams = juce::ValueTree("PARAMS");
+    for (const auto& definition : kPadParams)
+    {
+        if (juce::String(definition.base) == "mnote") continue;
+        if (auto* parameter = apvts.getParameter(padParamId(pad, definition.base)))
+            padClipboardParams.setProperty(definition.base, parameter->getValue(), nullptr);
+    }
+    return padClipboard.isValid();
+}
+
+bool PresetManager::cutPad(int pad)
+{
+    if (! copyPad(pad)) return false;
+    auto state = kit.getChildWithName("PADS").getChild(pad);
+    state.setProperty("name", "", nullptr);
+    state.setProperty("sample", "", nullptr);
+    state.setProperty("script", "", nullptr);
+    state.setProperty("scriptOn", false, nullptr);
+    for (const auto& definition : kPadParams)
+    {
+        if (juce::String(definition.base) == "mnote") continue;
+        if (auto* parameter = apvts.getParameter(padParamId(pad, definition.base)))
+            parameter->setValueNotifyingHost(parameter->getDefaultValue());
+    }
+    // An empty sample source is silent until a sound is pasted or loaded.
+    if (auto* source = apvts.getParameter(padParamId(pad, "src")))
+        source->setValueNotifyingHost(0.f);
+    if (onLoaded) onLoaded();
+    return true;
+}
+
+bool PresetManager::pastePad(int pad)
+{
+    if (! hasPadClipboard() || pad < 0 || pad >= kNumPads) return false;
+    copyTreeInPlace(kit.getChildWithName("PADS").getChild(pad), padClipboard);
+    for (const auto& definition : kPadParams)
+        if (padClipboardParams.hasProperty(definition.base))
+            if (auto* parameter = apvts.getParameter(padParamId(pad, definition.base)))
+                parameter->setValueNotifyingHost((float) padClipboardParams.getProperty(definition.base));
+    if (onLoaded) onLoaded();
+    return true;
+}
+
 juce::File PresetManager::getBanksDirectory()
 {
     auto dir = juce::File::getSpecialLocation(juce::File::userApplicationDataDirectory)

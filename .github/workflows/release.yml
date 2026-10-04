@@ -236,6 +236,9 @@ jobs:
             - 🐧 **Linux (x64)**: [`FORGE64-Linux.tar.gz`](https://github.com/mtyas/FORGE64/releases/download/${{ steps.tag_info.outputs.tag }}/FORGE64-Linux.tar.gz)
 
             ### Changes in v0.95
+            - The bottom sequencer selects steps on left-click, duplicates them by dragging, and erases them only on right-click.
+            - Pad right-click menus include load/save and cut/copy/paste, with confirmation before paste overwrites a pad.
+            - Selecting a sequencer step in pad edit mode displays its assigned pad, named module, knobs, and step locks, including across banks.
             - Loading banks or pads preserves current sequences and step locks; loading a kit restores its saved sequences.
             - Modulation envelopes retrigger from zero with corrected timing and independent per-voice envelopes.
             - The pad resonant filter has a Drive control, saved with presets, sessions, and step locks.

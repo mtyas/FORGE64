@@ -244,7 +244,7 @@ public:
     trackInfoLabel->setFont(uiFont(11.f, true));
     addAndMakeVisible(trackInfoLabel.get());
 
-    hintLabel = ui::makeLabel("Drag step to copy | Shift+drag or scroll for velocity | Click empty step to insert sound | Click to edit P-Locks", 10.f, ui::dim());
+    hintLabel = ui::makeLabel("Click to select | Drag step to copy | Right-click to erase | Shift+drag or scroll for velocity", 10.f, ui::dim());
     addAndMakeVisible(hintLabel.get());
 
     updateTrackInfo();
@@ -672,9 +672,9 @@ void SequencerDrawer::StepButton::mouseDown(const juce::MouseEvent& e)
 
     if (e.mods.isPopupMenu())
     {
-        const bool newActive = ! step.active;
-        owner.seq.setStepActive(owner.currentTrack, stepIndex, newActive);
-        if (! newActive && owner.onStepDeactivated)
+        const bool wasActive = step.active;
+        owner.seq.setStepActive(owner.currentTrack, stepIndex, false);
+        if (wasActive && owner.onStepDeactivated)
             owner.onStepDeactivated(owner.currentTrack, stepIndex);
         owner.repaint();
         return;
@@ -719,26 +719,18 @@ void SequencerDrawer::StepButton::mouseDown(const juce::MouseEvent& e)
     }
     else
     {
-        if (isPadEditOpen && owner.selectedStep != stepIndex)
-        {
-            owner.selectedStep = stepIndex;
-            const int targetPad = (step.padOverride >= 0) ? step.padOverride : track.defaultPad;
-            if (owner.onStepClicked)
-                owner.onStepClicked(owner.currentTrack, stepIndex, targetPad);
-            owner.repaint();
-        }
-        else
-        {
-            owner.seq.setStepActive(owner.currentTrack, stepIndex, false);
-            if (owner.onStepDeactivated)
-                owner.onStepDeactivated(owner.currentTrack, stepIndex);
-            owner.repaint();
-        }
+        owner.selectedStep = stepIndex;
+        const int targetPad = (step.padOverride >= 0) ? step.padOverride : track.defaultPad;
+        if (owner.onStepClicked)
+            owner.onStepClicked(owner.currentTrack, stepIndex, targetPad);
+        owner.repaint();
     }
 }
 
 void SequencerDrawer::StepButton::mouseDrag(const juce::MouseEvent& e)
 {
+    if (! e.mods.isLeftButtonDown())
+        return;
     if (e.mods.isShiftDown())
     {
         auto& track = owner.seq.currentPattern().tracks[(size_t) owner.currentTrack];
@@ -830,7 +822,8 @@ void SequencerDrawer::StepButton::itemDropped(const SourceDetails& details)
             {
                 const auto srcStepData = owner.seq.currentPattern().tracks[(size_t) srcTrack].steps[(size_t) srcStep];
                 auto& dstTrack = owner.seq.currentPattern().tracks[(size_t) owner.currentTrack];
-                dstTrack.steps[(size_t) stepIndex] = srcStepData;
+                owner.seq.setStepData(owner.currentTrack, stepIndex, srcStepData);
+                owner.selectedStep = stepIndex;
                 owner.repaint();
 
                 // Audition the copied step without forcing page switch

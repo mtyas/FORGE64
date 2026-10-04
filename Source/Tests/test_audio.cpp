@@ -1,8 +1,10 @@
 #include <JuceHeader.h>
 #include "../PluginProcessor.h"
+#include "../PluginEditor.h"
 #include "../Presets/ModulePresetManager.h"
 #include "../Engine/StepLockOperations.h"
 #include "../UI/PadEditor.h"
+#include "../UI/SequencerDrawer.h"
 #include "../Engine/Saturation.h"
 #include <iostream>
 
@@ -256,6 +258,120 @@ static int testBankPresetsAndLocks()
     check(proc->presets().loadKit(kitFile.getFile()), "kit loads");
     check(sequencer.serialize().createXml()->toString() == sequenceBeforeLoads,
           "kit loading restores its saved sequences and locks");
+    // Pad clipboard must be a snapshot, include Lua and DSP settings, and leave
+    // the destination trigger note and the current sequence alone.
+    auto* sourceDrive = proc->getAPVTS().getParameter("p0_vcfd");
+    sourceDrive->setValueNotifyingHost(0.68f);
+    const auto copiedScript = proc->grid().padState(0).getProperty("script").toString();
+    const auto copiedName = proc->grid().padState(0).getProperty("name").toString();
+    check(proc->presets().copyPad(0), "pad copies to clipboard");
+    sourceDrive->setValueNotifyingHost(0.1f);
+    proc->grid().padState(0).setProperty("name", "Edited after copy", nullptr);
+    auto* destinationNote = proc->getAPVTS().getParameter("p19_mnote");
+    destinationNote->setValueNotifyingHost(destinationNote->convertTo0to1(110.f));
+    check(proc->presets().pastePad(19), "clipboard pastes across banks");
+    check(proc->grid().padState(19).getProperty("name").toString() == copiedName
+          && proc->grid().padState(19).getProperty("script").toString() == copiedScript
+          && std::abs(proc->getAPVTS().getRawParameterValue("p19_vcfd")->load() - 0.68f) < 0.001f,
+          "paste restores copied sound and DSP settings independently of later source edits");
+    check(proc->getAPVTS().getRawParameterValue("p19_mnote")->load() == 110.f,
+          "paste preserves destination MIDI note");
+    check(proc->presets().cutPad(19), "pad cuts to clipboard");
+    check(proc->grid().padState(19).getProperty("script").toString().isEmpty()
+          && proc->getAPVTS().getRawParameterValue("p19_src")->load() == (float) f64::SRC_SAMPLE,
+          "cut leaves an empty silent pad");
+    check(proc->presets().pastePad(33) && proc->presets().pastePad(34), "cut sound can be pasted repeatedly");
+    check(proc->grid().padState(33).getProperty("script").toString() == copiedScript
+          && std::abs(proc->getAPVTS().getRawParameterValue("p34_vcfd")->load() - 0.68f) < 0.001f,
+          "cut retains original Lua script and parameters");
+    check(sequencer.serialize().createXml()->toString() == sequenceBeforeLoads,
+          "pad clipboard operations preserve the sequence");
+
+    f64::SequencerDrawer drawer(*proc);
+    std::vector<juce::Component*> stepComponents;
+    for (auto* child : drawer.getChildren())
+        if (dynamic_cast<juce::DragAndDropTarget*>(child) != nullptr) stepComponents.push_back(child);
+    check(stepComponents.size() == 16, "drawer exposes its 16 step targets");
+    if (stepComponents.size() == 16)
+    {
+        drawer.setTrack(2);
+        auto click = [&](int index, int modifier)
+        {
+            auto* component = stepComponents[(size_t) index];
+            const auto now = juce::Time::getCurrentTime();
+            component->mouseDown(juce::MouseEvent(juce::Desktop::getInstance().getMainMouseSource(),
+                { 5.f, 5.f }, juce::ModifierKeys(modifier), 1.f, 0.f, 0.f, 0.f, 0.f,
+                component, component, now, { 5.f, 5.f }, now, 1, false));
+        };
+        for (bool editorOpen : { false, true })
+        {
+            drawer.isPadEditActive = [editorOpen] { return editorOpen; };
+            click(5, juce::ModifierKeys::leftButtonModifier);
+            click(5, juce::ModifierKeys::leftButtonModifier);
+            check(sequencer.currentPattern().tracks[2].steps[5].active && drawer.getSelectedStep() == 5,
+                  "repeated left clicks select an active step without erasing it");
+        }
+        auto* target = dynamic_cast<juce::DragAndDropTarget*>(stepComponents[8]);
+        target->itemDropped(juce::DragAndDropTarget::SourceDetails("f64step:2:5", stepComponents[5], { 5, 5 }));
+        const auto& steps = sequencer.currentPattern().tracks[2].steps;
+        check(steps[5].active && steps[8].active && steps[8].pLockVcfDrive == 0.47f
+              && steps[8].velocity == steps[5].velocity && steps[8].probability == steps[5].probability,
+              "dropping a step duplicates its locks and keeps the source");
+        click(8, juce::ModifierKeys::rightButtonModifier);
+        click(8, juce::ModifierKeys::rightButtonModifier);
+        check(! steps[8].active && ! steps[8].hasLocks && steps[5].active,
+              "right click erases a step and never activates an empty step");
+    }
+    auto* pad3Drive = proc->getAPVTS().getParameter("p3_vcfd");
+    auto* pad17Drive = proc->getAPVTS().getParameter("p17_vcfd");
+    pad3Drive->setValueNotifyingHost(0.31f);
+    pad17Drive->setValueNotifyingHost(0.52f);
+    f64::StepData assignedStep;
+    assignedStep.active = true;
+    assignedStep.padOverride = 3; // A04
+    assignedStep.hasLocks = true;
+    assignedStep.lockMask = f64::LOCK_FLAG_VCF_DRIVE;
+    assignedStep.pLockVcfDrive = 0.81f;
+    sequencer.setStepData(0, 0, assignedStep);
+    assignedStep.padOverride = 17; // B02
+    assignedStep.clearLocks();
+    sequencer.setStepData(0, 1, assignedStep);
+    f64::Forge64Editor pluginEditor(*proc);
+    pluginEditor.padClicked(0);
+    f64::SequencerDrawer* editorDrawer = nullptr;
+    auto displayedPad = [&]() -> f64::PadEditor*
+    {
+        for (auto* child : pluginEditor.getChildren())
+            if (auto* editor = dynamic_cast<f64::PadEditor*>(child)) return editor;
+        return nullptr;
+    };
+    for (auto* child : pluginEditor.getChildren())
+        if (auto* component = dynamic_cast<f64::SequencerDrawer*>(child)) editorDrawer = component;
+    check(editorDrawer != nullptr, "plugin editor has its sequencer drawer");
+    if (editorDrawer != nullptr)
+    {
+        editorDrawer->onStepClicked(0, 0, 3);
+        auto* shown = displayedPad();
+        auto* preset = shown != nullptr ? findPreset(*shown) : nullptr;
+        check(shown != nullptr && shown->padIndex() == 3 && shown->getPLockStep() == 0
+              && preset != nullptr && preset->getText() == proc->grid().padState(3).getProperty("name").toString(),
+              "step selection displays A04's pad and named module");
+        check(std::abs(proc->getAPVTS().getRawParameterValue("p3_vcfd")->load() - 0.81f) < 0.001f,
+              "selected step applies its locks to the assigned pad");
+        editorDrawer->onStepClicked(0, 1, 17);
+        shown = displayedPad();
+        preset = shown != nullptr ? findPreset(*shown) : nullptr;
+        check(shown != nullptr && shown->padIndex() == 17 && shown->getPLockStep() == 1
+              && preset != nullptr && preset->getText() == proc->grid().padState(17).getProperty("name").toString(),
+              "next step switches to B02's pad and named module");
+        check(std::abs(proc->getAPVTS().getRawParameterValue("p3_vcfd")->load() - 0.31f) < 0.001f
+              && std::abs(proc->getAPVTS().getRawParameterValue("p17_vcfd")->load() - 0.52f) < 0.001f,
+              "switching pads restores the old pad and uses the new pad's base knob values");
+        editorDrawer->onStepClicked(0, 0, 3);
+        check(displayedPad() != nullptr && displayedPad()->padIndex() == 3
+              && std::abs(proc->getAPVTS().getRawParameterValue("p3_vcfd")->load() - 0.81f) < 0.001f,
+              "switching back restores the first step's pad and locks");
+    }
     std::cout << "Bank preset / step lock regression tests: " << failures << " failures." << std::endl;
     return failures == 0 ? 0 : 1;
 }

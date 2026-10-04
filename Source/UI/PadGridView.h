@@ -31,6 +31,8 @@ public:
     void tick();          // hit-flash animation, driven by the editor timer
     void refreshPads();   // full repaint after state changes
     void chooseSampleFor(int pad);
+    void choosePadPreset(int pad, bool save);
+    void confirmPastePad(int pad);
 
     Forge64Processor& proc() { return processor; }
 

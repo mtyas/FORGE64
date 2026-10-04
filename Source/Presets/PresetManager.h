@@ -24,6 +24,10 @@ public:
     bool loadBank(const juce::File& f, int bank);
     bool savePad(const juce::File& f, int pad);
     bool loadPad(const juce::File& f, int pad);
+    bool copyPad(int pad);
+    bool cutPad(int pad);
+    bool pastePad(int pad);
+    bool hasPadClipboard() const { return padClipboard.isValid(); }
 
     const juce::String& lastError() const { return err; }
 
@@ -41,6 +45,8 @@ private:
     juce::ValueTree& kit;
     juce::AudioProcessorValueTreeState& apvts;
     juce::String err;
+    juce::ValueTree padClipboard;
+    juce::ValueTree padClipboardParams;
 };
 
 } // namespace f64
