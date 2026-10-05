@@ -1,4 +1,5 @@
 #include "SequencerPage.h"
+#include "SequencerRecordControl.h"
 #include "../PluginProcessor.h"
 #include "../Presets/SequencePresetManager.h"
 #include "../Engine/StepLockOperations.h"
@@ -269,6 +270,15 @@ public:
                 g.drawText(juce::String((int) std::round(s.pLockLevel * 100.f)) + "%",
                            r.reduced(1.f), juce::Justification::centred);
             }
+            else if (owner.getLockViewMode() == SequencerPage::LOCK_VIEW_RATCHET)
+            {
+                g.setColour(juce::Colour(0xFF00BCD4));
+                for (int k = 0; k < s.ratchet; ++k)
+                    g.fillRoundedRectangle(r.getX() + k * r.getWidth() / s.ratchet + 1.f, r.getY() + 2.f, r.getWidth() / s.ratchet - 2.f, r.getHeight() - 4.f, 1.f);
+                g.setColour(juce::Colours::white);
+                g.setFont(uiFont(10.f, true));
+                g.drawText(juce::String(s.ratchet) + "x", r, juce::Justification::centred);
+            }
             else // LOCK_VIEW_PAN
             {
                 // Active Step (Pan): Violet Orchid / Electric Fuchsia
@@ -432,6 +442,7 @@ public:
         ratchetCombo->addItem("2x (Roll)", 2);
         ratchetCombo->addItem("3x (Triplet)", 3);
         ratchetCombo->addItem("4x (Rapid)", 4);
+        for (int k = 5; k <= 8; ++k) ratchetCombo->addItem(juce::String(k) + "x", k);
         ratchetCombo->onChange = [this] { applyChanges(); };
         addAndMakeVisible(ratchetCombo.get());
 
@@ -441,11 +452,12 @@ public:
         {
             if (curTrack >= 0 && curStep >= 0)
             {
-                auto& s = owner.seq.currentPattern().tracks[(size_t) curTrack].steps[(size_t) curStep];
+                auto s = owner.seq.currentPattern().tracks[(size_t) curTrack].steps[(size_t) curStep];
                 s.clearLocks();
                 s.ratchet = 1;
                 s.microtiming = 0.f;
                 s.probability = 1.f;
+                owner.seq.setStepData(curTrack, curStep, s);
                 openForStep(curTrack, curStep);
                 owner.repaint();
             }
@@ -485,7 +497,7 @@ public:
     void applyChanges()
     {
         if (curTrack < 0 || curStep < 0) return;
-        auto& s = owner.seq.currentPattern().tracks[(size_t) curTrack].steps[(size_t) curStep];
+        auto s = owner.seq.currentPattern().tracks[(size_t) curTrack].steps[(size_t) curStep];
         s.active = true;
         const int pId = padCombo->getSelectedId();
         s.padOverride = (pId <= 1) ? -1 : (pId - 2);
@@ -515,6 +527,7 @@ public:
             mask |= StepLockFlags::LOCK_FLAG_PAD_OVERRIDE;
         s.lockMask = mask;
         s.hasLocks = (paramMask != 0 || s.ratchet > 1);
+        owner.seq.setStepData(curTrack, curStep, s);
         owner.repaint();
     }
 
@@ -577,6 +590,7 @@ void SequencerPage::StepButton::mouseDown(const juce::MouseEvent& e)
         return;
     }
 
+    owner.seq.beginEditGesture();
     const auto& trk = owner.seq.currentPattern().tracks[(size_t) trackIdx];
     const auto& s = trk.steps[(size_t) stepIdx];
     wasActiveOnDown = s.active;
@@ -589,6 +603,7 @@ void SequencerPage::StepButton::mouseDown(const juce::MouseEvent& e)
         owner.seq.setStepActiveWithPad(trackIdx, stepIdx, true, targetPad);
         switch (owner.getLockViewMode())
         {
+            case SequencerPage::LOCK_VIEW_RATCHET: owner.seq.setStepRatchet(trackIdx, stepIdx, 1); break;
             case SequencerPage::LOCK_VIEW_PROBABILITY: owner.seq.setStepProbability(trackIdx, stepIdx, 1.0f); break;
             case SequencerPage::LOCK_VIEW_MICROTIMING: owner.seq.setStepMicrotiming(trackIdx, stepIdx, 0.0f); break;
             case SequencerPage::LOCK_VIEW_PITCH:       owner.seq.setStepPitch(trackIdx, stepIdx, 0.0f); break;
@@ -603,6 +618,7 @@ void SequencerPage::StepButton::mouseDown(const juce::MouseEvent& e)
 
     switch (owner.getLockViewMode())
     {
+        case SequencerPage::LOCK_VIEW_RATCHET: dragStartVal = (float)s.ratchet; break;
         case SequencerPage::LOCK_VIEW_PROBABILITY: dragStartVal = s.probability; break;
         case SequencerPage::LOCK_VIEW_MICROTIMING: dragStartVal = s.microtiming; break;
         case SequencerPage::LOCK_VIEW_PITCH:       dragStartVal = s.pLockPitch; break;
@@ -626,6 +642,9 @@ void SequencerPage::StepButton::mouseDrag(const juce::MouseEvent& e)
         const float deltaX = (float) e.position.x - dragStartX;
         switch (owner.getLockViewMode())
         {
+            case SequencerPage::LOCK_VIEW_RATCHET:
+                owner.seq.setStepRatchet(trackIdx, stepIdx, (int)std::round(dragStartVal + deltaY / 12.f));
+                break;
             case SequencerPage::LOCK_VIEW_PROBABILITY:
             {
                 const float newProb = juce::jlimit(0.0f, 1.0f, dragStartVal + deltaY / 80.0f);
@@ -690,6 +709,7 @@ void SequencerPage::StepButton::mouseUp(const juce::MouseEvent& e)
         owner.seq.setStepActive(trackIdx, stepIdx, false);
         repaint();
     }
+    owner.seq.endEditGesture();
 }
 
 void SequencerPage::StepButton::mouseWheelMove(const juce::MouseEvent&, const juce::MouseWheelDetails& wheel)
@@ -701,6 +721,9 @@ void SequencerPage::StepButton::mouseWheelMove(const juce::MouseEvent&, const ju
         const bool up = (wheel.deltaY > 0.f);
         switch (owner.getLockViewMode())
         {
+            case SequencerPage::LOCK_VIEW_RATCHET:
+                owner.seq.setStepRatchet(trackIdx, stepIdx, s.ratchet + (up ? 1 : -1));
+                break;
             case SequencerPage::LOCK_VIEW_PROBABILITY:
                 owner.seq.setStepProbability(trackIdx, stepIdx, juce::jlimit(0.0f, 1.0f, s.probability + (up ? 0.05f : -0.05f)));
                 break;
@@ -913,8 +936,23 @@ public:
             });
     }
 
-    void mouseDown(const juce::MouseEvent&) override
+    void mouseDown(const juce::MouseEvent& e) override
     {
+        if (e.mods.isPopupMenu())
+        {
+            juce::PopupMenu menu;
+            menu.addItem(1, "Copy track");
+            menu.addItem(2, "Paste track", owner.seq.hasTrackClipboard());
+            menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(this),
+                [self = juce::Component::SafePointer<TrackLane>(this)](int result)
+                {
+                    if (!self) return;
+                    if (result == 1) self->owner.seq.copyTrack(self->trackIdx);
+                    if (result == 2) self->owner.seq.pasteTrack(self->trackIdx);
+                    self->owner.refreshFromSequencer();
+                });
+            return;
+        }
         owner.seq.setSelectedTrack(trackIdx);
         owner.repaint();
     }
@@ -1139,6 +1177,7 @@ SequencerPage::SequencerPage(Forge64Processor& processor)
     addAndMakeVisible(modeBtn.get());
 
     // Play / Stop
+
     playBtn = std::make_unique<juce::TextButton>("PLAY");
     ui::styleButton(*playBtn);
     playBtn->setLookAndFeel(&compactBtnLnF);
@@ -1273,6 +1312,7 @@ SequencerPage::SequencerPage(Forge64Processor& processor)
     setupLockBtn(levelLockBtn, "LEVEL", "View and edit step Level lock (Radiant Gold)", LOCK_VIEW_LEVEL);
     setupLockBtn(panLockBtn,   "PAN",   "View and edit step Pan lock (Violet Orchid)", LOCK_VIEW_PAN);
 
+    setupLockBtn(ratchetLockBtn, "RATCH", "Step repeats: 1 to 8 evenly spaced triggers", LOCK_VIEW_RATCHET);
     setLockViewMode(LOCK_VIEW_VELOCITY);
 
     // Action buttons
@@ -1287,12 +1327,7 @@ SequencerPage::SequencerPage(Forge64Processor& processor)
     pasteBtn->setLookAndFeel(&compactBtnLnF);
     pasteBtn->onClick = [this]
     {
-        const int patIdx = seq.selectedPatternIndex();
-        auto before = seq.getPatternCopy(patIdx);
         seq.pastePattern();
-        auto after = seq.getPatternCopy(patIdx);
-        seq.setPattern(patIdx, *before);
-        proc.getUndoManager().perform(new SequencerPatternAction(seq, patIdx, std::move(before), std::move(after)));
         refreshFromSequencer();
     };
     addAndMakeVisible(pasteBtn.get());
@@ -1323,7 +1358,9 @@ SequencerPage::SequencerPage(Forge64Processor& processor)
                     for (auto& t : after->tracks)
                         for (auto& s : t.steps)
                             s.resetStep();
+                    self->proc.getUndoManager().beginNewTransaction("Edit sequencer");
                     self->proc.getUndoManager().perform(new SequencerPatternAction(self->seq, patIdx, std::move(before), std::move(after)));
+                    self->proc.getUndoManager().beginNewTransaction();
                     self->refreshFromSequencer();
                 }
                 else if (result == 2)
@@ -1334,7 +1371,9 @@ SequencerPage::SequencerPage(Forge64Processor& processor)
                         for (auto& t : p.tracks)
                             for (auto& s : t.steps)
                                 s.resetStep();
+                    self->proc.getUndoManager().beginNewTransaction("Edit sequencer");
                     self->proc.getUndoManager().perform(new SequencerAllPatternsAction(self->seq, std::move(before), std::move(after)));
+                    self->proc.getUndoManager().beginNewTransaction();
                     self->refreshFromSequencer();
                 }
                 else if (result == 3)
@@ -1344,7 +1383,9 @@ SequencerPage::SequencerPage(Forge64Processor& processor)
                     auto after = std::make_unique<PatternData>(*before);
                     for (auto& s : after->tracks[(size_t) selTrk].steps)
                         s.resetStep();
+                    self->proc.getUndoManager().beginNewTransaction("Edit sequencer");
                     self->proc.getUndoManager().perform(new SequencerPatternAction(self->seq, patIdx, std::move(before), std::move(after)));
+                    self->proc.getUndoManager().beginNewTransaction();
                     self->refreshFromSequencer();
                 }
             });
@@ -1357,24 +1398,15 @@ SequencerPage::SequencerPage(Forge64Processor& processor)
     randBtn->setTooltip("Randomize selected track (Shift+click to randomize all 8 tracks)");
     randBtn->onClick = [this]
     {
-        const int patIdx = seq.selectedPatternIndex();
         if (juce::ModifierKeys::getCurrentModifiers().isShiftDown() ||
             juce::ModifierKeys::getCurrentModifiers().isAltDown())
         {
-            auto before = seq.getPatternCopy(patIdx);
             seq.randomizeAllTracks();
-            auto after = seq.getPatternCopy(patIdx);
-            seq.setPattern(patIdx, *before);
-            proc.getUndoManager().perform(new SequencerPatternAction(seq, patIdx, std::move(before), std::move(after)));
             refreshFromSequencer();
         }
         else
         {
-            auto before = seq.getPatternCopy(patIdx);
             seq.randomizeCurrentTrack();
-            auto after = seq.getPatternCopy(patIdx);
-            seq.setPattern(patIdx, *before);
-            proc.getUndoManager().perform(new SequencerPatternAction(seq, patIdx, std::move(before), std::move(after)));
             refreshFromSequencer();
         }
     };
@@ -1478,6 +1510,7 @@ SequencerPage::~SequencerPage()
     if (driveLockBtn != nullptr) driveLockBtn->setLookAndFeel(nullptr);
     if (levelLockBtn != nullptr) levelLockBtn->setLookAndFeel(nullptr);
     if (panLockBtn != nullptr)   panLockBtn->setLookAndFeel(nullptr);
+    if (ratchetLockBtn) ratchetLockBtn->setLookAndFeel(nullptr);
     if (saveSeqBtn != nullptr)   saveSeqBtn->setLookAndFeel(nullptr);
     if (copyBtn != nullptr)      copyBtn->setLookAndFeel(nullptr);
     if (pasteBtn != nullptr)     pasteBtn->setLookAndFeel(nullptr);
@@ -1588,6 +1621,11 @@ void SequencerPage::refreshFromSequencer()
         }
         resized();
     }
+    for (size_t k = 0; k < blocks.size(); ++k)
+    {
+        songBlockViews[k]->patCombo->setSelectedId(blocks[k].patternIndex + 1, juce::dontSendNotification);
+        songBlockViews[k]->repSlider->setValue(blocks[k].repeats, juce::dontSendNotification);
+    }
     repaint();
 }
 
@@ -1619,6 +1657,7 @@ void SequencerPage::showLockContextMenu(StepLockViewMode mode, juce::Component* 
                             result != 1, result == 1 ? 0.f : (result - 100) / 100.f, random);
             self->proc.getUndoManager().beginNewTransaction(result == 1 ? "Reset step locks" : "Randomize step locks");
             self->proc.getUndoManager().perform(new SequencerPatternAction(self->seq, patternIndex, std::move(before), std::move(after)));
+            self->proc.getUndoManager().beginNewTransaction();
             if (self->pLockPopover != nullptr) self->pLockPopover->setVisible(false);
             self->refreshFromSequencer();
             self->repaint();
@@ -1656,6 +1695,7 @@ void SequencerPage::setLockViewMode(StepLockViewMode mode)
         levelLockBtn->setColour(juce::TextButton::buttonColourId,
             (mode == LOCK_VIEW_LEVEL) ? juce::Colour(0xFFFFD600) : ui::panelHi());
 
+    if (ratchetLockBtn) ratchetLockBtn->setColour(juce::TextButton::buttonColourId, mode == LOCK_VIEW_RATCHET ? juce::Colour(0xFF00BCD4) : ui::panelHi());
     if (panLockBtn != nullptr)
         panLockBtn->setColour(juce::TextButton::buttonColourId,
             (mode == LOCK_VIEW_PAN) ? juce::Colour(0xFFE040FB) : ui::panelHi());
@@ -1676,15 +1716,17 @@ void SequencerPage::resized()
     presetCombo->setBounds(r1x, 5, 114, 24); r1x += 118;
     if (saveSeqBtn != nullptr) { saveSeqBtn->setBounds(r1x, 5, 42, 24); r1x += 46; }
 
-    if (lockModeLabel != nullptr) { lockModeLabel->setBounds(r1x, 5, 36, 24); r1x += 38; }
-    if (velLockBtn != nullptr)    { velLockBtn->setBounds(r1x, 5, 28, 24);    r1x += 30; }
-    if (probLockBtn != nullptr)   { probLockBtn->setBounds(r1x, 5, 34, 24);   r1x += 36; }
-    if (microLockBtn != nullptr)  { microLockBtn->setBounds(r1x, 5, 34, 24);  r1x += 36; }
-    if (pitchLockBtn != nullptr)  { pitchLockBtn->setBounds(r1x, 5, 38, 24);  r1x += 40; }
-    if (decayLockBtn != nullptr)  { decayLockBtn->setBounds(r1x, 5, 40, 24);  r1x += 42; }
-    if (driveLockBtn != nullptr)  { driveLockBtn->setBounds(r1x, 5, 38, 24);  r1x += 40; }
-    if (levelLockBtn != nullptr)  { levelLockBtn->setBounds(r1x, 5, 38, 24);  r1x += 40; }
-    if (panLockBtn != nullptr)    { panLockBtn->setBounds(r1x, 5, 30, 24);    r1x += 32; }
+    r1x = 6;
+    if (lockModeLabel != nullptr) { lockModeLabel->setBounds(r1x, 61, 36, 24); r1x += 38; }
+    if (ratchetLockBtn) { ratchetLockBtn->setBounds(r1x, 61, 40, 24); r1x += 42; }
+    if (velLockBtn != nullptr)    { velLockBtn->setBounds(r1x, 61, 28, 24);    r1x += 30; }
+    if (probLockBtn != nullptr)   { probLockBtn->setBounds(r1x, 61, 34, 24);   r1x += 36; }
+    if (microLockBtn != nullptr)  { microLockBtn->setBounds(r1x, 61, 34, 24);  r1x += 36; }
+    if (pitchLockBtn != nullptr)  { pitchLockBtn->setBounds(r1x, 61, 38, 24);  r1x += 40; }
+    if (decayLockBtn != nullptr)  { decayLockBtn->setBounds(r1x, 61, 40, 24);  r1x += 42; }
+    if (driveLockBtn != nullptr)  { driveLockBtn->setBounds(r1x, 61, 38, 24);  r1x += 40; }
+    if (levelLockBtn != nullptr)  { levelLockBtn->setBounds(r1x, 61, 38, 24);  r1x += 40; }
+    if (panLockBtn != nullptr)    { panLockBtn->setBounds(r1x, 61, 30, 24);    r1x += 32; }
 
     // Page Buttons on Row 1 (Right-aligned)
     const int pageBtnW = 34;
@@ -1718,7 +1760,7 @@ void SequencerPage::resized()
     randBtn->setBounds(r2x, 33, 38, 24);
 
     // Pattern Mode container (starting below row 2 at y = 62)
-    const int topMargin = 62;
+    const int topMargin = 90;
     patternContainer->setBounds(6, topMargin, w - 12, h - topMargin - 6);
     const int laneH = (h - topMargin - 10) / 8;
     for (int t = 0; t < 8; ++t)

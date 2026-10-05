@@ -112,14 +112,15 @@ void ModMatrix::handleMidiMessage(const juce::MidiMessage& m)
         midiLatch[4] = (float) m.getAfterTouchValue() / 127.f;
 }
 
-void ModMatrix::renderSources(int n)
+void ModMatrix::renderSources(int n, const std::array<float, kNumMacros>* performanceValues)
 {
     cacheLive = cacheSnapshot();
 
     for (int i = 0; i < kNumMacros; ++i)
         if (macroParams[(size_t) i] != nullptr)
             static_cast<MacroSource*>(sources[(size_t) slotMacro(i)].get())
-                ->setValue(macroParams[(size_t) i]->load());
+                ->setValue(performanceValues != nullptr && (*performanceValues)[(size_t)i] >= 0.f
+                    ? (*performanceValues)[(size_t)i] : macroParams[(size_t) i]->load());
 
     for (int k = 0; k < kNumMidiSrc; ++k)
         static_cast<MidiSource*>(sources[(size_t) slotMidi(k)].get())
@@ -145,6 +146,9 @@ void ModMatrix::renderSources(int n)
             sum += buf[(size_t) i];
         }
         srcAvg[(size_t) s] = n > 0 ? sum / (float) n : 0.f;
+        if (s >= slotSeq(0) && s < slotSeq(kNumSeq) && n > 0
+            && static_cast<SeqSource*>(sources[(size_t)s].get())->quantize.load())
+            srcAvg[(size_t)s] = buf[(size_t)n - 1];
     }
 }
 
@@ -157,6 +161,20 @@ float ModMatrix::shapeCurve(float v, float c)
     return v < 0.f ? -av : av;
 }
 
+bool ModMatrix::melodicPitchConnection(int slot, const std::string& dest) const
+{
+    const int index = slot - slotSeq(0);
+    return index >= 0 && index < kNumSeq && static_cast<const SeqSource*>(sources[(size_t)slot].get())->quantize.load()
+        && (dest == idVoicePitch || (dest.size() >= 5 && dest.compare(dest.size() - 5, 5, "_tune") == 0));
+}
+
+float ModMatrix::effectiveConnectionAmount(int slot, const std::string& dest, float amount) const
+{
+    if (!melodicPitchConnection(slot, dest)) return amount;
+    const float semitones = 12.f * juce::jlimit(1, 4, static_cast<const SeqSource*>(sources[(size_t)slot].get())->octaves.load());
+    return dest == idVoicePitch ? semitones : semitones / 48.f;
+}
+
 void ModMatrix::computeOffsets()
 {
     destOffsets.clear();
@@ -165,24 +183,65 @@ void ModMatrix::computeOffsets()
 
     for (const auto& c : cacheLive->conns)
     {
-        if (c.muted || std::abs(c.amount) < 0.005f)
+        const bool melodic = melodicPitchConnection(c.slot, c.dest);
+        if (c.muted || (!melodic && std::abs(c.amount) < 0.005f))
             continue;
         const int envIndex = c.slot - slotEnv(0);
         if (envIndex >= 0 && envIndex < kNumEnv
             && (c.dest == idVoiceAmp || c.dest == idVoicePitch || c.dest == idVoicePan))
             continue; // Voice envelopes are evaluated per voice, never added twice.
         float v = srcAvg[(size_t) clampRange(c.slot, 0, kNumSlots - 1)].load();
-        v = shapeCurve(v, c.curve);
+        if (melodic)
+        {
+            auto* seq = static_cast<SeqSource*>(sources[(size_t)c.slot].get());
+            if (!seq->enabled.load()) continue;
+            v = quantizeValue(v, (uint16_t)seq->noteMask.load(), seq->octaves.load());
+        }
+        else v = shapeCurve(v, c.curve);
         if (c.invert)
             v = -v;
-        destOffsets[c.dest] += c.amount * v;
+        destOffsets[c.dest] += effectiveConnectionAmount(c.slot, c.dest, c.amount) * v;
     }
+}
+
+float ModMatrix::displayOffsetFor(const std::string& dest) const
+{
+    const auto snapshot = cacheSnapshot();
+    if (!snapshot) return 0.f;
+    float result = 0.f;
+    for (const auto& connection : snapshot->conns)
+    {
+        if (connection.muted || connection.dest != dest) continue;
+        const bool melodic = melodicPitchConnection(connection.slot, dest);
+        if (!melodic && std::abs(connection.amount) < .005f) continue;
+        float value = srcAvg[(size_t)connection.slot].load();
+        if (melodic)
+        {
+            const auto* seq = static_cast<const SeqSource*>(sources[(size_t)connection.slot].get());
+            if (!seq->enabled.load()) continue;
+            value = quantizeValue(value, (uint16_t)seq->noteMask.load(), seq->octaves.load());
+        }
+        else value = shapeCurve(value, connection.curve);
+        result += effectiveConnectionAmount(connection.slot, dest, connection.amount) * (connection.invert ? -value : value);
+    }
+    return result;
 }
 
 float ModMatrix::offsetFor(const std::string& dest) const
 {
     auto it = destOffsets.find(dest);
     return it != destOffsets.end() ? it->second : 0.f;
+}
+
+void ModMatrix::resetSourcesForPad(int pad, int sampleOffset)
+{
+    for (int slot = 0; slot < kNumLFO + kNumRnd; ++slot)
+    {
+        auto* source = static_cast<PadResetSource*>(sources[(size_t)slot].get());
+        if (source->enabled.load() && source->resetOnPad.load()
+            && (source->triggerPad.load() == -1 || source->triggerPad.load() == pad))
+            source->scheduleReset(sampleOffset);
+    }
 }
 
 void ModMatrix::triggerVoice(int voiceId)
@@ -402,9 +461,9 @@ std::vector<ModMatrix::Ring> ModMatrix::ringsFor(juce::StringRef dest) const
         Ring r;
         r.slot = conn.slot;
         r.id = conn.id;
-        r.amount = conn.invert ? -conn.amount : conn.amount;
+        r.amount = effectiveConnectionAmount(conn.slot, conn.dest, conn.amount) * (conn.invert ? -1.f : 1.f);
         r.now = srcAvg[(size_t) conn.slot].load();
-        r.curve = conn.curve;
+        r.curve = melodicPitchConnection(conn.slot, conn.dest) ? 0.f : conn.curve;
         out.push_back(r);
     }
     return out;

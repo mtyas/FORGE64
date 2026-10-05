@@ -308,6 +308,7 @@ PadEditor::PadEditor(Forge64Processor& p, ModRingKnob::Services& s, int globalPa
 
     vcfGraph = new VCFGraphView(proc.getAPVTS(), pad);
     content->addAndMakeVisible(vcfGraph);
+    vcfGraph->readEffectiveValue = [this](const char* key, float fallback) { return proc.displayPadValue(pad, key, fallback); };
     vcfGraph->onParamsChanged = [this]
     {
         for (auto* k : vcfKnobs)
@@ -324,6 +325,7 @@ PadEditor::PadEditor(Forge64Processor& p, ModRingKnob::Services& s, int globalPa
     // 3-Band Parametric EQ (Center Column)
     eqGraph = new EQGraphView(proc.getAPVTS(), pad);
     content->addAndMakeVisible(eqGraph);
+    eqGraph->readEffectiveValue = [this](const char* key, float fallback) { return proc.displayPadValue(pad, key, fallback); };
     eqGraph->onParamsChanged = [this]
     {
         for (auto* k : eqKnobs)
@@ -338,6 +340,7 @@ PadEditor::PadEditor(Forge64Processor& p, ModRingKnob::Services& s, int globalPa
     // Dynamics Compressor (Right Column)
     compGraph = new CompGraphView(proc.getAPVTS(), pad);
     content->addAndMakeVisible(compGraph);
+    compGraph->readEffectiveValue = [this](const char* key, float fallback) { return proc.displayPadValue(pad, key, fallback); };
     compGraph->onParamsChanged = [this]
     {
         for (auto* k : dynKnobs)
@@ -1399,10 +1402,12 @@ ModRingKnob* PadEditor::makeKnob(const char* base, const char* labelText)
 
     k->onDragStart = [this]
     {
+        if (inPLockMode) proc.getSequencer().beginEditGesture();
         auditionOnControlTouch();
     };
     k->onDragEnd = [this]
     {
+        if (inPLockMode) proc.getSequencer().endEditGesture();
     };
     k->onValueChange = [this]
     {

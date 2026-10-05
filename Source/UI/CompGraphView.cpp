@@ -14,12 +14,8 @@ CompGraphView::CompGraphView(juce::AudioProcessorValueTreeState& apvts, int padI
 
 void CompGraphView::timerCallback()
 {
-    float curThr = thresh;
-    float curRat = ratio;
-    if (auto* p = vts.getRawParameterValue(padParamId(pad, "cthr")))
-        curThr = p->load();
-    if (auto* p = vts.getRawParameterValue(padParamId(pad, "crat")))
-        curRat = p->load();
+    const float curThr = readEffectiveValue ? readEffectiveValue("cthr", 0.f) : vts.getRawParameterValue(padParamId(pad, "cthr"))->load();
+    const float curRat = readEffectiveValue ? readEffectiveValue("crat", 1.f) : vts.getRawParameterValue(padParamId(pad, "crat"))->load();
 
     if (curThr != thresh || curRat != ratio)
     {

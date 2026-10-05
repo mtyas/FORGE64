@@ -7,7 +7,7 @@ namespace f64 {
 // ---------------------------------------------------------------------------
 // ConnectionList
 // ---------------------------------------------------------------------------
-class ConnectionList::Row : public juce::Component
+class ConnectionList::Row : public juce::Component, private juce::Timer
 {
 public:
     Row(ConnectionList& o, juce::ValueTree conn) : owner(o), tree(conn)
@@ -71,6 +71,8 @@ public:
         del.onClick = [this] { owner.matrix.removeConnection(id); };
         ui::styleButton(del);
         addAndMakeVisible(del);
+        timerCallback();
+        startTimerHz(10);
     }
 
     void resized() override
@@ -91,6 +93,16 @@ public:
     }
 
 private:
+    void timerCallback() override
+    {
+        const auto dest = tree.getProperty("dest", "").toString().toStdString();
+        const bool locked = owner.matrix.melodicPitchConnection(slot, dest);
+        amount.setEnabled(!locked);
+        const float value = owner.matrix.effectiveConnectionAmount(slot, dest, (float)(double)tree.getProperty("amount", .5));
+        amount.setRange(-juce::jmax(1.f, value), juce::jmax(1.f, value), .005);
+        amount.setValue(value, juce::dontSendNotification);
+        amount.setTooltip(locked ? "Melodic pitch depth is fixed to the selected octave range (exact semitones)." : "Modulation depth");
+    }
     ConnectionList& owner;
     juce::ValueTree tree;
     int id = 0, slot = 0;
@@ -1052,6 +1064,8 @@ public:
             addToggle("uni", "Unipolar");
             addSlider("glide", "Glide", 0.0, 1.0, 0.01, 1.0);
             addSlider("phase", "Phase", 0.0, 1.0, 0.01, 1.0);
+            addToggle("resetOnPad", "Reset on pad trigger");
+            addEnvTriggerRow(proc);
         }
         else if (cls == SC_RND)
         {
@@ -1061,6 +1075,8 @@ public:
             addDivCombo();
             addSlider("p1", "Amount/Chance", 0.0, 1.0, 0.01, 1.0);
             addToggle("uni", "Unipolar");
+            addToggle("resetOnPad", "Reset on pad trigger");
+            addEnvTriggerRow(proc);
             addTrigger("Reseed / Reset");
         }
         else if (cls == SC_ENV)
@@ -1290,6 +1306,7 @@ private:
         auto* tb = new juce::ToggleButton(text);
         ui::styleToggle(*tb);
         tb->setToggleState(bool(st.getProperty(key, false)), juce::dontSendNotification);
+        if (key == "resetOnPad") tb->setTooltip("Restart this shared modulator on each hit of the selected pad, or any pad. Leave off for free-running modulation.");
         tb->onClick = [this, key, tb] { matrix.setSourceParam(slot, key, tb->getToggleState()); };
         addRow(nullptr, tb, 24);
     }
@@ -1325,7 +1342,7 @@ private:
                                             + juce::String::formatted("%02d", (i % kPadsPerBank) + 1);
                     combo.addItem(name, i + 2);
                 }
-                combo.addItem("MIDI Note Omni", kNumPads + 2);
+                if (slotClassOf(slot) == SC_ENV) combo.addItem("MIDI Note Omni", kNumPads + 2);
 
                 int curPad = (int) st.getProperty("trigPad", -1);
                 if (curPad >= 0 && curPad < kNumPads)
@@ -1348,7 +1365,7 @@ private:
 
                 learnBtn.setButtonText("LEARN");
                 ui::styleButton(learnBtn);
-                learnBtn.setTooltip("Touch or hit a pad to assign as envelope trigger");
+                learnBtn.setTooltip("Touch or hit a pad to assign as modulator trigger");
                 learnBtn.onClick = [this]
                 {
                     learning = ! learning;
@@ -1356,7 +1373,7 @@ private:
                     {
                         learnBtn.setButtonText("HIT PAD...");
                         learnBtn.setColour(juce::TextButton::buttonColourId, juce::Colour(0xFFFF6600));
-                        if (proc) lastPad = proc->getLastTriggeredPad();
+                        if (proc) lastTrigger = proc->getPadTriggerSerial();
                         startTimerHz(30);
                     }
                     else
@@ -1381,7 +1398,7 @@ private:
             {
                 if (! learning || ! proc) return;
                 int current = proc->getLastTriggeredPad();
-                if (current >= 0 && current < kNumPads && current != lastPad)
+                if (current >= 0 && current < kNumPads && proc->getPadTriggerSerial() != lastTrigger)
                 {
                     combo.setSelectedId(current + 2, juce::sendNotificationSync);
                     stopLearning();
@@ -1404,7 +1421,7 @@ private:
             juce::ComboBox combo;
             juce::TextButton learnBtn;
             bool learning = false;
-            int lastPad = -1;
+            uint64_t lastTrigger = 0;
         };
 
         auto* learner = new PadLearner(proc, matrix, slot, st);
@@ -1458,7 +1475,7 @@ public:
         nextBtn.onClick = [this] { owner.openSourceEditor((slot + 1) % kNumSlots, nullptr); };
         addAndMakeVisible(nextBtn);
 
-        closeBtn.setButtonText(juce::String::charToString(0x00D7)); // ×
+        closeBtn.setButtonText(juce::String::charToString(0x00D7)); // Ã—
         ui::styleButton(closeBtn);
         closeBtn.onClick = [this] { owner.closeInspector(); };
         addAndMakeVisible(closeBtn);

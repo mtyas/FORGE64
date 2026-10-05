@@ -27,7 +27,8 @@ public:
         LOCK_VIEW_DECAY,
         LOCK_VIEW_DRIVE,
         LOCK_VIEW_LEVEL,
-        LOCK_VIEW_PAN
+        LOCK_VIEW_PAN,
+        LOCK_VIEW_RATCHET
     };
 
     void setLockViewMode(StepLockViewMode mode);
@@ -74,6 +75,7 @@ private:
     int lastLoadedPresetId = 0;
 
     // Lock View & Quick Edit mode controls
+    std::unique_ptr<juce::TextButton> ratchetLockBtn;
     StepLockViewMode lockViewMode = LOCK_VIEW_VELOCITY;
     std::unique_ptr<juce::Label> lockModeLabel;
     std::unique_ptr<juce::TextButton> velLockBtn;

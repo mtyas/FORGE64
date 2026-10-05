@@ -13,6 +13,152 @@ StepSequencer::StepSequencer()
 
 StepSequencer::~StepSequencer() = default;
 
+class RecordedTrackAction : public juce::UndoableAction
+{
+public:
+    RecordedTrackAction(StepSequencer& owner, int pattern, int track, std::unique_ptr<TrackData> before, std::unique_ptr<TrackData> after)
+        : seq(owner), patternIndex(pattern), trackIndex(track), oldTrack(std::move(before)), newTrack(std::move(after)) {}
+    bool apply(const TrackData& track)
+    {
+        auto pattern = seq.getPatternCopy(patternIndex);
+        pattern->tracks[(size_t)trackIndex] = track;
+        seq.setPattern(patternIndex, *pattern);
+        return true;
+    }
+    bool perform() override { return apply(*newTrack); }
+    bool undo() override { return apply(*oldTrack); }
+    int getSizeInUnits() override { return (int)(2 * sizeof(TrackData) / 1024); }
+private:
+    StepSequencer& seq;
+    int patternIndex, trackIndex;
+    std::unique_ptr<TrackData> oldTrack, newTrack;
+};
+void StepSequencer::startPadRecording(int track, int patternIndex)
+{
+    stopPadRecording();
+    endEditGesture();
+    recordingTrack = juce::jlimit(0, 7, track);
+    recordingPattern = juce::jlimit(0, 15, patternIndex);
+    std::lock_guard<std::mutex> lock(seqMutex);
+    auto& data = patterns[(size_t)recordingPattern].tracks[(size_t)recordingTrack];
+    recordingBefore = std::make_unique<TrackData>(data);
+    if (!isPlaying()) reset();
+    currentPatternIdx.store(recordingPattern);
+    selectedTrackIdx = recordingTrack;
+    playMode.store(MODE_PATTERN);
+    isInternalPlaying.store(true);
+    padRecording.store(true);
+    bumpPatternVersion();
+}
+void StepSequencer::stopPadRecording()
+{
+    if (!padRecording.exchange(false)) return;
+    auto after = std::make_unique<TrackData>();
+    {
+        std::lock_guard<std::mutex> lock(seqMutex);
+        *after = patterns[(size_t)recordingPattern].tracks[(size_t)recordingTrack];
+    }
+    if (editUndo && recordingBefore && *recordingBefore != *after)
+    {
+        editUndo->beginNewTransaction("Record sequencer track");
+        editUndo->perform(new RecordedTrackAction(*this, recordingPattern, recordingTrack, std::move(recordingBefore), std::move(after)));
+        editUndo->beginNewTransaction();
+    }
+    recordingBefore.reset();
+    bumpPatternVersion();
+}
+void StepSequencer::recordPadHit(int pad, float velocity, int sampleOffset, double bpm, float pitch)
+{
+    if (!padRecording.load() || pad < 0 || pad >= kNumPads) return;
+    std::lock_guard<std::mutex> lock(seqMutex);
+    if (!padRecording.load()) return;
+    auto& track = patterns[(size_t)recordingPattern].tracks[(size_t)recordingTrack];
+    const double length = (60. / juce::jmax(20., bpm)) * .25 * sampleRate / juce::jlimit(.125f, 8.f, track.speedMultiplier);
+    const int len = juce::jlimit(1, 64, track.stepCount);
+    const double position = trackCurrentSteps[(size_t)recordingTrack] + (sampleOffset - trackSamplesRemaining[(size_t)recordingTrack]) / length;
+    const int nearest = (int)std::round(position);
+    auto& step = track.steps[(size_t)((nearest % len + len) % len)];
+    step.resetStep(); step.active = true;
+    step.padOverride = pad;
+    step.velocity = juce::jlimit(.05f, 1.f, velocity);
+    step.lockMask = LOCK_FLAG_PAD_OVERRIDE;
+    if (pitch != 0.f) { step.pLockPitch = juce::jlimit(-24.f, 24.f, pitch); step.lockMask |= LOCK_FLAG_PITCH; step.hasLocks = true; }
+    bumpPatternVersion();
+}
+
+
+
+static bool samePattern(const PatternData& a, const PatternData& b)
+{
+    return a == b;
+}
+
+StepSequencer::EditScope::EditScope(StepSequencer& owner) : seq(owner)
+{
+    if (seq.editDepth++ == 0 && seq.editUndo != nullptr && !seq.gestureActive)
+    {
+        index = seq.selectedPatternIndex();
+        before = seq.getPatternCopy(index);
+
+    }
+}
+StepSequencer::EditScope::~EditScope()
+{
+    --seq.editDepth;
+    if (before && !samePattern(*before, *seq.getPatternCopy(index)))
+    {
+        seq.editUndo->beginNewTransaction("Edit sequencer");
+        seq.editUndo->perform(new SequencerPatternAction(seq, index, std::move(before), seq.getPatternCopy(index)));
+        seq.editUndo->beginNewTransaction();
+    }
+    seq.bumpPatternVersion();
+}
+void StepSequencer::beginEditGesture()
+{
+    if (gestureActive) endEditGesture();
+    gestureActive = true;
+    if (editUndo)
+    {
+        gesturePattern = selectedPatternIndex();
+        gestureBefore = getPatternCopy(gesturePattern);
+
+    }
+}
+void StepSequencer::endEditGesture()
+{
+    gestureActive = false;
+    if (gestureBefore && !samePattern(*gestureBefore, *getPatternCopy(gesturePattern)))
+    {
+        editUndo->beginNewTransaction("Edit sequencer step");
+        editUndo->perform(new SequencerPatternAction(*this, gesturePattern, std::move(gestureBefore), getPatternCopy(gesturePattern)));
+        editUndo->beginNewTransaction();
+    }
+    gestureBefore.reset();
+}
+void StepSequencer::copyTrack(int track)
+{
+    std::lock_guard<std::mutex> lock(seqMutex);
+    if (track >= 0 && track < 8) trackClipboard = std::make_unique<TrackData>(currentPattern().tracks[(size_t)track]);
+}
+void StepSequencer::pasteTrack(int track)
+{
+    EditScope edit(*this);
+    std::lock_guard<std::mutex> lock(seqMutex);
+    if (trackClipboard && track >= 0 && track < 8) currentPattern().tracks[(size_t)track] = *trackClipboard;
+}
+void StepSequencer::setStepRatchet(int track, int step, int count)
+{
+    EditScope edit(*this);
+    std::lock_guard<std::mutex> lock(seqMutex);
+    if (track >= 0 && track < 8 && step >= 0 && step < 64)
+    {
+        auto& data = currentPattern().tracks[(size_t)track].steps[(size_t)step];
+        data.ratchet = juce::jlimit(1, 8, count);
+        data.hasLocks = (data.lockMask & ~LOCK_FLAG_PAD_OVERRIDE) != 0 || data.ratchet > 1;
+    }
+}
+
+
 void StepSequencer::prepare(double sr)
 {
     sampleRate = sr;
@@ -64,11 +210,13 @@ const PatternData& StepSequencer::pattern(int idx) const
 
 void StepSequencer::setSelectedPattern(int idx)
 {
+    if (padRecording.load() && idx != recordingPattern) stopPadRecording();
     currentPatternIdx.store(clampRange(idx, 0, 15));
 }
 
 void StepSequencer::setTrackLength(int trackIdx, int length)
 {
+    EditScope edit(*this);
     std::lock_guard<std::mutex> lock(seqMutex);
     if (trackIdx >= 0 && trackIdx < 8)
     {
@@ -79,6 +227,7 @@ void StepSequencer::setTrackLength(int trackIdx, int length)
 
 void StepSequencer::setTrackPad(int trackIdx, int pad)
 {
+    EditScope edit(*this);
     std::lock_guard<std::mutex> lock(seqMutex);
     if (trackIdx >= 0 && trackIdx < 8)
         currentPattern().tracks[(size_t) trackIdx].defaultPad = clampRange(pad, 0, kNumPads - 1);
@@ -86,6 +235,7 @@ void StepSequencer::setTrackPad(int trackIdx, int pad)
 
 void StepSequencer::setTrackSpeed(int trackIdx, float speedMultiplier)
 {
+    EditScope edit(*this);
     std::lock_guard<std::mutex> lock(seqMutex);
     if (trackIdx >= 0 && trackIdx < 8)
         currentPattern().tracks[(size_t) trackIdx].speedMultiplier = juce::jlimit(0.125f, 8.0f, speedMultiplier);
@@ -101,6 +251,7 @@ float StepSequencer::getTrackSpeed(int trackIdx) const
 
 void StepSequencer::setTrackSwing(int trackIdx, float swing)
 {
+    EditScope edit(*this);
     std::lock_guard<std::mutex> lock(seqMutex);
     if (trackIdx >= 0 && trackIdx < 8)
         currentPattern().tracks[(size_t) trackIdx].swing = clampRange(swing, 0.0f, 0.75f);
@@ -108,6 +259,7 @@ void StepSequencer::setTrackSwing(int trackIdx, float swing)
 
 void StepSequencer::setPatternSwing(float swing)
 {
+    EditScope edit(*this);
     std::lock_guard<std::mutex> lock(seqMutex);
     const float s = clampRange(swing, 0.0f, 0.75f);
     for (auto& trk : currentPattern().tracks)
@@ -116,6 +268,7 @@ void StepSequencer::setPatternSwing(float swing)
 
 void StepSequencer::setTrackMute(int trackIdx, bool mute)
 {
+    EditScope edit(*this);
     std::lock_guard<std::mutex> lock(seqMutex);
     if (trackIdx >= 0 && trackIdx < 8)
         currentPattern().tracks[(size_t) trackIdx].mute = mute;
@@ -123,6 +276,7 @@ void StepSequencer::setTrackMute(int trackIdx, bool mute)
 
 void StepSequencer::setTrackSolo(int trackIdx, bool solo)
 {
+    EditScope edit(*this);
     std::lock_guard<std::mutex> lock(seqMutex);
     if (trackIdx >= 0 && trackIdx < 8)
         currentPattern().tracks[(size_t) trackIdx].solo = solo;
@@ -130,6 +284,7 @@ void StepSequencer::setTrackSolo(int trackIdx, bool solo)
 
 void StepSequencer::setStepActive(int trackIdx, int stepIdx, bool active)
 {
+    EditScope edit(*this);
     std::lock_guard<std::mutex> lock(seqMutex);
     if (trackIdx >= 0 && trackIdx < 8 && stepIdx >= 0 && stepIdx < 64)
     {
@@ -148,6 +303,7 @@ void StepSequencer::setStepActive(int trackIdx, int stepIdx, bool active)
 
 void StepSequencer::setStepActiveWithPad(int trackIdx, int stepIdx, bool active, int padOverride)
 {
+    EditScope edit(*this);
     std::lock_guard<std::mutex> lock(seqMutex);
     if (trackIdx >= 0 && trackIdx < 8 && stepIdx >= 0 && stepIdx < 64)
     {
@@ -174,6 +330,7 @@ void StepSequencer::setStepActiveWithPad(int trackIdx, int stepIdx, bool active,
 
 void StepSequencer::copyStep(int trackIdx, int srcStepIdx, int dstStepIdx)
 {
+    EditScope edit(*this);
     std::lock_guard<std::mutex> lock(seqMutex);
     if (trackIdx >= 0 && trackIdx < 8 &&
         srcStepIdx >= 0 && srcStepIdx < 64 &&
@@ -188,6 +345,7 @@ void StepSequencer::copyStep(int trackIdx, int srcStepIdx, int dstStepIdx)
 
 void StepSequencer::setStepVelocity(int trackIdx, int stepIdx, float vel)
 {
+    EditScope edit(*this);
     std::lock_guard<std::mutex> lock(seqMutex);
     if (trackIdx >= 0 && trackIdx < 8 && stepIdx >= 0 && stepIdx < 64)
         currentPattern().tracks[(size_t) trackIdx].steps[(size_t) stepIdx].velocity = clampRange(vel, 0.05f, 1.0f);
@@ -195,6 +353,7 @@ void StepSequencer::setStepVelocity(int trackIdx, int stepIdx, float vel)
 
 void StepSequencer::setStepProbability(int trackIdx, int stepIdx, float prob)
 {
+    EditScope edit(*this);
     std::lock_guard<std::mutex> lock(seqMutex);
     if (trackIdx >= 0 && trackIdx < 8 && stepIdx >= 0 && stepIdx < 64)
         currentPattern().tracks[(size_t) trackIdx].steps[(size_t) stepIdx].probability = clampRange(prob, 0.0f, 1.0f);
@@ -202,6 +361,7 @@ void StepSequencer::setStepProbability(int trackIdx, int stepIdx, float prob)
 
 void StepSequencer::setStepMicrotiming(int trackIdx, int stepIdx, float micro)
 {
+    EditScope edit(*this);
     std::lock_guard<std::mutex> lock(seqMutex);
     if (trackIdx >= 0 && trackIdx < 8 && stepIdx >= 0 && stepIdx < 64)
         currentPattern().tracks[(size_t) trackIdx].steps[(size_t) stepIdx].microtiming = clampRange(micro, -0.5f, 0.5f);
@@ -209,6 +369,7 @@ void StepSequencer::setStepMicrotiming(int trackIdx, int stepIdx, float micro)
 
 void StepSequencer::setStepPitch(int trackIdx, int stepIdx, float pitchSemi)
 {
+    EditScope edit(*this);
     std::lock_guard<std::mutex> lock(seqMutex);
     if (trackIdx >= 0 && trackIdx < 8 && stepIdx >= 0 && stepIdx < 64)
     {
@@ -221,6 +382,7 @@ void StepSequencer::setStepPitch(int trackIdx, int stepIdx, float pitchSemi)
 
 void StepSequencer::setStepDecay(int trackIdx, int stepIdx, float decayFactor)
 {
+    EditScope edit(*this);
     std::lock_guard<std::mutex> lock(seqMutex);
     if (trackIdx >= 0 && trackIdx < 8 && stepIdx >= 0 && stepIdx < 64)
     {
@@ -233,6 +395,7 @@ void StepSequencer::setStepDecay(int trackIdx, int stepIdx, float decayFactor)
 
 void StepSequencer::setStepDrive(int trackIdx, int stepIdx, float driveAmt)
 {
+    EditScope edit(*this);
     std::lock_guard<std::mutex> lock(seqMutex);
     if (trackIdx >= 0 && trackIdx < 8 && stepIdx >= 0 && stepIdx < 64)
     {
@@ -245,6 +408,7 @@ void StepSequencer::setStepDrive(int trackIdx, int stepIdx, float driveAmt)
 
 void StepSequencer::setStepLevel(int trackIdx, int stepIdx, float levelAmt)
 {
+    EditScope edit(*this);
     std::lock_guard<std::mutex> lock(seqMutex);
     if (trackIdx >= 0 && trackIdx < 8 && stepIdx >= 0 && stepIdx < 64)
     {
@@ -257,6 +421,7 @@ void StepSequencer::setStepLevel(int trackIdx, int stepIdx, float levelAmt)
 
 void StepSequencer::setStepPan(int trackIdx, int stepIdx, float panAmt)
 {
+    EditScope edit(*this);
     std::lock_guard<std::mutex> lock(seqMutex);
     if (trackIdx >= 0 && trackIdx < 8 && stepIdx >= 0 && stepIdx < 64)
     {
@@ -269,6 +434,7 @@ void StepSequencer::setStepPan(int trackIdx, int stepIdx, float panAmt)
 
 void StepSequencer::setStepData(int trackIdx, int stepIdx, const StepData& data)
 {
+    EditScope edit(*this);
     std::lock_guard<std::mutex> lock(seqMutex);
     if (trackIdx >= 0 && trackIdx < 8 && stepIdx >= 0 && stepIdx < 64)
         currentPattern().tracks[(size_t) trackIdx].steps[(size_t) stepIdx] = data;
@@ -280,29 +446,47 @@ std::vector<SongBlock> StepSequencer::getSongSequence() const
     return songSequence;
 }
 
-void StepSequencer::setSongSequence(const std::vector<SongBlock>& blocks)
+void StepSequencer::setSongSequence(const std::vector<SongBlock>& blocks, bool recordUndo)
 {
-    std::lock_guard<std::mutex> lock(seqMutex);
-    songSequence = blocks;
+    auto before = getSongSequence();
+    bool equal = before.size() == blocks.size();
+    for (size_t k = 0; equal && k < blocks.size(); ++k)
+        equal = before[k].patternIndex == blocks[k].patternIndex && before[k].repeats == blocks[k].repeats;
+    if (equal) return;
+    if (recordUndo && editUndo)
+    {
+        editUndo->beginNewTransaction("Edit song sequence");
+        editUndo->perform(new SequencerSongAction(*this, std::move(before), blocks));
+        editUndo->beginNewTransaction();
+    }
+    else
+    {
+        std::lock_guard<std::mutex> lock(seqMutex);
+        songSequence = blocks;
+        bumpPatternVersion();
+    }
 }
 
 void StepSequencer::addSongBlock(int patternIdx, int repeats)
 {
-    std::lock_guard<std::mutex> lock(seqMutex);
-    songSequence.push_back({ clampRange(patternIdx, 0, 15), clampRange(repeats, 1, 16) });
+    auto blocks = getSongSequence();
+    blocks.push_back({ clampRange(patternIdx, 0, 15), clampRange(repeats, 1, 16) });
+    setSongSequence(blocks);
 }
 
 void StepSequencer::removeSongBlock(int blockIdx)
 {
-    std::lock_guard<std::mutex> lock(seqMutex);
-    if (blockIdx >= 0 && blockIdx < (int) songSequence.size())
-        songSequence.erase(songSequence.begin() + blockIdx);
+    auto blocks = getSongSequence();
+    if (blockIdx >= 0 && blockIdx < (int) blocks.size())
+    {
+        blocks.erase(blocks.begin() + blockIdx);
+        setSongSequence(blocks);
+    }
 }
 
 void StepSequencer::clearSongSequence()
 {
-    std::lock_guard<std::mutex> lock(seqMutex);
-    songSequence.clear();
+    setSongSequence({});
 }
 
 void StepSequencer::copyPattern()
@@ -314,6 +498,7 @@ void StepSequencer::copyPattern()
 
 void StepSequencer::pastePattern()
 {
+    EditScope edit(*this);
     {
         std::lock_guard<std::mutex> lock(seqMutex);
         if (hasClipboard)
@@ -360,6 +545,7 @@ void StepSequencer::setAllPatterns(const std::array<PatternData, 16>& data)
 
 void StepSequencer::clearCurrentPattern()
 {
+    EditScope edit(*this);
     {
         std::lock_guard<std::mutex> lock(seqMutex);
         for (auto& t : currentPattern().tracks)
@@ -389,6 +575,7 @@ void StepSequencer::clearAllPatterns()
 
 void StepSequencer::clearTrack(int trackIdx)
 {
+    EditScope edit(*this);
     {
         std::lock_guard<std::mutex> lock(seqMutex);
         if (trackIdx >= 0 && trackIdx < 8)
@@ -402,6 +589,7 @@ void StepSequencer::clearTrack(int trackIdx)
 
 void StepSequencer::duplicateTrackLoop(int trackIdx, int multiplier)
 {
+    EditScope edit(*this);
     std::lock_guard<std::mutex> lock(seqMutex);
     if (trackIdx < 0 || trackIdx >= 8 || multiplier <= 1) return;
     auto& trk = currentPattern().tracks[(size_t) trackIdx];
@@ -420,6 +608,7 @@ void StepSequencer::duplicateTrackLoop(int trackIdx, int multiplier)
 
 void StepSequencer::duplicateAllTracksLoop(int multiplier)
 {
+    EditScope edit(*this);
     std::lock_guard<std::mutex> lock(seqMutex);
     if (multiplier <= 1) return;
     for (int t = 0; t < 8; ++t)
@@ -451,6 +640,7 @@ void StepSequencer::copyPage(int trackIdx, int pageIdx)
 
 void StepSequencer::pastePage(int trackIdx, int pageIdx)
 {
+    EditScope edit(*this);
     std::lock_guard<std::mutex> lock(seqMutex);
     if (! hasPageClipboard || trackIdx < 0 || trackIdx >= 8 || pageIdx < 0 || pageIdx >= 4) return;
     auto& trk = currentPattern().tracks[(size_t) trackIdx];
@@ -462,6 +652,7 @@ void StepSequencer::pastePage(int trackIdx, int pageIdx)
 
 void StepSequencer::duplicatePageToNext(int trackIdx, int pageIdx)
 {
+    EditScope edit(*this);
     std::lock_guard<std::mutex> lock(seqMutex);
     if (trackIdx < 0 || trackIdx >= 8 || pageIdx < 0 || pageIdx >= 3) return;
     auto& trk = currentPattern().tracks[(size_t) trackIdx];
@@ -473,6 +664,7 @@ void StepSequencer::duplicatePageToNext(int trackIdx, int pageIdx)
 
 void StepSequencer::duplicatePageToAll(int trackIdx, int pageIdx)
 {
+    EditScope edit(*this);
     std::lock_guard<std::mutex> lock(seqMutex);
     if (trackIdx < 0 || trackIdx >= 8 || pageIdx < 0 || pageIdx >= 4) return;
     auto& trk = currentPattern().tracks[(size_t) trackIdx];
@@ -490,6 +682,7 @@ void StepSequencer::duplicatePageToAll(int trackIdx, int pageIdx)
 
 void StepSequencer::clearPage(int trackIdx, int pageIdx)
 {
+    EditScope edit(*this);
     std::lock_guard<std::mutex> lock(seqMutex);
     if (trackIdx < 0 || trackIdx >= 8 || pageIdx < 0 || pageIdx >= 4) return;
     auto& trk = currentPattern().tracks[(size_t) trackIdx];
@@ -515,6 +708,7 @@ void StepSequencer::copyAllTracksPage(int pageIdx)
 
 void StepSequencer::pasteAllTracksPage(int pageIdx)
 {
+    EditScope edit(*this);
     std::lock_guard<std::mutex> lock(seqMutex);
     if (! hasAllTracksPageClipboard || pageIdx < 0 || pageIdx >= 4) return;
     for (int t = 0; t < 8; ++t)
@@ -529,6 +723,7 @@ void StepSequencer::pasteAllTracksPage(int pageIdx)
 
 void StepSequencer::duplicateAllTracksPageToNext(int pageIdx)
 {
+    EditScope edit(*this);
     std::lock_guard<std::mutex> lock(seqMutex);
     if (pageIdx < 0 || pageIdx >= 3) return;
     for (int t = 0; t < 8; ++t)
@@ -543,6 +738,7 @@ void StepSequencer::duplicateAllTracksPageToNext(int pageIdx)
 
 void StepSequencer::duplicateAllTracksPageToAll(int pageIdx)
 {
+    EditScope edit(*this);
     std::lock_guard<std::mutex> lock(seqMutex);
     if (pageIdx < 0 || pageIdx >= 4) return;
     for (int t = 0; t < 8; ++t)
@@ -563,6 +759,7 @@ void StepSequencer::duplicateAllTracksPageToAll(int pageIdx)
 
 void StepSequencer::clearAllTracksPage(int pageIdx)
 {
+    EditScope edit(*this);
     std::lock_guard<std::mutex> lock(seqMutex);
     if (pageIdx < 0 || pageIdx >= 4) return;
     for (int t = 0; t < 8; ++t)
@@ -578,6 +775,7 @@ void StepSequencer::clearAllTracksPage(int pageIdx)
 
 void StepSequencer::randomizeCurrentTrack()
 {
+    EditScope edit(*this);
     std::lock_guard<std::mutex> lock(seqMutex);
     if (selectedTrackIdx >= 0 && selectedTrackIdx < 8)
     {
@@ -599,6 +797,7 @@ void StepSequencer::randomizeCurrentTrack()
 
 void StepSequencer::randomizeAllTracks()
 {
+    EditScope edit(*this);
     std::lock_guard<std::mutex> lock(seqMutex);
     for (int t = 0; t < 8; ++t)
     {
@@ -700,12 +899,12 @@ void StepSequencer::process(int numSamples, double bpm, bool hostPlaying, std::v
     auto scheduleStepTriggers = [&](const StepData& s, int defaultPad, int startOffset, double stepLen)
     {
         const int padToTrigger = (s.padOverride >= 0 && s.padOverride < kNumPads) ? s.padOverride : defaultPad;
-        const int rCount = juce::jlimit(1, 4, s.ratchet);
-        const int subStepLen = (int) (stepLen / (double) rCount);
+        const int rCount = juce::jlimit(1, 8, s.ratchet);
+
 
         for (int r = 0; r < rCount; ++r)
         {
-            const int rTargetPos = startOffset + r * subStepLen;
+            const int rTargetPos = startOffset + (int)std::round(r * stepLen / (double)rCount);
             TriggerEvent ev;
             ev.pad = padToTrigger;
             ev.vel = clampRange(s.velocity, 0.05f, 1.0f);
@@ -871,6 +1070,7 @@ void StepSequencer::initDefaultPatterns()
 
 void StepSequencer::loadFactoryPreset(int presetIdx)
 {
+    EditScope edit(*this);
     auto& pat = currentPattern();
     clearCurrentPattern();
 
@@ -1058,7 +1258,7 @@ static void deserializePatternRaw(f64::PatternData& pat, const juce::ValueTree& 
                     step.velocity = sTree.getProperty("vel", 0.85f);
                     step.padOverride = sTree.getProperty("pad", -1);
                     step.probability = sTree.getProperty("prob", 1.0f);
-                    step.ratchet = sTree.getProperty("ratch", 1);
+                    step.ratchet = juce::jlimit(1, 8, (int)sTree.getProperty("ratch", 1));
                     step.microtiming = sTree.getProperty("mtime", 0.0f);
                     step.hasLocks = sTree.getProperty("hl", false);
                     if (step.hasLocks)
@@ -1155,6 +1355,11 @@ juce::ValueTree StepSequencer::serialize() const
 void StepSequencer::deserialize(const juce::ValueTree& tree)
 {
     if (! tree.isValid()) return;
+    {
+        std::lock_guard<std::mutex> lock(seqMutex);
+        padRecording.store(false);
+        recordingBefore.reset();
+    }
 
     currentPatternIdx.store(tree.getProperty("curPat", 0));
     playMode.store((PlayMode) (int) tree.getProperty("mode", 0));

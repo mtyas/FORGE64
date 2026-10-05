@@ -1,4 +1,5 @@
 #include "SequencerDrawer.h"
+#include "SequencerRecordControl.h"
 #include "UICommon.h"
 #include "../PluginProcessor.h"
 
@@ -13,6 +14,7 @@ SequencerDrawer::SequencerDrawer(Forge64Processor& processor)
     foldToggleBtn->setColour(juce::TextButton::buttonColourId, ui::panelHi());
     foldToggleBtn->onClick = [this] { setUnfolded(! unfolded); };
     addAndMakeVisible(foldToggleBtn.get());
+
 
     playBtn = std::make_unique<juce::TextButton>("PLAY");
     ui::styleButton(*playBtn);
@@ -73,7 +75,9 @@ SequencerDrawer::SequencerDrawer(Forge64Processor& processor)
                     for (auto& t : after->tracks)
                         for (auto& s : t.steps)
                             s.resetStep();
+                    self->proc.getUndoManager().beginNewTransaction("Edit sequencer");
                     self->proc.getUndoManager().perform(new SequencerPatternAction(self->seq, patIdx, std::move(before), std::move(after)));
+                    self->proc.getUndoManager().beginNewTransaction();
                     self->updateTrackInfo();
                     self->repaint();
                 }
@@ -85,7 +89,9 @@ SequencerDrawer::SequencerDrawer(Forge64Processor& processor)
                         for (auto& t : p.tracks)
                             for (auto& s : t.steps)
                                 s.resetStep();
+                    self->proc.getUndoManager().beginNewTransaction("Edit sequencer");
                     self->proc.getUndoManager().perform(new SequencerAllPatternsAction(self->seq, std::move(before), std::move(after)));
+                    self->proc.getUndoManager().beginNewTransaction();
                     self->updateTrackInfo();
                     self->repaint();
                 }
@@ -95,7 +101,9 @@ SequencerDrawer::SequencerDrawer(Forge64Processor& processor)
                     auto after = std::make_unique<PatternData>(*before);
                     for (auto& s : after->tracks[(size_t) self->currentTrack].steps)
                         s.resetStep();
+                    self->proc.getUndoManager().beginNewTransaction("Edit sequencer");
                     self->proc.getUndoManager().perform(new SequencerPatternAction(self->seq, patIdx, std::move(before), std::move(after)));
+                    self->proc.getUndoManager().beginNewTransaction();
                     self->updateTrackInfo();
                     self->repaint();
                 }
@@ -117,7 +125,7 @@ public:
     {
         auto& track = drawer.seq.currentPattern().tracks[(size_t) drawer.currentTrack];
         const int delta = (wheel.deltaY > 0.f ? 1 : -1);
-        track.stepCount = juce::jlimit(1, 64, track.stepCount + delta);
+        drawer.seq.setTrackLength(drawer.currentTrack, juce::jlimit(1, 64, track.stepCount + delta));
         drawer.updateTrackInfo();
         drawer.repaint();
     }
@@ -135,7 +143,7 @@ public:
                                 if (res > 0)
                                 {
                                     auto& track = drawer.seq.currentPattern().tracks[(size_t) drawer.currentTrack];
-                                    track.stepCount = res;
+                                    drawer.seq.setTrackLength(drawer.currentTrack, res);
                                     drawer.updateTrackInfo();
                                     drawer.repaint();
                                 }
@@ -150,7 +158,7 @@ public:
             else if (track.stepCount < 48) next = 48;
             else if (track.stepCount < 64) next = 64;
             else next = 16;
-            track.stepCount = next;
+            drawer.seq.setTrackLength(drawer.currentTrack, next);
             drawer.updateTrackInfo();
             drawer.repaint();
         }
@@ -165,7 +173,7 @@ private:
     stepsDecBtn->onClick = [this]
     {
         auto& track = seq.currentPattern().tracks[(size_t) currentTrack];
-        track.stepCount = juce::jlimit(1, 64, track.stepCount - 1);
+        seq.setTrackLength(currentTrack, juce::jlimit(1, 64, track.stepCount - 1));
         updateTrackInfo();
         repaint();
     };
@@ -202,7 +210,7 @@ public:
     stepsIncBtn->onClick = [this]
     {
         auto& track = seq.currentPattern().tracks[(size_t) currentTrack];
-        track.stepCount = juce::jlimit(1, 64, track.stepCount + 1);
+        seq.setTrackLength(currentTrack, juce::jlimit(1, 64, track.stepCount + 1));
         updateTrackInfo();
         repaint();
     };
@@ -471,7 +479,7 @@ void SequencerDrawer::resized()
     foldToggleBtn->setBounds(8, topY, 136, btnH);
     playBtn->setBounds(148, topY, 40, btnH);
     stopBtn->setBounds(192, topY, 40, btnH);
-    tempoLabel->setBounds(236, topY + 1, 50, btnH - 2);
+    tempoLabel->setBounds(236, topY, 48, btnH);
     patternCombo->setBounds(290, topY, 84, btnH);
     if (clearPatternBtn)
         clearPatternBtn->setBounds(378, topY, 52, btnH);
@@ -561,7 +569,23 @@ void SequencerDrawer::TrackButton::paint(juce::Graphics& g)
 
 void SequencerDrawer::TrackButton::mouseEnter(const juce::MouseEvent&) { isHovered = true; repaint(); }
 void SequencerDrawer::TrackButton::mouseExit(const juce::MouseEvent&)  { isHovered = false; repaint(); }
-void SequencerDrawer::TrackButton::mouseDown(const juce::MouseEvent&)  { owner.setTrack(trackIndex); }
+void SequencerDrawer::TrackButton::mouseDown(const juce::MouseEvent& e)
+{
+    owner.setTrack(trackIndex);
+    if (!e.mods.isPopupMenu()) return;
+    juce::PopupMenu menu;
+    menu.addItem(1, "Copy track");
+    menu.addItem(2, "Paste track", owner.seq.hasTrackClipboard());
+    menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(this),
+        [self = juce::Component::SafePointer<TrackButton>(this)](int result)
+        {
+            if (!self) return;
+            if (result == 1) self->owner.seq.copyTrack(self->trackIndex);
+            if (result == 2) self->owner.seq.pasteTrack(self->trackIndex);
+            self->owner.updateTrackInfo();
+            self->owner.repaint();
+        });
+}
 
 // ---------------------------------------------------------------------------
 // StepButton Implementation
@@ -690,6 +714,7 @@ void SequencerDrawer::StepButton::mouseDown(const juce::MouseEvent& e)
         return;
     }
 
+    owner.seq.beginEditGesture();
     const bool isPadEditOpen = (owner.isPadEditActive && owner.isPadEditActive());
 
     if (! step.active)
@@ -704,7 +729,7 @@ void SequencerDrawer::StepButton::mouseDown(const juce::MouseEvent& e)
         else
         {
             owner.seq.setStepActiveWithPad(owner.currentTrack, stepIndex, true, targetPad);
-            step.velocity = 0.85f;
+            owner.seq.setStepVelocity(owner.currentTrack, stepIndex, 0.85f);
         }
 
         owner.selectedStep = stepIndex;
@@ -738,7 +763,7 @@ void SequencerDrawer::StepButton::mouseDrag(const juce::MouseEvent& e)
         if (step.active)
         {
             const float delta = -(float) e.getDistanceFromDragStartY() / 100.0f;
-            step.velocity = juce::jlimit(0.05f, 1.0f, step.velocity + delta * 0.05f);
+            owner.seq.setStepVelocity(owner.currentTrack, stepIndex, juce::jlimit(0.05f, 1.0f, step.velocity + delta * 0.05f));
             repaint();
         }
         return;
@@ -770,7 +795,7 @@ void SequencerDrawer::StepButton::mouseWheelMove(const juce::MouseEvent&, const 
     if (step.active)
     {
         const float delta = (wheel.deltaY > 0.f ? 0.05f : -0.05f);
-        step.velocity = juce::jlimit(0.05f, 1.0f, step.velocity + delta);
+        owner.seq.setStepVelocity(owner.currentTrack, stepIndex, juce::jlimit(0.05f, 1.0f, step.velocity + delta));
         repaint();
     }
 }
@@ -795,6 +820,7 @@ void SequencerDrawer::StepButton::itemDragExit(const SourceDetails&)
 
 void SequencerDrawer::StepButton::itemDropped(const SourceDetails& details)
 {
+    owner.seq.endEditGesture();
     isHoveredTarget = false;
     const auto d = details.description.toString();
     if (d.startsWith("f64pad:"))
@@ -802,8 +828,7 @@ void SequencerDrawer::StepButton::itemDropped(const SourceDetails& details)
         const int padNumber = d.fromFirstOccurrenceOf("f64pad:", false, false).getIntValue();
         auto& track = owner.seq.currentPattern().tracks[(size_t) owner.currentTrack];
         auto& step = track.steps[(size_t) stepIndex];
-        step.padOverride = padNumber;
-        step.active = true;
+        owner.seq.setStepActiveWithPad(owner.currentTrack, stepIndex, true, padNumber);
         owner.repaint();
 
         // Audition the assigned pad without switching page away from current mode

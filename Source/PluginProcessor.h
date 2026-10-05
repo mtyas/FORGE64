@@ -1,4 +1,5 @@
 #pragma once
+#include "Engine/XYMotionLooper.h"
 #include <JuceHeader.h>
 #include "Engine/PadDefs.h"
 #include "Engine/SampleManager.h"
@@ -59,6 +60,10 @@ public:
     PresetManager& presets() { return *presetPtr; }
     AuxBusManager& getAuxManager() { return auxManager; }
     MidiLearnManager& getMidiLearn() { return midiLearn; }
+    XYMotionLooper& getXYLooper(int index) { return xyLoopers[(size_t)juce::jlimit(0, 1, index)]; }
+    float performanceValue(int index) const { return performanceValues[(size_t)juce::jlimit(0, 10, index)].load(); }
+    juce::ValueTree serializeXYLoops() const;
+    void deserializeXYLoops(const juce::ValueTree& tree);
     StepSequencer& getSequencer() { return sequencer; }
     juce::UndoManager& getUndoManager() { return undoManager; }
 
@@ -71,7 +76,7 @@ public:
     enum GlobalParam { GI_Master = 0, GI_RevSize, GI_RevDamp, GI_DlyTime, GI_DlyFb, GI_Count };
     float globalEff(int idx) const;
 
-    void triggerAudition(int pad, float velocity = 0.9f);
+    void triggerAudition(int pad, float velocity = 0.9f, bool recordable = false);
     void triggerStepAudition(int pad, float velocity, const StepData& stepData);
     void setPadPLockPreviewActive(int pad, bool active, const PadParams& baseParams)
     {
@@ -85,6 +90,7 @@ public:
     }
     void allNotesOff() { voices.allNotesOff(); }
     int getLastTriggeredPad() const { return lastTriggeredPad.load(); }
+    uint64_t getPadTriggerSerial() const { return padTriggerSerial.load(); }
 
     void loadFactoryKit(int kitIndex);
     static juce::StringArray getFactoryKitNames();
@@ -96,16 +102,20 @@ public:
     float getMasterPeakL() const { return masterPeakL.load(); }
     float getMasterPeakR() const { return masterPeakR.load(); }
 
+    float displayPadValue(int pad, const char* parameter, float fallback) const;
+    MasterFXParams modulatedMasterParams(bool display = true) const;
     void fillPadParams(int pad, PadParams& out, float modScale = 1.0f);
 
 private:
     bool applyLearnedControl(const juce::String& id, float normalized);
     std::atomic<float> masterPeakL { 0.f }, masterPeakR { 0.f };
     std::atomic<int> lastTriggeredPad { -1 };
+    std::atomic<uint64_t> padTriggerSerial { 0 };
     struct AuditionTrigger
     {
         int   pad = 0;
         float vel = 0.9f;
+        bool  recordable = false;
         bool  hasLocks = false;
         uint64_t lockMask = 0;
         float pitch = 0.f, decay = 1.f, drive = 0.f, tone = 0.5f;
@@ -150,6 +160,8 @@ private:
     GlobalFX gfx;
     AuxBusManager auxManager;
     MidiLearnManager midiLearn;
+    std::array<XYMotionLooper, 2> xyLoopers;
+    std::array<std::atomic<float>, 11> performanceValues;
     StepSequencer sequencer;
     juce::UndoManager undoManager;
 

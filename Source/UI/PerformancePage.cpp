@@ -72,12 +72,47 @@ XYPadComponent::XYPadComponent(Forge64Processor& processor, const juce::String& 
     coordsLabel->setJustificationType(juce::Justification::centredRight);
     addAndMakeVisible(coordsLabel.get());
 
+    loopIndex = defaultXMacro / 2;
+    auto& loop = proc.getXYLooper(loopIndex);
+    xDestCombo->setSelectedId(loop.xDestination.load(), juce::dontSendNotification);
+    yDestCombo->setSelectedId(loop.yDestination.load(), juce::dontSendNotification);
+    xDestCombo->onChange = [this] { proc.getXYLooper(loopIndex).xDestination.store(xDestCombo->getSelectedId()); };
+    yDestCombo->onChange = [this] { proc.getXYLooper(loopIndex).yDestination.store(yDestCombo->getSelectedId()); };
+    recordButton = std::make_unique<juce::TextButton>("RECORD");
+    playButton = std::make_unique<juce::TextButton>("PLAY");
+    clearButton = std::make_unique<juce::TextButton>("CLEAR");
+    recordButton->setTooltip("Arm gesture recording. Press the puck to start a new loop; release to finish and play it.");
+    recordButton->setClickingTogglesState(true);
+    clearButton->setTooltip("Erase this XY pad's movement recording");
+    for (auto* button : {recordButton.get(), playButton.get(), clearButton.get()}) { ui::styleButton(*button); addAndMakeVisible(button); }
+    recordButton->onClick = [this]
+    {
+        auto& recorder = proc.getXYLooper(loopIndex);
+        if (!recordButton->getToggleState() && recorder.recording.load()) recorder.finish();
+    };
+    playButton->onClick = [this]
+    {
+        auto& recorder = proc.getXYLooper(loopIndex);
+        if (recorder.recording.load()) recorder.finish();
+        else recorder.playing.store(!recorder.playing.load() && recorder.size() > 1);
+    };
+    clearButton->onClick = [this] { proc.getXYLooper(loopIndex).clear(); };
+    loopSpeed = std::make_unique<juce::Slider>(juce::Slider::LinearHorizontal, juce::Slider::TextBoxRight);
+    loopSpeed->setRange(.125, 8., .001);
+    loopSpeed->setSkewFactorFromMidPoint(1.);
+    loopSpeed->setValue(loop.speed.load(), juce::dontSendNotification);
+    loopSpeed->setTextBoxStyle(juce::Slider::TextBoxRight, false, 48, 22);
+    loopSpeed->setTextValueSuffix("x");
+    loopSpeed->setTooltip("Movement loop playback speed (1x = recorded speed)");
+    loopSpeed->onValueChange = [this] { proc.getXYLooper(loopIndex).speed.store((float)loopSpeed->getValue()); };
+    addAndMakeVisible(loopSpeed.get());
     startTimerHz(30);
 }
 
 XYPadComponent::~XYPadComponent()
 {
     stopTimer();
+    if (proc.getXYLooper(loopIndex).recording.load()) proc.getXYLooper(loopIndex).finish();
 }
 
 void XYPadComponent::resized()
@@ -88,17 +123,20 @@ void XYPadComponent::resized()
     coordsLabel->setBounds(topRow.removeFromRight(120));
 
     auto cfgRow = r.removeFromTop(24);
-    xDestLabel->setBounds(cfgRow.removeFromLeft(36));
-    xDestCombo->setBounds(cfgRow.removeFromLeft(84));
+    xDestLabel->setBounds(cfgRow.removeFromLeft(40));
+    xDestCombo->setBounds(cfgRow.removeFromLeft((getWidth() - 110) / 2));
     cfgRow.removeFromLeft(6);
-    yDestLabel->setBounds(cfgRow.removeFromLeft(36));
-    yDestCombo->setBounds(cfgRow.removeFromLeft(84));
-    cfgRow.removeFromLeft(6);
-    springToggle->setBounds(cfgRow.removeFromLeft(80));
-    cfgRow.removeFromLeft(4);
-    speedLabel->setBounds(cfgRow.removeFromLeft(30));
-    speedSlider->setBounds(cfgRow.removeFromLeft(66));
-
+    yDestLabel->setBounds(cfgRow.removeFromLeft(40));
+    yDestCombo->setBounds(cfgRow);
+    auto springRow = r.removeFromTop(24);
+    springToggle->setBounds(springRow.removeFromLeft(140));
+    speedLabel->setBounds(springRow.removeFromLeft(30));
+    speedSlider->setBounds(springRow.removeFromLeft(90));
+    auto loopRow = r.removeFromTop(26);
+    recordButton->setBounds(loopRow.removeFromLeft(68).reduced(1));
+    playButton->setBounds(loopRow.removeFromLeft(56).reduced(1));
+    clearButton->setBounds(loopRow.removeFromLeft(56).reduced(1));
+    loopSpeed->setBounds(loopRow);
     r.removeFromTop(6);
     padArea = r.toFloat();
 }
@@ -164,10 +202,12 @@ void XYPadComponent::paint(juce::Graphics& g)
 
 void XYPadComponent::mouseDown(const juce::MouseEvent& e)
 {
-    if (padArea.contains(e.position))
+    if (e.mods.isLeftButtonDown() && padArea.contains(e.position))
     {
+        proc.getXYLooper(loopIndex).playing.store(false);
         isDragging = true;
         updateFromMouse(e);
+        if (recordButton->getToggleState()) proc.getXYLooper(loopIndex).start(puckX, puckY);
         repaint();
     }
 }
@@ -185,8 +225,10 @@ void XYPadComponent::mouseUp(const juce::MouseEvent& /*e*/)
 {
     if (isDragging)
     {
+        auto& recorder = proc.getXYLooper(loopIndex);
+        if (recorder.recording.load()) { recorder.append(puckX, puckY); recorder.finish(); }
         isDragging = false;
-        if (springToCenter)
+        if (springToCenter && !recorder.playing.load())
         {
             if (speedSlider != nullptr && speedSlider->getValue() >= 0.98)
             {
@@ -230,6 +272,11 @@ void XYPadComponent::applyPuckToParams()
         if (paramId.isEmpty()) return;
         if (auto* p = dynamic_cast<juce::RangedAudioParameter*>(proc.getAPVTS().getParameter(paramId)))
             p->setValueNotifyingHost(normVal);
+        for (auto& aux : proc.getAuxManager().auxParams)
+        {
+            if (paramId == "revsize" && (aux.fxType == AUX_FX_REVERB || aux.fxType == AUX_FX_PLATE || aux.fxType == AUX_FX_SPRING || aux.fxType == AUX_FX_GATED_VERB)) aux.p1 = normVal;
+            if (paramId == "dlytime" && (aux.fxType == AUX_FX_DELAY || aux.fxType == AUX_FX_PINGPONG)) aux.p1 = normVal;
+        }
     };
 
     setParamNormalized(getParamIdFromChoice(xDestCombo->getSelectedId()), puckX);
@@ -264,6 +311,18 @@ void XYPadComponent::syncPuckFromParams()
 
 void XYPadComponent::timerCallback()
 {
+    auto& recorder = proc.getXYLooper(loopIndex);
+    recordButton->setButtonText(recorder.recording.load() ? "REC..." : "RECORD");
+    playButton->setButtonText(recorder.playing.load() ? "STOP" : "PLAY");
+    playButton->setEnabled(recorder.size() > 1);
+    if (recorder.playing.load())
+    {
+        puckX = recorder.x.load(); puckY = recorder.y.load();
+        coordsLabel->setText("LOOP " + juce::String(recorder.size() / 30., 1) + "s", juce::dontSendNotification);
+        repaint();
+        return;
+    }
+    if (recorder.recording.load()) recorder.append(puckX, puckY);
     if (! isDragging && springToCenter)
     {
         const float dx = 0.5f - puckX;
@@ -291,6 +350,12 @@ void XYPadComponent::timerCallback()
         }
     }
 
+    if (recorder.recording.load())
+    {
+        coordsLabel->setText("REC " + juce::String(recorder.size() / 30., 1) + "s", juce::dontSendNotification);
+        repaint();
+        return;
+    }
     syncPuckFromParams();
 }
 
@@ -355,19 +420,8 @@ PerformancePage::PerformancePage(Forge64Processor& processor, ModRingKnob::Servi
 
     xyPadB = std::make_unique<XYPadComponent>(proc, "EXPRESSION PAD B (M3/M4)", 2, 3);
     addAndMakeVisible(xyPadB.get());
+    startTimerHz(30);
 
-    // Live Audition Trigger Strip
-    for (int i = 0; i < 16; ++i)
-    {
-        liveTrigBtns[(size_t) i] = std::make_unique<juce::TextButton>(juce::String(i + 1).paddedLeft('0', 2));
-        ui::styleButton(*liveTrigBtns[(size_t) i]);
-        liveTrigBtns[(size_t) i]->setColour(juce::TextButton::buttonColourId, ui::panelHi());
-        liveTrigBtns[(size_t) i]->onClick = [this, i]
-        {
-            proc.triggerAudition(i, 0.9f);
-        };
-        addAndMakeVisible(liveTrigBtns[(size_t) i].get());
-    }
 }
 
 void PerformancePage::paint(juce::Graphics& g)
@@ -381,8 +435,17 @@ void PerformancePage::paint(juce::Graphics& g)
     };
 
     drawCard(36, 120);  // Macro Dials plate
-    drawCard(162, 340); // Dual XY Expression Pads plate
-    drawCard(508, 64);  // Quick Pad Audition Strip plate
+    drawCard(162, juce::jmax(240, getHeight() - 168)); // Dual XY loop recorders
+}
+
+void PerformancePage::timerCallback()
+{
+    for (int k = 0; k < kNumMacros; ++k)
+    {
+        const float motion = proc.performanceValue(k);
+        auto* parameter = proc.getAPVTS().getParameter("m" + juce::String(k));
+        macroSlots[(size_t)k].knob->setValue(motion >= 0.f ? motion : parameter->getValue(), juce::dontSendNotification);
+    }
 }
 
 void PerformancePage::resized()
@@ -405,15 +468,10 @@ void PerformancePage::resized()
 
     // Dual XY Pads side-by-side
     const int padW = (w - 28) / 2;
-    xyPadA->setBounds(12, 168, padW, 328);
-    xyPadB->setBounds(16 + padW, 168, padW, 328);
+    xyPadA->setBounds(12, 168, padW, juce::jmax(228, getHeight() - 180));
+    xyPadB->setBounds(16 + padW, 168, padW, juce::jmax(228, getHeight() - 180));
 
-    // Live Audition Trigger Strip
-    const int btnW = (w - 24) / 16;
-    for (int i = 0; i < 16; ++i)
-    {
-        liveTrigBtns[(size_t) i]->setBounds(12 + i * btnW, 520, btnW - 2, 38);
-    }
+
 }
 
 } // namespace f64

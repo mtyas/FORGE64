@@ -21,7 +21,7 @@ static juce::Colour getAuxThemeColour(int idx)
 MasterEQGraphView::MasterEQGraphView(Forge64Processor& processor)
     : proc(processor)
 {
-    setTooltip("4-Band Master EQ curve. Click and drag band nodes (Low, Lo-Mid, Hi-Mid, High) to adjust gain.");
+    setTooltip("Drag an EQ node horizontally for frequency and vertically for gain.");
 }
 
 void MasterEQGraphView::paint(juce::Graphics& g)
@@ -76,7 +76,7 @@ void MasterEQGraphView::paint(juce::Graphics& g)
     g.drawText("0", (int) rx + 2, (int) midY - 6, 24, 12, juce::Justification::left);
     g.drawText("-12", (int) rx + 2, (int) gainToY(-12.f) - 6, 24, 12, juce::Justification::left);
 
-    const auto& mp = proc.getAuxManager().masterParams;
+    const auto mp = proc.modulatedMasterParams();
     if (! mp.eqOn)
     {
         g.setColour(ui::dim().withAlpha(0.35f));
@@ -89,10 +89,16 @@ void MasterEQGraphView::paint(juce::Graphics& g)
 
     // Compute curve using JUCE biquad response
     const double sr = 48000.0;
-    auto c0 = juce::dsp::IIR::Coefficients<float>::makeLowShelf(sr, 80.f, 0.707f, std::pow(10.f, mp.eqLowGain / 20.f));
-    auto c1 = juce::dsp::IIR::Coefficients<float>::makePeakFilter(sr, 450.f, 0.9f, std::pow(10.f, mp.eqLowMidGain / 20.f));
-    auto c2 = juce::dsp::IIR::Coefficients<float>::makePeakFilter(sr, 2500.f, 0.9f, std::pow(10.f, mp.eqHiMidGain / 20.f));
-    auto c3 = juce::dsp::IIR::Coefficients<float>::makeHighShelf(sr, 10000.f, 0.707f, std::pow(10.f, mp.eqHighGain / 20.f));
+    auto coefficients = [&](int band, float gain)
+    {
+        const float frequency = juce::jlimit(20.f, (float)sr * .45f, mp.eqFrequency[(size_t)band]);
+        const float q = mp.eqQ[(size_t)band], linearGain = std::pow(10.f, gain / 20.f);
+        return mp.eqShape[(size_t)band] == 1 ? juce::dsp::IIR::Coefficients<float>::makeLowShelf(sr, frequency, q, linearGain)
+             : mp.eqShape[(size_t)band] == 2 ? juce::dsp::IIR::Coefficients<float>::makeHighShelf(sr, frequency, q, linearGain)
+             : juce::dsp::IIR::Coefficients<float>::makePeakFilter(sr, frequency, q, linearGain);
+    };
+    auto c0 = coefficients(0, mp.eqLowGain), c1 = coefficients(1, mp.eqLowMidGain);
+    auto c2 = coefficients(2, mp.eqHiMidGain), c3 = coefficients(3, mp.eqHighGain);
 
     juce::Path curve, fillPath;
     const int numSteps = 75;
@@ -133,7 +139,7 @@ void MasterEQGraphView::paint(juce::Graphics& g)
     g.strokePath(curve, juce::PathStrokeType(2.0f, juce::PathStrokeType::curved));
 
     // Interactive band nodes
-    static const double bandFreqs[4] = { 80.0, 450.0, 2500.0, 10000.0 };
+    const auto& bandFreqs = mp.eqFrequency;
     const float bandGains[4] = { mp.eqLowGain, mp.eqLowMidGain, mp.eqHiMidGain, mp.eqHighGain };
     static const juce::Colour bandCols[4] = {
         juce::Colour(0xFF00B4D8), // Low: cyan
@@ -159,7 +165,7 @@ void MasterEQGraphView::paint(juce::Graphics& g)
 
 void MasterEQGraphView::mouseDown(const juce::MouseEvent& e)
 {
-    const auto& mp = proc.getAuxManager().masterParams;
+    const auto mp = proc.modulatedMasterParams();
     if (! mp.eqOn) return;
 
     auto bounds = getLocalBounds().toFloat().reduced(2.f);
@@ -171,7 +177,7 @@ void MasterEQGraphView::mouseDown(const juce::MouseEvent& e)
     auto freqToX = [&](double f) { return rx + (float) ((std::log10(f / 20.0) / 3.0) * rw); };
     auto gainToY = [&](float gDb) { return midY - (gDb / 15.f) * (rh * 0.44f); };
 
-    static const double bandFreqs[4] = { 80.0, 450.0, 2500.0, 10000.0 };
+    const auto& bandFreqs = mp.eqFrequency;
     const float bandGains[4] = { mp.eqLowGain, mp.eqLowMidGain, mp.eqHiMidGain, mp.eqHighGain };
 
     activeBand = -1;
@@ -200,6 +206,10 @@ void MasterEQGraphView::mouseDrag(const juce::MouseEvent& e)
     newGain = juce::jlimit(-12.f, 12.f, newGain);
 
     auto& mp = proc.getAuxManager().masterParams;
+    const float normalizedX = juce::jlimit(0.f, 1.f, (e.position.x - bounds.getX() - 6.f) / (bounds.getWidth() - 12.f));
+    const float frequency = 20.f * std::pow(1000.f, normalizedX);
+    mp.eqFrequency[(size_t)activeBand] = frequency;
+    if (onBandFrequencyChanged) onBandFrequencyChanged(activeBand, frequency);
     if (activeBand == 0) mp.eqLowGain = newGain;
     else if (activeBand == 1) mp.eqLowMidGain = newGain;
     else if (activeBand == 2) mp.eqHiMidGain = newGain;
@@ -227,64 +237,35 @@ CompGRMeter::CompGRMeter(Forge64Processor& processor)
 void CompGRMeter::paint(juce::Graphics& g)
 {
     auto r = getLocalBounds().toFloat().reduced(2.f);
-    g.setColour(juce::Colour(0xFF100C0B));
-    g.fillRoundedRectangle(r, 4.f);
-    g.setColour(ui::line().withAlpha(0.6f));
-    g.drawRoundedRectangle(r, 4.f, 1.0f);
-
-    const auto& mp = proc.getAuxManager().masterParams;
-    if (! mp.compOn)
+    g.setColour(juce::Colour(0xFF100C0B)); g.fillRoundedRectangle(r, 4.f);
+    g.setColour(ui::line()); g.drawRoundedRectangle(r, 4.f, 1.f);
+    const auto mp = proc.modulatedMasterParams();
+    auto plot = r.reduced(10.f, 6.f); plot.removeFromBottom(26.f);
+    auto x = [&](float db) { return plot.getX() + (db + 40.f) / 40.f * plot.getWidth(); };
+    auto y = [&](float db) { return plot.getBottom() - (db + 40.f) / 40.f * plot.getHeight(); };
+    for (float db : {-30.f, -20.f, -10.f})
     {
-        g.setColour(ui::dim().withAlpha(0.45f));
-        g.setFont(uiFont(10.f, true));
-        g.drawText("VCA COMPRESSOR BYPASSED", r, juce::Justification::centred);
-        return;
+        g.setColour(ui::line().withAlpha(.35f));
+        g.drawLine(x(db), plot.getY(), x(db), plot.getBottom());
+        g.drawLine(plot.getX(), y(db), plot.getRight(), y(db));
     }
-
-    const float grDb = juce::jlimit(0.f, 16.f, proc.getAuxManager().getMasterCompGR());
-    const float meterLeft = r.getX() + 30.f;
-    const float meterRight = r.getRight() - 54.f;
-    const float mw = meterRight - meterLeft;
-    const float barH = r.getHeight() - 12.f;
-    const float barY = r.getY() + 3.f;
-
-    // Scale ticks and labels: -16, -12, -8, -4, -2, 0
-    static const float ticksDb[] = { 16.f, 12.f, 8.f, 4.f, 2.f, 0.f };
-    g.setFont(uiFont(8.f));
-    for (float db : ticksDb)
+    g.setColour(ui::dim().withAlpha(.3f)); g.drawLine(x(-40.f),y(-40.f),x(0.f),y(0.f));
+    juce::Path curve;
+    for (int k = 0; k <= 160; ++k)
     {
-        float tx = meterRight - (db / 16.f) * mw;
-        g.setColour(ui::line());
-        g.drawVerticalLine((int) tx, barY + barH - 2.f, barY + barH + 4.f);
-        g.setColour(ui::dim().withAlpha(0.7f));
-        g.drawText(juce::String((int) db), (int) tx - 10, (int) (r.getBottom() - 10.f), 20, 9, juce::Justification::centred);
+        const float input = -40.f + k * .25f;
+        const float output = mp.compOn && input > mp.compThresh ? mp.compThresh + (input-mp.compThresh) / mp.compRatio : input;
+        if (k == 0) curve.startNewSubPath(x(input),y(output)); else curve.lineTo(x(input),y(output));
     }
-
-    // Meter slot background
-    auto slotR = juce::Rectangle<float>(meterLeft, barY, mw, barH - 3.f);
-    g.setColour(juce::Colour(0xFF1A1312));
-    g.fillRoundedRectangle(slotR, 2.f);
-
-    // Active GR Bar (moves from right 0dB to left)
-    if (grDb > 0.05f)
-    {
-        const float fillW = (grDb / 16.f) * mw;
-        auto fillR = juce::Rectangle<float>(meterRight - fillW, barY, fillW, barH - 3.f);
-        g.setGradientFill(juce::ColourGradient(juce::Colour(0xFFFF9900), meterRight, barY,
-                                               juce::Colour(0xFFFF3300), meterRight - fillW, barY, false));
-        g.fillRoundedRectangle(fillR, 2.f);
-    }
-
-    // Label on left: GR
-    g.setFont(uiFont(10.f, true));
-    g.setColour(ui::accent());
-    g.drawText("GR", (int) r.getX() + 4, (int) barY, 22, (int) barH - 3, juce::Justification::centred);
-
-    // Numeric readout on right
-    auto numR = juce::Rectangle<float>(meterRight + 4.f, barY, 48.f, barH - 3.f);
-    g.setFont(uiFont(10.f, true));
-    g.setColour(grDb > 0.1f ? ui::accentHot() : ui::dim().withAlpha(0.6f));
-    g.drawText(juce::String(-grDb, 1) + " dB", numR, juce::Justification::centredRight);
+    g.setColour(mp.compOn ? ui::accentHot() : ui::dim()); g.strokePath(curve,juce::PathStrokeType(2.f));
+    g.setColour(ui::accent()); g.fillEllipse(x(mp.compThresh)-3.f,y(mp.compThresh)-3.f,6.f,6.f);
+    auto meter = r.removeFromBottom(22.f).reduced(8.f,3.f);
+    const float gr = mp.compOn ? juce::jlimit(0.f,16.f,proc.getAuxManager().getMasterCompGR()) : 0.f;
+    g.setFont(uiFont(9.f,true)); g.setColour(ui::dim());
+    g.drawText(mp.compOn ? "GR" : "BYPASS",meter.removeFromLeft(48.f),juce::Justification::centredLeft);
+    g.drawText(juce::String(-gr,1)+" dB",meter.removeFromRight(50.f),juce::Justification::centredRight);
+    g.setColour(ui::line()); g.fillRoundedRectangle(meter,2.f);
+    g.setColour(ui::accent()); g.fillRoundedRectangle(meter.withWidth(meter.getWidth()*gr/16.f),2.f);
 }
 
 // ---------------------------------------------------------------------------
@@ -387,11 +368,11 @@ public:
         g.fillAll(ui::bg());
 
         // Aux chassis card
-        auto auxArea = juce::Rectangle<float>(8.f, 8.f, (float) getWidth() - 16.f, 310.f);
+        auto auxArea = juce::Rectangle<float>(8.f, 8.f, (float) getWidth() - 16.f, 342.f);
         ui::drawForgedPlate(g, auxArea, 6.f, false);
 
         // Master Bus chassis card
-        auto masterArea = juce::Rectangle<float>(8.f, 322.f, (float) getWidth() - 16.f, (float) getHeight() - 330.f);
+        auto masterArea = juce::Rectangle<float>(8.f, 354.f, (float) getWidth() - 16.f, (float) getHeight() - 362.f);
         ui::drawForgedPlate(g, masterArea, 6.f, false);
     }
     MixerFXPage& owner;
@@ -514,12 +495,20 @@ MixerFXPage::AuxStrip::AuxStrip(MixerFXPage& owner, int auxIndex)
         return formatAuxReturnPan((float) v);
     };
 
+    delayModeCombo = std::make_unique<juce::ComboBox>();
+    ui::styleCombo(*delayModeCombo);
+    const char* modes[] = { "Stereo 3:4", "Ping-pong", "Multi-tap", "Stereo 1:1", "Stereo 1:2", "Stereo 2:3", "Stereo 3:2" };
+    for (int k = 0; k < 7; ++k) delayModeCombo->addItem(modes[k], k + 1);
+    delayModeCombo->setSelectedId(p.delayMode + 1, juce::dontSendNotification);
+    delayModeCombo->onChange = [this] { page.proc.getAuxManager().auxParams[idx].delayMode = delayModeCombo->getSelectedId() - 1; };
+    addAndMakeVisible(delayModeCombo.get());
     updateLabels(p.fxType);
 }
 
 void MixerFXPage::AuxStrip::updateLabels(int fxType)
 {
     auto& p = page.proc.getAuxManager().auxParams[idx];
+    delayModeCombo->setVisible(fxType == AUX_FX_DELAY);
     if (fxType == AUX_FX_DELAY || fxType == AUX_FX_PINGPONG)
         p4Knob->setRange(0.0, 1.0, 1.0);
     else
@@ -683,6 +672,7 @@ void MixerFXPage::AuxStrip::resized()
     titleLabel->setBounds(10, 8, 70, 20);
     enableBtn->setBounds(84, 8, 45, 20);
     fxCombo->setBounds(10, 32, w - 20, 24);
+    delayModeCombo->setBounds(10, 302, w - 20, 24);
 
     const int kw = (w - 24) / 2;
     p1Knob->setBounds(8, 62, kw, 74);
@@ -714,7 +704,7 @@ MixerFXPage::MixerFXPage(Forge64Processor& processor, ModRingKnob::Services& ser
     }
 
     // Master Header
-    masterTitle = ui::makeLabel("MASTER BUS CONSOLE // VCA GLUE COMPRESSOR + 4-BAND HARMONIC EQ + TAPE DRIVE", 12.f, ui::accentHot());
+    masterTitle = ui::makeLabel("MASTER BUS CONSOLE // VCA GLUE COMPRESSOR + 4-BAND HARMONIC EQ + ANALOGUE COLOUR", 12.f, ui::accentHot());
     masterTitle->setFont(uiFont(12.f, true));
     content->addAndMakeVisible(masterTitle.get());
 
@@ -737,7 +727,15 @@ MixerFXPage::MixerFXPage(Forge64Processor& processor, ModRingKnob::Services& ser
     content->addAndMakeVisible(compGRMeter.get());
 
     auto& mp = proc.getAuxManager().masterParams;
-    auto makeMasterKnob = [&](std::unique_ptr<ModRingKnob>& knob, const char* id, const char* name,
+    chainOrderCombo = std::make_unique<juce::ComboBox>();
+    ui::styleCombo(*chainOrderCombo);
+    chainOrderCombo->addItem("EQ pre comp", 1);
+    chainOrderCombo->addItem("EQ post comp", 2);
+    chainOrderCombo->setSelectedId(mp.eqPreComp ? 1 : 2, juce::dontSendNotification);
+    chainOrderCombo->setTooltip("Choose whether the master EQ processes before or after compression. Colour and limiter follow both.");
+    chainOrderCombo->onChange = [this, &mp] { mp.eqPreComp = chainOrderCombo->getSelectedId() == 1; };
+    content->addAndMakeVisible(chainOrderCombo.get());
+    auto makeMasterKnob = [&](std::unique_ptr<ModRingKnob>& knob, const juce::String& id, const char* name,
                               float def, float minV, float maxV, std::function<void(float)> onChange)
     {
         knob = std::make_unique<ModRingKnob>(id, name, svcs);
@@ -784,13 +782,13 @@ MixerFXPage::MixerFXPage(Forge64Processor& processor, ModRingKnob::Services& ser
     };
     content->addAndMakeVisible(eqGraph.get());
 
-    makeMasterKnob(eqLowGainKnob,    "m_eqlg",  "LOW 80Hz",    mp.eqLowGain,    -12.f, 12.f,
+    makeMasterKnob(eqLowGainKnob,    "m_eqlg",  "LOW GAIN",    mp.eqLowGain,    -12.f, 12.f,
                    [&mp, this](float v) { mp.eqLowGain = v; if (eqGraph) eqGraph->repaint(); });
-    makeMasterKnob(eqLowMidGainKnob, "m_eqlmg", "LO-MID 450",  mp.eqLowMidGain, -12.f, 12.f,
+    makeMasterKnob(eqLowMidGainKnob, "m_eqlmg", "LO-MID GAIN",  mp.eqLowMidGain, -12.f, 12.f,
                    [&mp, this](float v) { mp.eqLowMidGain = v; if (eqGraph) eqGraph->repaint(); });
-    makeMasterKnob(eqHiMidGainKnob,  "m_eqhmg", "HI-MID 2.5k", mp.eqHiMidGain,  -12.f, 12.f,
+    makeMasterKnob(eqHiMidGainKnob,  "m_eqhmg", "HI-MID GAIN", mp.eqHiMidGain,  -12.f, 12.f,
                    [&mp, this](float v) { mp.eqHiMidGain = v; if (eqGraph) eqGraph->repaint(); });
-    makeMasterKnob(eqHighGainKnob,   "m_eqhg",  "HIGH 10kHz",  mp.eqHighGain,   -12.f, 12.f,
+    makeMasterKnob(eqHighGainKnob,   "m_eqhg",  "HIGH GAIN",  mp.eqHighGain,   -12.f, 12.f,
                    [&mp, this](float v) { mp.eqHighGain = v; if (eqGraph) eqGraph->repaint(); });
 
     auto formatEqGain = [](double v) { return (v > 0.05 ? "+" : "") + juce::String(v, 1) + " dB"; };
@@ -799,12 +797,29 @@ MixerFXPage::MixerFXPage(Forge64Processor& processor, ModRingKnob::Services& ser
     eqHiMidGainKnob->textFromValueFunction  = formatEqGain;
     eqHighGainKnob->textFromValueFunction   = formatEqGain;
 
+    for (int band = 0; band < 4; ++band)
+    {
+        eqShapeCombos[(size_t)band] = std::make_unique<juce::ComboBox>();
+        auto& shape = *eqShapeCombos[(size_t)band];
+        ui::styleCombo(shape);
+        shape.addItem("Bell", 1); shape.addItem("Lo shelf", 2); shape.addItem("Hi shelf", 3);
+        shape.setSelectedId(mp.eqShape[(size_t)band] + 1, juce::dontSendNotification);
+        shape.onChange = [this, &mp, band] { mp.eqShape[(size_t)band] = eqShapeCombos[(size_t)band]->getSelectedId() - 1; eqGraph->repaint(); };
+        content->addAndMakeVisible(&shape);
+        makeMasterKnob(eqFreqKnobs[(size_t)band], "m_eqf" + juce::String(band), "FREQ", mp.eqFrequency[(size_t)band], 20.f, 20000.f,
+            [this, &mp, band](float value) { mp.eqFrequency[(size_t)band] = value; eqGraph->repaint(); });
+        eqFreqKnobs[(size_t)band]->setSkewFactorFromMidPoint(1000.);
+        eqFreqKnobs[(size_t)band]->textFromValueFunction = [](double value) { return value >= 1000. ? juce::String(value / 1000., 2) + " kHz" : juce::String((int)value) + " Hz"; };
+        makeMasterKnob(eqQKnobs[(size_t)band], "m_eqq" + juce::String(band), "Q", mp.eqQ[(size_t)band], .1f, 12.f,
+            [this, &mp, band](float value) { mp.eqQ[(size_t)band] = value; eqGraph->repaint(); });
+    }
+    eqGraph->onBandFrequencyChanged = [this](int band, float value) { eqFreqKnobs[(size_t)band]->setValue(value, juce::dontSendNotification); };
     // 3. Output & Saturation Module
-    outSectionTitle = ui::makeLabel("OUTPUT & TAPE", 11.f, ui::accentHot());
+    outSectionTitle = ui::makeLabel("OUTPUT & COLOUR", 11.f, ui::accentHot());
     outSectionTitle->setFont(uiFont(11.f, true));
     content->addAndMakeVisible(outSectionTitle.get());
 
-    makeMasterKnob(masterDriveKnob, "m_drv",  "TAPE DRIVE", mp.drive, 0.f, 1.f, [&mp](float v) { mp.drive = v; });
+    makeMasterKnob(masterDriveKnob, "m_drv",  "DRIVE", mp.drive, 0.f, 1.f, [&mp](float v) { mp.drive = v; mp.driveOn = v > .001f; });
     makeMasterKnob(masterVolKnob,   "master", "MASTER OUT", 0.8f,     0.f, 1.25f, [this](float v)
     {
         if (auto* p = dynamic_cast<juce::RangedAudioParameter*>(proc.getAPVTS().getParameter("master")))
@@ -812,6 +827,13 @@ MixerFXPage::MixerFXPage(Forge64Processor& processor, ModRingKnob::Services& ser
     });
 
     masterDriveKnob->textFromValueFunction = [](double v) { return juce::String((int) std::round(v * 100.0)) + " %"; };
+    driveColourCombo = std::make_unique<juce::ComboBox>();
+    ui::styleCombo(*driveColourCombo);
+    driveColourCombo->addItem("Tape", 1); driveColourCombo->addItem("Tube", 2);
+    driveColourCombo->addItem("Transistor", 3); driveColourCombo->addItem("Transformer", 4);
+    driveColourCombo->setSelectedId(mp.driveColour + 1, juce::dontSendNotification);
+    driveColourCombo->onChange = [this, &mp] { mp.driveColour = driveColourCombo->getSelectedId() - 1; };
+    content->addAndMakeVisible(driveColourCombo.get());
     masterVolKnob->textFromValueFunction   = [](double v) { return juce::String((int) std::round(v * 100.0)) + " %"; };
 
     masterPeakMeter = std::make_unique<MasterPeakMeter>(proc);
@@ -827,6 +849,7 @@ MixerFXPage::~MixerFXPage()
 
 void MixerFXPage::timerCallback()
 {
+    if (eqGraph) eqGraph->repaint();
     // Fast periodic repaint for dynamic meters and real-time response
     if (compGRMeter)
         compGRMeter->repaint();
@@ -848,7 +871,7 @@ void MixerFXPage::resized()
 {
     viewport->setBounds(getLocalBounds());
     const int w = juce::jmax(880, viewport->getMaximumVisibleWidth());
-    const int h = juce::jmax(640, viewport->getMaximumVisibleHeight());
+    const int h = juce::jmax(830, viewport->getMaximumVisibleHeight());
     content->setSize(w, h);
 
     // 1. Aux channels plate (Top)
@@ -858,55 +881,47 @@ void MixerFXPage::resized()
     int sx = 16;
     for (int i = 0; i < 4; ++i)
     {
-        auxStrips[(size_t) i]->setBounds(sx, 12, stripW, 302);
+        auxStrips[(size_t) i]->setBounds(sx, 12, stripW, 334);
         sx += stripW + stripGap;
     }
 
     // 2. Master Console Modules (Bottom)
-    masterTitle->setBounds(16, 324, w - 32, 18);
+    masterTitle->setBounds(16, 356, w - 32, 18);
 
     const int availW = w - 32;
-    const int compW = juce::jlimit(270, 310, (int) (availW * 0.33f));
-    const int outW  = juce::jlimit(170, 200, (int) (availW * 0.20f));
-    const int eqW   = availW - compW - outW - 16;
-
-    int mx = 16;
-    const int my = 344;
-
-    // --- Compressor Block ---
-    compSectionTitle->setBounds(mx + 8, my + 6, compW - 90, 18);
-    masterCompEnable->setBounds(mx + compW - 80, my + 5, 74, 18);
-    compGRMeter->setBounds(mx + 8, my + 26, compW - 16, 30);
-
-    const int ckw3 = (compW - 24) / 3;
-    compThreshKnob->setBounds(mx + 8, my + 64, ckw3, 76);
-    compRatioKnob->setBounds(mx + 12 + ckw3, my + 64, ckw3, 76);
-    compGainKnob->setBounds(mx + 16 + ckw3 * 2, my + 64, ckw3, 76);
-
-    const int ckw2 = (compW - 32) / 2;
-    compAtkKnob->setBounds(mx + 12, my + 148, ckw2, 76);
-    compRelKnob->setBounds(mx + 20 + ckw2, my + 148, ckw2, 76);
-
-    mx += compW + 8;
-
-    // --- 4-Band EQ Block ---
-    eqSectionTitle->setBounds(mx + 8, my + 6, eqW - 80, 18);
-    masterEqEnable->setBounds(mx + eqW - 74, my + 5, 68, 18);
-    eqGraph->setBounds(mx + 8, my + 26, eqW - 16, 114);
-
+    const int eqW = (int)(availW * .54f);
+    const int compW = availW - eqW - 16;
+    const int my = 376;
+    const int eqX = 16, compX = eqX + eqW + 16;
+    eqSectionTitle->setBounds(eqX + 8, my + 6, eqW - 80, 18);
+    masterEqEnable->setBounds(eqX + eqW - 74, my + 5, 68, 18);
+    eqGraph->setBounds(eqX + 8, my + 26, eqW - 16, 142);
     const int eqkw = (eqW - 24) / 4;
-    eqLowGainKnob->setBounds(mx + 8, my + 148, eqkw, 76);
-    eqLowMidGainKnob->setBounds(mx + 12 + eqkw, my + 148, eqkw, 76);
-    eqHiMidGainKnob->setBounds(mx + 16 + eqkw * 2, my + 148, eqkw, 76);
-    eqHighGainKnob->setBounds(mx + 20 + eqkw * 3, my + 148, eqkw, 76);
+    ModRingKnob* gains[] = {eqLowGainKnob.get(), eqLowMidGainKnob.get(), eqHiMidGainKnob.get(), eqHighGainKnob.get()};
+    for (int band = 0; band < 4; ++band)
+    {
+        const int x = eqX + 8 + band * (eqkw + 4);
+        gains[band]->setBounds(x, my + 174, eqkw, 76);
+        eqFreqKnobs[(size_t)band]->setBounds(x, my + 254, eqkw, 76);
+        eqQKnobs[(size_t)band]->setBounds(x, my + 334, eqkw, 76);
+        eqShapeCombos[(size_t)band]->setBounds(x, my + 414, eqkw, 22);
+    }
+    compSectionTitle->setBounds(compX + 8, my + 6, compW - 90, 18);
+    masterCompEnable->setBounds(compX + compW - 80, my + 5, 74, 18);
+    compGRMeter->setBounds(compX + 8, my + 26, compW - 16, 116);
+    const int ckw = (compW - 24) / 3;
+    compThreshKnob->setBounds(compX + 8, my + 146, ckw, 76);
+    compRatioKnob->setBounds(compX + 12 + ckw, my + 146, ckw, 76);
+    compGainKnob->setBounds(compX + 16 + ckw * 2, my + 146, ckw, 76);
+    compAtkKnob->setBounds(compX + 8, my + 226, ckw, 76);
+    compRelKnob->setBounds(compX + 12 + ckw, my + 226, ckw, 76);
+    chainOrderCombo->setBounds(compX + 16 + ckw * 2, my + 249, ckw, 26);
+    outSectionTitle->setBounds(compX + 8, my + 310, compW - 16, 18);
+    masterVolKnob->setBounds(compX + 8, my + 338, 84, 96);
+    masterDriveKnob->setBounds(compX + 96, my + 338, 80, 96);
+    driveColourCombo->setBounds(compX + 180, my + 370, compW - 232, 26);
+    masterPeakMeter->setBounds(compX + compW - 46, my + 334, 38, 102);
 
-    mx += eqW + 8;
-
-    // --- Output & Saturation Block ---
-    outSectionTitle->setBounds(mx + 8, my + 6, outW - 16, 18);
-    masterDriveKnob->setBounds(mx + 8, my + 34, 76, 76);
-    masterVolKnob->setBounds(mx + 6, my + 124, 80, 96);
-    masterPeakMeter->setBounds(mx + outW - 48, my + 24, 40, 200);
 }
 
 } // namespace f64

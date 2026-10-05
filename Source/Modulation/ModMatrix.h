@@ -37,8 +37,10 @@ public:
     void prepare(double sr, int maxBlock);
     void setTempo(double bpm, bool isPlaying);
     void handleMidiMessage(const juce::MidiMessage& m);
-    void renderSources(int n);
+    void resetSourcesForPad(int pad, int sampleOffset);
+    void renderSources(int n, const std::array<float, kNumMacros>* performanceValues = nullptr);
     void computeOffsets();
+    float displayOffsetFor(const std::string& dest) const;
     float offsetFor(const std::string& dest) const;
 
     struct VoiceMods { float amp = 0.f, pitch = 0.f, pan = 0.f; };
@@ -65,6 +67,8 @@ public:
     bool uiActive() const { return anyEnabled.load() && connectionCount() > 0; }
 
     static float shapeCurve(float v, float c);
+    bool melodicPitchConnection(int slot, const std::string& dest) const;
+    float effectiveConnectionAmount(int slot, const std::string& dest, float amount) const;
 
 private:
     struct EnvVoiceConn { int destIdx; float amount; bool invert; float curve; };

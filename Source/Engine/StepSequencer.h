@@ -57,11 +57,12 @@ enum StepLockFlags : uint64_t
 
 struct StepData
 {
+    bool operator==(const StepData&) const = default;
     bool  active = false;
     float velocity = 0.85f;
     int   padOverride = -1;       // -1 = use track default, 0..63 = override pad
     float probability = 1.0f;     // 0.0 .. 1.0
-    int   ratchet = 1;            // 1, 2, 3, 4 subdivisions
+    int   ratchet = 1;            // 1..8 evenly spaced triggers
     float microtiming = 0.0f;     // -0.5 .. +0.5 fraction of step
 
     // Parameter Locks (P-Locks)
@@ -170,6 +171,7 @@ struct StepData
 
 struct TrackData
 {
+    bool operator==(const TrackData&) const = default;
     juce::String name = "Track 1";
     int   defaultPad = 0;         // 0..63
     int   stepCount = 16;         // Polymetric length: 1 to 64 steps
@@ -182,6 +184,7 @@ struct TrackData
 
 struct PatternData
 {
+    bool operator==(const PatternData&) const = default;
     juce::String name = "Pattern 1";
     std::array<TrackData, 8> tracks;
 };
@@ -255,6 +258,17 @@ public:
     StepSequencer();
     ~StepSequencer();
 
+    void bindUndoManager(juce::UndoManager* manager) { editUndo = manager; }
+    void beginEditGesture();
+    void endEditGesture();
+    void copyTrack(int track);
+    void pasteTrack(int track);
+    bool hasTrackClipboard() const { return trackClipboard != nullptr; }
+    void setStepRatchet(int track, int step, int count);
+    void startPadRecording(int track, int patternIndex);
+    void stopPadRecording();
+    bool isPadRecording() const { return padRecording.load(); }
+    void recordPadHit(int pad, float velocity, int sampleOffset, double bpm, float pitch = 0.f);
     void prepare(double sampleRate);
     void reset();
 
@@ -262,7 +276,7 @@ public:
     void process(int numSamples, double bpm, bool hostPlaying, std::vector<TriggerEvent>& outEvents);
 
     // Transport controls
-    void setPlaying(bool play) { isInternalPlaying.store(play); if (! play && ! isHostPlaying.load()) resetPlayback(); }
+    void setPlaying(bool play) { if (!play) stopPadRecording(); isInternalPlaying.store(play); if (! play && ! isHostPlaying.load()) resetPlayback(); }
     bool isPlaying() const { return isInternalPlaying.load() || isHostPlaying.load(); }
     bool isInternalPlayingActive() const { return isInternalPlaying.load(); }
     bool isHostPlayingActive() const { return isHostPlaying.load(); }
@@ -272,7 +286,7 @@ public:
     void setSelectedPattern(int idx);
     int  selectedPatternIndex() const { return currentPatternIdx.load(); }
 
-    void setSelectedTrack(int idx) { selectedTrackIdx = clampRange(idx, 0, 7); }
+    void setSelectedTrack(int idx) { if (padRecording.load() && idx != recordingTrack) stopPadRecording(); selectedTrackIdx = clampRange(idx, 0, 7); }
     int  selectedTrackIndex() const { return selectedTrackIdx; }
 
     void setPage(int p) { currentPage = clampRange(p, 0, 3); }
@@ -307,7 +321,7 @@ public:
 
     // Song mode blocks
     std::vector<SongBlock> getSongSequence() const;
-    void setSongSequence(const std::vector<SongBlock>& blocks);
+    void setSongSequence(const std::vector<SongBlock>& blocks, bool recordUndo = true);
     void addSongBlock(int patternIdx, int repeats);
     void removeSongBlock(int blockIdx);
     void clearSongSequence();
@@ -362,6 +376,25 @@ public:
     void deserialize(const juce::ValueTree& tree);
 
 private:
+    struct EditScope
+    {
+        explicit EditScope(StepSequencer& owner);
+        ~EditScope();
+        StepSequencer& seq;
+        int index = -1;
+        std::unique_ptr<PatternData> before;
+
+    };
+    juce::UndoManager* editUndo = nullptr;
+    int editDepth = 0;
+    bool gestureActive = false;
+    int gesturePattern = 0;
+    std::unique_ptr<PatternData> gestureBefore;
+
+    std::unique_ptr<TrackData> trackClipboard;
+    std::atomic<bool> padRecording { false };
+    int recordingTrack = 0, recordingPattern = 0;
+    std::unique_ptr<TrackData> recordingBefore;
     struct PendingTrigger
     {
         int samplesRemaining = 0;
@@ -434,13 +467,26 @@ public:
         return true;
     }
 
-    int getSizeInUnits() override { return 1; }
+    int getSizeInUnits() override { return (int)(2 * sizeof(PatternData) / 1024); }
 
 private:
     StepSequencer& seq;
     int patIdx;
     std::unique_ptr<PatternData> beforeState;
     std::unique_ptr<PatternData> afterState;
+};
+
+class SequencerSongAction : public juce::UndoableAction
+{
+public:
+    SequencerSongAction(StepSequencer& owner, std::vector<SongBlock> before, std::vector<SongBlock> after)
+        : seq(owner), beforeState(std::move(before)), afterState(std::move(after)) {}
+    bool perform() override { seq.setSongSequence(afterState, false); return true; }
+    bool undo() override { seq.setSongSequence(beforeState, false); return true; }
+    int getSizeInUnits() override { return (int)(beforeState.size() + afterState.size()) + 1; }
+private:
+    StepSequencer& seq;
+    std::vector<SongBlock> beforeState, afterState;
 };
 
 class SequencerAllPatternsAction : public juce::UndoableAction
@@ -467,7 +513,7 @@ public:
         return true;
     }
 
-    int getSizeInUnits() override { return 16; }
+    int getSizeInUnits() override { return (int)(32 * sizeof(PatternData) / 1024); }
 
 private:
     StepSequencer& seq;

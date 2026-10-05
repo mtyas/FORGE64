@@ -84,7 +84,7 @@ The top header bar provides instant access to global navigation and session util
   - `PAD GRID`: The 16-pad performance view with solo, mute, audition, and sample drop.
   - `PAD EDIT`: Focused deep-dive editor for sound design on the selected pad.
   - `MIX & FX`: Studio mixing console with 4 Aux Return racks and Master Bus processing.
-  - `SEQUENCER`: 8-track polyrhythmic step sequencer with 8 lock modes and song arranger.
+  - `SEQUENCER`: 8-track polyrhythmic step sequencer with 9 lock modes and song arranger.
   - `PERFORM`: Dual XY expression pads, macro controls, and roll/stutter buttons.
 - **Undo / Redo Icons (`↺` / `↻`)**: Comprehensive undo history stack for all parameter adjustments (`Ctrl+Z` / `Ctrl+Y`).
 - **MIDI Learn Button (`LEARN`)**: Click to arm. Touch any on-screen knob or slider, then move your hardware MIDI controller to pair instantly.
@@ -183,6 +183,7 @@ The sequencer combines the step-by-step groove of iconic hardware beatboxes with
 ### Sequencer Architecture & Navigation
 - **8 Dedicated Tracks**: Each track triggers an assigned pad (from Pad 1 to Pad 64).
 - **Transport**: Internal `PLAY` / `STOP`, tempo tracking, and `SWING` (50%–75%).
+- **Header record button**: The small red circle after banks A–D starts and stops overdubbing onto the selected track from any page. A bright record button, red track banner and softly breathing red frame around the pad grid indicate recording. Existing steps continue to play while overdubbing (normal mute/solo controls still apply). Existing steps remain; mouse pad hits and MIDI notes replace the nearest step, including its previous locks. The last hit wins when several fall on the same step. Press the same button again to finish; Undo restores the track before the take.
 - **16 Patterns**: Quick switching between patterns `1` through `16`.
 - **4-Page Navigation**: Jumps between 16-step pages: `1-16`, `17-32`, `33-48`, and `49-64`.
 - **Clipboard Operations**: `COPY`, `PASTE`, `CLEAR`, and `RAND` (randomizes active track or all tracks).
@@ -200,7 +201,7 @@ This creates continuously evolving polyrhythms and polymetric phase relationship
 ### Quick-Edit Lock Modes
 
 Right-click any lock mode button to open its menu. **Reset all locks to default** clears only that variable across the selected track, including hidden steps. **Random locks** offers 10%, 25%, 50%, 75%, or 100% randomness for every step within the track length. Lower amounts keep values closer to their defaults. Neither action changes which steps are active, and both support Undo.
-The header row provides 8 color-coded lock edit buttons. Selecting a mode instantly changes the step sliders to edit that parameter directly on the step view:
+The lock row provides 9 color-coded edit buttons. Selecting a mode changes the step controls to edit that parameter. Drag vertically or scroll to adjust a step. Undo/Redo restores sequencer edits, including track settings, copied steps, locks and song blocks; a drag is one action. Right-click a track name in either sequencer view to copy or paste that complete track, including all 64 steps and its settings.
 
 | Button | Mode | Color Code | Description | Range |
 | :--- | :--- | :--- | :--- | :--- |
@@ -212,6 +213,7 @@ The header row provides 8 color-coded lock edit buttons. Selecting a mode instan
 | **DRIVE** | Drive Amount | Flame Orange (`#FF5400`) | Saturation level | 0% to 100% |
 | **LEVEL** | Pad Level | Coral (`#EF476F`) | Gain trim | 0% to 100% |
 | **PAN** | Stereo Pan | Cyan (`#48CAE4`) | Stereo placement | 100% L to 100% R |
+| **RATCH** | Ratchet | Cyan | Evenly spaced triggers within one step | 1 to 8 |
 
 ### Deep Parameter Locks (P-Locks)
 Hold `Ctrl` and click any step in the sequencer to enter **P-Lock Mode**:
@@ -264,10 +266,15 @@ $$\text{1/32} \;\to\; \text{1/16T} \;\to\; \text{1/16} \;\to\; \text{1/8T} \;\to
 - **Spring Reverb**: Recreates the classic boing and acoustic resonance of dual mechanical springs.
 - **Gated Reverb**: Perfect for punchy Phil Collins-style gated snares and kicks with adjustable decay envelope.
 
+The Stereo Delay mode selector chooses **3:4**, **1:1**, **1:2**, **2:3** or **3:2** left:right timing, **Ping-pong** or **Multi-tap**. These modes work in both free and BPM sync timing. Ping-pong alternates repeats between channels, including with a mono input; multi-tap supplies several stereo echoes within the selected division.
+
 ### Master Bus Console
 - **VCA Glue Compressor**: Solid-state bus compressor modeled after legendary British consoles. Features gain-reduction metering (GR meter), Threshold (-40 to 0 dB), Ratio (1:1 to 20:1), Makeup Gain (0 to 18 dB), Attack (0.1 to 100 ms), and Release (10 to 1000 ms).
-- **4-Band Harmonic Master EQ**: Low (80 Hz shelf), Low-Mid (450 Hz bell), High-Mid (2.5 kHz bell), and High (10 kHz shelf) with ±12 dB gain and interactive response curve.
-- **Master Tape Drive**: Asymmetric tape saturation for analog cohesion.
+- **4-Band Parametric Master EQ**: Each band has frequency (20 Hz–20 kHz), Q (0.1–12), gain (±12 dB), and bell/low-shelf/high-shelf selection. Older kits retain their original low and high shelves. The response graph follows all controls.
+- **Master Drive**: Turning up the knob engages saturation, with a gradual rise through the lower part of the range. Choose **Tape**, **Tube**, **Transistor** or **Transformer** below the output controls. RMS compensation controls the output level; zero bypasses it.
+- Drag an EQ graph node **horizontally** to change its frequency and **vertically** to change its gain. Q remains adjustable using the band's knob.
+- **EQ pre comp / EQ post comp** selects the master processing order. Colour and limiting follow both modules; the order saves with kits and projects. The compressor display shows its transfer curve and live gain reduction.
+- EQ, filter and compressor graphs follow the current modulation without changing the underlying knob settings.
 - **Output Peak Meter**: Stereo peak meter with clip hold LEDs and dBFS readout.
 
 ---
@@ -280,13 +287,13 @@ The Performance page provides live stage controls for dynamic manipulation:
 
 ### Dual Interactive XY Expression Pads
 - **XY Pad 1 & XY Pad 2**: Draggable pucks with physics inertia and spring-back return.
-- Assign X and Y axes to any synthesis parameter, filter cutoff, pitch, or aux send.
+- Assign each axis to one of the eight macros, Master Volume, Reverb Size or Delay Time. Use macro modulation connections to control pad parameters.
+- **RECORD** arms movement recording. Press and drag the puck to record; release it to finish and play the movement as a loop. While armed, the next gesture replaces that pad's loop. Each XY pad records independently, for up to 120 seconds.
+- **PLAY/STOP** controls loop playback; **CLEAR** erases that pad's recording. The speed slider runs from **0.125x to 8x**, with **1x** matching the recorded speed.
+- Loops save with kits and DAW projects and continue playing when the editor closes. Touching a puck stops its playback so it can be moved manually. Spring return works during unrecorded manual movement.
 
 ### 8 Global Performance Macros
 - Dedicated macro knobs (`M1` to `M8`) linked to multiple pad parameters simultaneously via the modulation matrix.
-
-### 16-Pad Roll & Stutter Repeat Matrix
-- Dedicated roll buttons for instant stutter fills: 1/4, 1/8, 1/16, 1/32, 1/64, triplets, and dotted rhythms with velocity pressure sensitivity.
 
 ---
 
@@ -294,12 +301,15 @@ The Performance page provides live stage controls for dynamic manipulation:
 
 FORGE64 features a modular modulation engine with 53 simultaneous modulation sources:
 
+LFO and random source editors offer **Reset on pad trigger**. Turn it on and choose **All Pads (Omni)** or a specific pad in **Trigger Src** (or use **LEARN**). Mouse hits, MIDI notes and sequencer triggers restart that shared source at the trigger sample. LFOs restart from their Phase setting; random sources restart their cycle and generate fresh random values, while Lorenz restarts its trajectory. Leave the switch off for free-running modulation. The choice saves with kits and projects.
+
 ### Live Waveform & Activity Monitoring
 The right side panel displays live real-time visualizers for all modulation sources:
 - **10 Multi-Wave LFOs**: Live sinusoidal/sawtooth oscilloscope traces.
 - **4 Chaos & Random Generators**: Live chaotic step and smoothed random traces (including Lorenz 3D Attractor dynamics).
 - **10 DAHDSR Envelopes**: Live attack-hold-decay envelope plots.
 - **10 Modulation Step Sequencers**: Live 1 to 32-step sequence plots with polymetric step lengths (1 to 32 steps) and Melodic Quantization with an interactive 1-octave piano keyboard scale selector (C to B).
+- In melodic quantize mode, connections to pad **Tune** or global **Voice Pitch** use a fixed amount for the selected octave range. Curve, slew and bipolar conversion are bypassed for these notes. Tune uses the normal ±24-semitone pad range; Voice Pitch uses semitones directly. Lua instruments should follow the standard `p.tune` / pitch tracking convention for exact tuning. Other modulation destinations keep their adjustable amount.
 - **8 Global Macros & MIDI Sources**: Live level bars.
 
 ### Drag-and-Drop Modulation Routing

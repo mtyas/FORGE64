@@ -4,7 +4,7 @@
 namespace f64 {
 
 // Order matches the sequencer's lock view buttons.
-enum class StepLockParameter { Velocity, Probability, Microtiming, Pitch, Decay, Drive, Level, Pan };
+enum class StepLockParameter { Velocity, Probability, Microtiming, Pitch, Decay, Drive, Level, Pan, Ratchet };
 
 inline void applyTrackLocks(TrackData& track, StepLockParameter parameter,
                             bool randomize, float amount, juce::Random& random)
@@ -24,6 +24,7 @@ inline void applyTrackLocks(TrackData& track, StepLockParameter parameter,
         };
         switch (parameter)
         {
+            case StepLockParameter::Ratchet: step.ratchet = juce::jlimit(1, 8, (int)std::round(value(1.f, 1.f, 8.f))); break;
             case StepLockParameter::Velocity: step.velocity = value(defaults.velocity, 0.05f, 1.f); break;
             case StepLockParameter::Probability: step.probability = value(defaults.probability, 0.f, 1.f); break;
             case StepLockParameter::Microtiming: step.microtiming = value(defaults.microtiming, -0.5f, 0.5f); break;
@@ -33,6 +34,8 @@ inline void applyTrackLocks(TrackData& track, StepLockParameter parameter,
             case StepLockParameter::Level: step.pLockLevel = value(defaults.pLockLevel, 0.f, 1.5f); flag = LOCK_FLAG_LEVEL; break;
             case StepLockParameter::Pan: step.pLockPan = value(defaults.pLockPan, -1.f, 1.f); flag = LOCK_FLAG_PAN; break;
         }
+        if (parameter == StepLockParameter::Ratchet)
+            step.hasLocks = (step.lockMask & ~LOCK_FLAG_PAD_OVERRIDE) != 0 || step.ratchet > 1;
         if (flag != 0)
         {
             if (randomize) step.lockMask |= flag;

@@ -63,16 +63,17 @@ void AuxBusManager::prepare(double sr, int maxBlock)
         filterR[b].reset();
     }
 
+    lastEqLowGain = lastEqLowMidGain = lastEqHiMidGain = lastEqHighGain = -999.f;
     masterCompEnv = 0.f;
     masterCompGain = 1.f;
     masterCompGR.store(0.f);
 
     masterEqL[0].coefficients = juce::dsp::IIR::Coefficients<float>::makeLowShelf(sr, 80.f, 0.7f, 1.f);
     masterEqR[0].coefficients = juce::dsp::IIR::Coefficients<float>::makeLowShelf(sr, 80.f, 0.7f, 1.f);
-    masterEqL[1].coefficients = juce::dsp::IIR::Coefficients<float>::makePeakFilter(sr, 450.f, 0.9f, 1.f);
-    masterEqR[1].coefficients = juce::dsp::IIR::Coefficients<float>::makePeakFilter(sr, 450.f, 0.9f, 1.f);
-    masterEqL[2].coefficients = juce::dsp::IIR::Coefficients<float>::makePeakFilter(sr, 2500.f, 0.9f, 1.f);
-    masterEqR[2].coefficients = juce::dsp::IIR::Coefficients<float>::makePeakFilter(sr, 2500.f, 0.9f, 1.f);
+    masterEqL[1].coefficients = juce::dsp::IIR::Coefficients<float>::makePeakFilter(sr, juce::jlimit(20.f, (float)sampleRate * .45f, masterParams.eqFrequency[1]), juce::jlimit(.1f, 12.f, masterParams.eqQ[1]), 1.f);
+    masterEqR[1].coefficients = juce::dsp::IIR::Coefficients<float>::makePeakFilter(sr, juce::jlimit(20.f, (float)sampleRate * .45f, masterParams.eqFrequency[1]), juce::jlimit(.1f, 12.f, masterParams.eqQ[1]), 1.f);
+    masterEqL[2].coefficients = juce::dsp::IIR::Coefficients<float>::makePeakFilter(sr, juce::jlimit(20.f, (float)sampleRate * .45f, masterParams.eqFrequency[2]), juce::jlimit(.1f, 12.f, masterParams.eqQ[2]), 1.f);
+    masterEqR[2].coefficients = juce::dsp::IIR::Coefficients<float>::makePeakFilter(sr, juce::jlimit(20.f, (float)sampleRate * .45f, masterParams.eqFrequency[2]), juce::jlimit(.1f, 12.f, masterParams.eqQ[2]), 1.f);
     masterEqL[3].coefficients = juce::dsp::IIR::Coefficients<float>::makeHighShelf(sr, 10000.f, 0.7f, 1.f);
     masterEqR[3].coefficients = juce::dsp::IIR::Coefficients<float>::makeHighShelf(sr, 10000.f, 0.7f, 1.f);
 
@@ -99,6 +100,9 @@ void AuxBusManager::reset()
         auxModPhase[i] = 0.f;
         dlyDampL[i] = 0.f;
         dlyDampR[i] = 0.f;
+        std::fill(dlyBufL[i].begin(), dlyBufL[i].end(), 0.f);
+        std::fill(dlyBufR[i].begin(), dlyBufR[i].end(), 0.f);
+        dlyIdxL[i] = dlyIdxR[i] = 0;
     }
     masterCompEnv = 0.f;
     masterCompGain = 1.f;
@@ -194,66 +198,53 @@ void AuxBusManager::processAux(int b, float* L, float* R, int n, const AuxBusPar
         }
 
         case AUX_FX_DELAY:
+        case AUX_FX_PINGPONG:
         {
             auto& bL = dlyBufL[b];
             auto& bR = dlyBufR[b];
             const size_t len = bL.size();
-
-            // P4 >= 0.5f enables BPM SYNC
-            const bool sync = (p.p4 >= 0.5f);
-            double dL = 0.0, dR = 0.0;
-            if (sync)
+            const int mode = p.fxType == AUX_FX_PINGPONG ? 1 : juce::jlimit(0, 6, p.delayMode);
+            const double ratios[] = { 4. / 3., 1., 1., 1., 2., 1.5, 2. / 3. };
+            const double base = p.p4 >= .5f
+                ? 60. / currentBpm * sampleRate * getSyncDivisionMultipliers()[juce::jlimit(0, 11, (int)std::floor(p.p1 * 11.999f))]
+                : (10. + p.p1 * 1400.) * .001 * sampleRate;
+            const double dL = juce::jlimit(4., (double)len - 16., base);
+            const double dR = juce::jlimit(4., (double)len - 16., base * ratios[mode]);
+            const float fb = juce::jlimit(0.f, .92f, p.p2);
+            const float alpha = .10f + (1.f - juce::jlimit(0.f, 1.f, p.p3)) * .70f;
+            auto read = [len](const std::vector<float>& buf, size_t index, double delay)
             {
-                const auto* kSyncDivs = getSyncDivisionMultipliers();
-                const int divIdx = juce::jlimit(0, 11, (int) std::floor(p.p1 * 11.999f));
-                const double beatSamples = (60.0 / currentBpm) * sampleRate;
-                dL = juce::jlimit(4.0, (double) len - 16.0, beatSamples * kSyncDivs[divIdx]);
-                dR = dL;
-            }
-            else
-            {
-                const double ms = 10.0 + (double) p.p1 * 1400.0;
-                dL = juce::jlimit(4.0, (double) len - 16.0, ms * 0.001 * sampleRate);
-                dR = dL * 0.85; // Natural stereo offset in free mode
-            }
-
-            const float fb = juce::jlimit(0.f, 0.92f, p.p2);
-            const float dampAlpha = 0.10f + (1.0f - juce::jlimit(0.f, 1.f, p.p3)) * 0.70f;
-
+                double pos = (double)index - delay;
+                while (pos < 0.) pos += len;
+                size_t k = (size_t)pos % len;
+                return buf[k] + (float)(pos - std::floor(pos)) * (buf[(k + 1) % len] - buf[k]);
+            };
             for (int i = 0; i < n; ++i)
             {
-                double rpL = (double) dlyIdxL[b] - dL;
-                while (rpL < 0.0) rpL += (double) len;
-                size_t i0L = (size_t) rpL % len;
-                size_t i1L = (i0L + 1) % len;
-                float frL = (float) (rpL - std::floor(rpL));
-                float rL = bL[i0L] + frL * (bL[i1L] - bL[i0L]);
-
-                double rpR = (double) dlyIdxR[b] - dR;
-                while (rpR < 0.0) rpR += (double) len;
-                size_t i0R = (size_t) rpR % len;
-                size_t i1R = (i0R + 1) % len;
-                float frR = (float) (rpR - std::floor(rpR));
-                float rR = bR[i0R] + frR * (bR[i1R] - bR[i0R]);
-
-                // Feedback filtering with high-damping
-                dlyDampL[b] += (rL - dlyDampL[b]) * dampAlpha;
-                dlyDampR[b] += (rR - dlyDampR[b]) * dampAlpha;
-
-                bL[dlyIdxL[b]] = std::tanh(L[i] + dlyDampL[b] * fb);
-                bR[dlyIdxR[b]] = std::tanh(R[i] + dlyDampR[b] * fb);
-                if (++dlyIdxL[b] >= len) dlyIdxL[b] = 0;
-                if (++dlyIdxR[b] >= len) dlyIdxR[b] = 0;
-
-                L[i] = rL;
-                R[i] = rR;
+                const float l = read(bL, dlyIdxL[b], dL), r = read(bR, dlyIdxR[b], dR);
+                float outL = l, outR = r;
+                if (mode == 2)
+                {
+                    outL = (l + read(bR, dlyIdxR[b], dL * .5) + read(bL, dlyIdxL[b], dL * .75)) / 3.f;
+                    outR = (r + read(bL, dlyIdxL[b], dR * .25) + read(bR, dlyIdxR[b], dR * .625)) / 3.f;
+                }
+                dlyDampL[b] += ((mode == 1 ? r : l) - dlyDampL[b]) * alpha;
+                dlyDampR[b] += ((mode == 1 ? l : r) - dlyDampR[b]) * alpha;
+                const float inputL = mode == 1 ? .5f * (L[i] + R[i]) : L[i];
+                const float inputR = mode == 1 ? 0.f : R[i];
+                bL[dlyIdxL[b]] = std::tanh(inputL + dlyDampL[b] * fb);
+                bR[dlyIdxR[b]] = std::tanh(inputR + dlyDampR[b] * fb);
+                dlyIdxL[b] = (dlyIdxL[b] + 1) % len;
+                dlyIdxR[b] = (dlyIdxR[b] + 1) % len;
+                L[i] = outL;
+                R[i] = outR;
             }
             break;
         }
 
         case AUX_FX_DRIVE:
         {
-            saturateStereo(L, R, n, p.p1, 20.f, auxTapeMakeup[(size_t) b]);
+            saturateStereo(L, R, n, p.p1, 64.f, auxTapeMakeup[(size_t) b]);
             const float tone = p.p2;
             for (int i = 0; i < n; ++i)
             {
@@ -389,62 +380,6 @@ void AuxBusManager::processAux(int b, float* L, float* R, int n, const AuxBusPar
 
                 L[i] = (outL * 0.8f + outR * 0.2f) * 0.35f;
                 R[i] = (outR * 0.8f + outL * 0.2f) * 0.35f;
-            }
-            break;
-        }
-
-        case AUX_FX_PINGPONG:
-        {
-            auto& bL = dlyBufL[b];
-            auto& bR = dlyBufR[b];
-            const size_t len = bL.size();
-
-            // P4 >= 0.5f enables BPM SYNC
-            const bool sync = (p.p4 >= 0.5f);
-            double d = 0.0;
-            if (sync)
-            {
-                const auto* kSyncDivs = getSyncDivisionMultipliers();
-                const int divIdx = juce::jlimit(0, 11, (int) std::floor(p.p1 * 11.999f));
-                const double beatSamples = (60.0 / currentBpm) * sampleRate;
-                d = juce::jlimit(4.0, (double) len - 16.0, beatSamples * kSyncDivs[divIdx]);
-            }
-            else
-            {
-                const double ms = 20.0 + (double) p.p1 * 1200.0;
-                d = juce::jlimit(4.0, (double) len - 16.0, ms * 0.001 * sampleRate);
-            }
-
-            const float fb = juce::jlimit(0.f, 0.90f, p.p2);
-            const float dampAlpha = 0.10f + (1.0f - juce::jlimit(0.f, 1.f, p.p3)) * 0.70f;
-
-            for (int i = 0; i < n; ++i)
-            {
-                double rpL = (double) dlyIdxL[b] - d;
-                while (rpL < 0.0) rpL += (double) len;
-                size_t i0L = (size_t) rpL % len;
-                size_t i1L = (i0L + 1) % len;
-                float frL = (float) (rpL - std::floor(rpL));
-                float rL = bL[i0L] + frL * (bL[i1L] - bL[i0L]);
-
-                double rpR = (double) dlyIdxR[b] - d;
-                while (rpR < 0.0) rpR += (double) len;
-                size_t i0R = (size_t) rpR % len;
-                size_t i1R = (i0R + 1) % len;
-                float frR = (float) (rpR - std::floor(rpR));
-                float rR = bR[i0R] + frR * (bR[i1R] - bR[i0R]);
-
-                // Ping-pong cross feedback with tone damping
-                dlyDampL[b] += (rR - dlyDampL[b]) * dampAlpha;
-                dlyDampR[b] += (rL - dlyDampR[b]) * dampAlpha;
-
-                bL[dlyIdxL[b]] = std::tanh(L[i] + dlyDampL[b] * fb);
-                bR[dlyIdxR[b]] = std::tanh(R[i] + dlyDampR[b] * fb);
-                if (++dlyIdxL[b] >= len) dlyIdxL[b] = 0;
-                if (++dlyIdxR[b] >= len) dlyIdxR[b] = 0;
-
-                L[i] = rL;
-                R[i] = rR;
             }
             break;
         }
@@ -688,6 +623,8 @@ void AuxBusManager::processAux(int b, float* L, float* R, int n, const AuxBusPar
 
 void AuxBusManager::processMasterChain(float* L, float* R, int n, const MasterFXParams& p)
 {
+    auto compress = [&]
+    {
     // 1. Master Bus Compressor (SSL-style VCA glue)
     if (p.compOn)
     {
@@ -728,14 +665,20 @@ void AuxBusManager::processMasterChain(float* L, float* R, int n, const MasterFX
         masterCompGR.store(0.f);
     }
 
+    };
+    auto equalize = [&]
+    {
     // 2. Master 4-Band EQ
     if (p.eqOn)
     {
         if (std::abs(p.eqLowGain - lastEqLowGain) > 0.05f ||
             std::abs(p.eqLowMidGain - lastEqLowMidGain) > 0.05f ||
             std::abs(p.eqHiMidGain - lastEqHiMidGain) > 0.05f ||
-            std::abs(p.eqHighGain - lastEqHighGain) > 0.05f)
+            std::abs(p.eqHighGain - lastEqHighGain) > 0.05f || p.eqFrequency != lastEqFrequency || p.eqQ != lastEqQ || p.eqShape != lastEqShape)
         {
+            lastEqShape = p.eqShape;
+            lastEqFrequency = p.eqFrequency;
+            lastEqQ = p.eqQ;
             lastEqLowGain = p.eqLowGain;
             lastEqLowMidGain = p.eqLowMidGain;
             lastEqHiMidGain = p.eqHiMidGain;
@@ -746,14 +689,19 @@ void AuxBusManager::processMasterChain(float* L, float* R, int n, const MasterFX
             const float hmg = std::pow(10.f, p.eqHiMidGain / 20.f);
             const float hg = std::pow(10.f, p.eqHighGain / 20.f);
 
-            *masterEqL[0].coefficients = juce::dsp::IIR::ArrayCoefficients<float>::makeLowShelf(sampleRate, 80.f, 0.707f, lg);
-            *masterEqR[0].coefficients = *masterEqL[0].coefficients;
-            *masterEqL[1].coefficients = juce::dsp::IIR::ArrayCoefficients<float>::makePeakFilter(sampleRate, 450.f, 0.9f, lmg);
-            *masterEqR[1].coefficients = *masterEqL[1].coefficients;
-            *masterEqL[2].coefficients = juce::dsp::IIR::ArrayCoefficients<float>::makePeakFilter(sampleRate, 2500.f, 0.9f, hmg);
-            *masterEqR[2].coefficients = *masterEqL[2].coefficients;
-            *masterEqL[3].coefficients = juce::dsp::IIR::ArrayCoefficients<float>::makeHighShelf(sampleRate, 10000.f, 0.707f, hg);
-            *masterEqR[3].coefficients = *masterEqL[3].coefficients;
+            const float gains[] = {lg, lmg, hmg, hg};
+            for (int band = 0; band < 4; ++band)
+            {
+                const float frequency = juce::jlimit(20.f, (float)sampleRate * .45f, p.eqFrequency[(size_t)band]);
+                const float q = juce::jlimit(.1f, 12.f, p.eqQ[(size_t)band]);
+                auto coefficients = p.eqShape[(size_t)band] == 1
+                    ? juce::dsp::IIR::ArrayCoefficients<float>::makeLowShelf(sampleRate, frequency, q, gains[band])
+                    : p.eqShape[(size_t)band] == 2
+                    ? juce::dsp::IIR::ArrayCoefficients<float>::makeHighShelf(sampleRate, frequency, q, gains[band])
+                    : juce::dsp::IIR::ArrayCoefficients<float>::makePeakFilter(sampleRate, frequency, q, gains[band]);
+                *masterEqL[band].coefficients = coefficients;
+                *masterEqR[band].coefficients = coefficients;
+            }
         }
 
         for (int i = 0; i < n; ++i)
@@ -769,10 +717,14 @@ void AuxBusManager::processMasterChain(float* L, float* R, int n, const MasterFX
         }
     }
 
+    };
+    if (p.eqPreComp) { equalize(); compress(); }
+    else { compress(); equalize(); }
+
     // 3. Master Tape Drive & Ceiling Limiter
     if (p.driveOn && p.drive > 0.001f)
     {
-        saturateStereo(L, R, n, p.drive, 64.f, masterTapeMakeup);
+        saturateStereo(L, R, n, p.drive, 256.f, masterTapeMakeup, p.driveColour);
     }
 
     if (p.limiterOn)
@@ -819,6 +771,7 @@ juce::ValueTree AuxBusManager::serialize() const
     {
         juce::ValueTree ab("AUX_BUS");
         ab.setProperty("index", i, nullptr);
+        ab.setProperty("delayMode", auxParams[i].delayMode, nullptr);
         ab.setProperty("fxType", auxParams[i].fxType, nullptr);
         ab.setProperty("p1", auxParams[i].p1, nullptr);
         ab.setProperty("p2", auxParams[i].p2, nullptr);
@@ -831,6 +784,7 @@ juce::ValueTree AuxBusManager::serialize() const
     }
 
     juce::ValueTree mp("MASTER_PARAMS");
+    mp.setProperty("eqPreComp", masterParams.eqPreComp, nullptr);
     mp.setProperty("compOn", masterParams.compOn, nullptr);
     mp.setProperty("compThresh", masterParams.compThresh, nullptr);
     mp.setProperty("compRatio", masterParams.compRatio, nullptr);
@@ -838,6 +792,12 @@ juce::ValueTree AuxBusManager::serialize() const
     mp.setProperty("compRel", masterParams.compRel, nullptr);
     mp.setProperty("compMakeup", masterParams.compMakeup, nullptr);
 
+    for (int band = 0; band < 4; ++band)
+    {
+        mp.setProperty("eqShape" + juce::String(band), masterParams.eqShape[(size_t)band], nullptr);
+        mp.setProperty("eqFreq" + juce::String(band), masterParams.eqFrequency[(size_t)band], nullptr);
+        mp.setProperty("eqQ" + juce::String(band), masterParams.eqQ[(size_t)band], nullptr);
+    }
     mp.setProperty("eqOn", masterParams.eqOn, nullptr);
     mp.setProperty("eqLowGain", masterParams.eqLowGain, nullptr);
     mp.setProperty("eqLowMidGain", masterParams.eqLowMidGain, nullptr);
@@ -845,6 +805,7 @@ juce::ValueTree AuxBusManager::serialize() const
     mp.setProperty("eqHighGain", masterParams.eqHighGain, nullptr);
 
     mp.setProperty("driveOn", masterParams.driveOn, nullptr);
+    mp.setProperty("driveColour", masterParams.driveColour, nullptr);
     mp.setProperty("drive", masterParams.drive, nullptr);
     mp.setProperty("limiterOn", masterParams.limiterOn, nullptr);
     mp.setProperty("ceiling", masterParams.ceiling, nullptr);
@@ -866,6 +827,7 @@ void AuxBusManager::deserialize(const juce::ValueTree& tree)
             const int idx = (int) child.getProperty("index", -1);
             if (idx >= 0 && idx < 4)
             {
+                auxParams[idx].delayMode = juce::jlimit(0, 6, (int)child.getProperty("delayMode", 0));
                 auxParams[idx].fxType = (int) child.getProperty("fxType", auxParams[idx].fxType);
                 auxParams[idx].p1 = (float) child.getProperty("p1", auxParams[idx].p1);
                 auxParams[idx].p2 = (float) child.getProperty("p2", auxParams[idx].p2);
@@ -878,6 +840,7 @@ void AuxBusManager::deserialize(const juce::ValueTree& tree)
         }
         else if (child.hasType("MASTER_PARAMS"))
         {
+            masterParams.eqPreComp = (bool) child.getProperty("eqPreComp", false);
             masterParams.compOn = (bool) child.getProperty("compOn", masterParams.compOn);
             masterParams.compThresh = (float) child.getProperty("compThresh", masterParams.compThresh);
             masterParams.compRatio = (float) child.getProperty("compRatio", masterParams.compRatio);
@@ -885,6 +848,13 @@ void AuxBusManager::deserialize(const juce::ValueTree& tree)
             masterParams.compRel = (float) child.getProperty("compRel", masterParams.compRel);
             masterParams.compMakeup = (float) child.getProperty("compMakeup", masterParams.compMakeup);
 
+            const MasterFXParams defaults;
+            for (int band = 0; band < 4; ++band)
+            {
+                masterParams.eqShape[(size_t)band] = juce::jlimit(0, 2, (int)child.getProperty("eqShape" + juce::String(band), band == 0 ? 1 : band == 3 ? 2 : 0));
+                masterParams.eqFrequency[(size_t)band] = juce::jlimit(20.f, 20000.f, (float)child.getProperty("eqFreq" + juce::String(band), defaults.eqFrequency[(size_t)band]));
+                masterParams.eqQ[(size_t)band] = juce::jlimit(.1f, 12.f, (float)child.getProperty("eqQ" + juce::String(band), defaults.eqQ[(size_t)band]));
+            }
             masterParams.eqOn = (bool) child.getProperty("eqOn", masterParams.eqOn);
             masterParams.eqLowGain = (float) child.getProperty("eqLowGain", masterParams.eqLowGain);
             masterParams.eqLowMidGain = (float) child.getProperty("eqLowMidGain", masterParams.eqLowMidGain);
@@ -892,6 +862,7 @@ void AuxBusManager::deserialize(const juce::ValueTree& tree)
             masterParams.eqHighGain = (float) child.getProperty("eqHighGain", masterParams.eqHighGain);
 
             masterParams.driveOn = (bool) child.getProperty("driveOn", masterParams.driveOn);
+            masterParams.driveColour = juce::jlimit(0, 3, (int)child.getProperty("driveColour", 0));
             masterParams.drive = (float) child.getProperty("drive", masterParams.drive);
             masterParams.limiterOn = (bool) child.getProperty("limiterOn", masterParams.limiterOn);
             masterParams.ceiling = (float) child.getProperty("ceiling", masterParams.ceiling);

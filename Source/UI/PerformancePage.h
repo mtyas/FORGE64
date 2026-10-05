@@ -46,6 +46,9 @@ private:
     std::unique_ptr<juce::Slider> speedSlider;
     std::unique_ptr<juce::Label> coordsLabel;
 
+    int loopIndex = 0;
+    std::unique_ptr<juce::TextButton> recordButton, playButton, clearButton;
+    std::unique_ptr<juce::Slider> loopSpeed;
     float puckX = 0.5f;
     float puckY = 0.5f;
     bool isDragging = false;
@@ -57,7 +60,7 @@ private:
 // ===========================================================================
 // Performance Page (8 Forge Macro Dials + Dual XY Expression Pads)
 // ===========================================================================
-class PerformancePage : public juce::Component
+class PerformancePage : public juce::Component, private juce::Timer
 {
 public:
     PerformancePage(Forge64Processor& processor, ModRingKnob::Services& svcs);
@@ -67,6 +70,7 @@ public:
     void resized() override;
 
 private:
+    void timerCallback() override;
     Forge64Processor& proc;
     ModRingKnob::Services& services;
 
@@ -85,8 +89,7 @@ private:
     std::unique_ptr<XYPadComponent> xyPadA;
     std::unique_ptr<XYPadComponent> xyPadB;
 
-    // Quick Live Audition Trigger Strip
-    std::array<std::unique_ptr<juce::TextButton>, 16> liveTrigBtns;
+
 };
 
 } // namespace f64

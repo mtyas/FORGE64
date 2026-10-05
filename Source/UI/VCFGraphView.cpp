@@ -59,6 +59,7 @@ void VCFGraphView::timerCallback()
 {
     auto getP = [&](const char* base, float def) -> float
     {
+        if (readEffectiveValue) return readEffectiveValue(base, def);
         if (auto* p = state.getRawParameterValue(padParamId(pad, base)))
             return p->load();
         return def;

@@ -36,12 +36,14 @@ juce::ValueTree LFOSource::makeDefault()
     t.setProperty("uni", false, nullptr);
     t.setProperty("glide", 0.0, nullptr);
     t.setProperty("phase", 0.0, nullptr);
+    t.setProperty("resetOnPad", false, nullptr);
+    t.setProperty("trigPad", -1, nullptr);
     return t;
 }
 
 void LFOSource::syncFromState()
 {
-    ModSource::syncFromState();
+    PadResetSource::syncFromState();
     if (! state.isValid()) return;
     enabled  = bool(state.getProperty("enabled", false));
     shape    = (int) state.getProperty("shape", 0);
@@ -55,9 +57,11 @@ void LFOSource::syncFromState()
 
 void LFOSource::render(float* out, int n)
 {
+    beginResetBlock();
     if (! enabled.load())
     {
         std::fill_n(out, n, 0.f);
+        endResetBlock();
         return;
     }
 
@@ -70,6 +74,7 @@ void LFOSource::render(float* out, int n)
 
     for (int i = 0; i < n; ++i)
     {
+        resetAtSample(i);
         phase += dph;
         const int step = (int) std::floor(phase);
         if (phase >= 1.0)
@@ -111,6 +116,7 @@ void LFOSource::render(float* out, int n)
         }
         out[i] = un ? juce::jlimit(0.f, 1.f, v) : v;
     }
+    endResetBlock();
 }
 
 // ---------------------------------------------------------------------------
@@ -126,12 +132,14 @@ juce::ValueTree RandomSource::makeDefault()
     t.setProperty("div", 7, nullptr);
     t.setProperty("p1", 0.5, nullptr);
     t.setProperty("uni", false, nullptr);
+    t.setProperty("resetOnPad", false, nullptr);
+    t.setProperty("trigPad", -1, nullptr);
     return t;
 }
 
 void RandomSource::syncFromState()
 {
-    ModSource::syncFromState();
+    PadResetSource::syncFromState();
     if (! state.isValid()) return;
     enabled = bool(state.getProperty("enabled", false));
     kind    = (int) state.getProperty("kind", 0);
@@ -144,9 +152,11 @@ void RandomSource::syncFromState()
 
 void RandomSource::render(float* out, int n)
 {
+    beginResetBlock();
     if (! enabled.load())
     {
         std::fill_n(out, n, 0.f);
+        endResetBlock();
         return;
     }
 
@@ -162,6 +172,7 @@ void RandomSource::render(float* out, int n)
         const double dt = 0.0015 * juce::jlimit(0.05, 8.0, hz / 4.0);
         for (int i = 0; i < n; ++i)
         {
+            resetAtSample(i);
             const double dx = 10.0 * (ly - lx);
             const double dy = lx * (28.0 - lz) - ly;
             const double dz = lx * ly - (8.0 / 3.0) * lz;
@@ -170,6 +181,7 @@ void RandomSource::render(float* out, int n)
             { lx = 0.1; ly = 0.0; lz = 0.0; }
             out[i] = toOut(clampRange((float) (lx / 20.0), -1.f, 1.f));
         }
+        endResetBlock();
         return;
     }
 
@@ -178,6 +190,7 @@ void RandomSource::render(float* out, int n)
 
     for (int i = 0; i < n; ++i)
     {
+        resetAtSample(i);
         phase += dph;
         const int step = (int) std::floor(phase);
         const float ph = (float) (phase - std::floor(phase));
@@ -203,6 +216,7 @@ void RandomSource::render(float* out, int n)
         }
         out[i] = toOut(v);
     }
+    endResetBlock();
 }
 
 // ---------------------------------------------------------------------------
@@ -473,8 +487,8 @@ void SeqSource::render(float* out, int n)
 
         const float local = (float) ((t - stepStart) / stepLen);
         const float target = (local >= 0.f && local < g) ? effectiveCur : 0.f;
-        mem += (target - mem) * coef;
-        out[i] = un ? mem : mem * 2.f - 1.f;
+        mem += (target - mem) * (isQuant ? 1.f : coef);
+        out[i] = (un || isQuant) ? mem : mem * 2.f - 1.f;
     }
 }
 

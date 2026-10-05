@@ -3,6 +3,8 @@
 #include "../Engine/PadDefs.h"
 #include <array>
 #include <atomic>
+#include <algorithm>
+#include <vector>
 
 namespace f64 {
 
@@ -51,13 +53,54 @@ protected:
 };
 
 // ---------------------------------------------------------------------------
-class LFOSource final : public ModSource
+class PadResetSource : public ModSource
+{
+public:
+    void prepare(double sr, int maxBlock) override
+    {
+        ModSource::prepare(sr, maxBlock);
+        resetOffsets.reserve((size_t)juce::jmax(1, maxBlock));
+    }
+    void syncFromState() override
+    {
+        ModSource::syncFromState();
+        resetOnPad = bool(state.getProperty("resetOnPad", false));
+        triggerPad = (int) state.getProperty("trigPad", -1);
+    }
+    void retrigger() override { resetRequested.store(true); }
+    // Scheduled on the audio thread, before the source's next render block.
+    void scheduleReset(int sampleOffset) { resetOffsets.push_back(juce::jmax(0, sampleOffset)); }
+    std::atomic<bool> resetOnPad { false };
+    std::atomic<int> triggerPad { -1 }; // -1 = any pad
+protected:
+    virtual void resetCycle() = 0;
+    void beginResetBlock()
+    {
+        if (resetRequested.exchange(false)) resetCycle();
+        std::sort(resetOffsets.begin(), resetOffsets.end());
+        nextReset = 0;
+    }
+    void resetAtSample(int sample)
+    {
+        while (nextReset < resetOffsets.size() && resetOffsets[nextReset] <= sample)
+        {
+            resetCycle();
+            ++nextReset;
+        }
+    }
+    void endResetBlock() { resetOffsets.clear(); }
+private:
+    std::atomic<bool> resetRequested { false };
+    std::vector<int> resetOffsets;
+    size_t nextReset = 0;
+};
+
+class LFOSource final : public PadResetSource
 {
 public:
     static juce::ValueTree makeDefault();
     void syncFromState() override;
     void render(float* out, int n) override;
-    void retrigger() override { phase = 0.0; prevStep = -1; }
 
     std::atomic<int>   shape { 0 }; // 0 sin, 1 tri, 2 saw, 3 sqr, 4 S&H, 5 S&H glide
     std::atomic<float> rate { 2.0f };
@@ -68,19 +111,19 @@ public:
     std::atomic<float> phaseOff { 0.f };
 
 private:
+    void resetCycle() override { phase = 0.0; prevStep = -1; held = glideMem = 0.f; }
     double phase = 0.0;
     int    prevStep = -1;
     float  held = 0.f, glideMem = 0.f;
 };
 
 // ---------------------------------------------------------------------------
-class RandomSource final : public ModSource
+class RandomSource final : public PadResetSource
 {
 public:
     static juce::ValueTree makeDefault();
     void syncFromState() override;
     void render(float* out, int n) override;
-    void retrigger() override { phase = 0.0; prevStep = -1; }
 
     std::atomic<int>   kind { 0 }; // 0 S&H, 1 smooth, 2 drunk, 3 prob-step, 4 Lorenz
     std::atomic<float> rate { 4.0f };
@@ -90,6 +133,11 @@ public:
     std::atomic<bool>  uni { false };
 
 private:
+    void resetCycle() override
+    {
+        phase = 0.0; prevStep = -1; held = prevHeld = 0.f;
+        lx = 0.1; ly = lz = 0.0;
+    }
     double phase = 0.0;
     int    prevStep = -1;
     float  held = 0.f, prevHeld = 0.f;

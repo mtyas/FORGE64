@@ -1,3 +1,4 @@
+#include "UI/SequencerRecordControl.h"
 #include "PluginEditor.h"
 #include "UI/UICommon.h"
 
@@ -296,6 +297,49 @@ public:
     }
 };
 
+class RecordingPadFrame : public juce::Component
+{
+public:
+    RecordingPadFrame() { setInterceptsMouseClicks(false, false); }
+    void paint(juce::Graphics& g) override
+    {
+        const float breath = .55f + .25f * std::sin(juce::Time::getMillisecondCounter() * .0025f);
+        const auto frame = getLocalBounds().toFloat().reduced(4.f);
+        const juce::Colour red(0xFFFF3044);
+        g.setColour(red.withAlpha(breath * .07f)); g.drawRoundedRectangle(frame, 8.f, 10.f);
+        g.setColour(red.withAlpha(breath * .16f)); g.drawRoundedRectangle(frame, 8.f, 6.f);
+        g.setColour(red.withAlpha(breath)); g.drawRoundedRectangle(frame, 8.f, 2.f);
+    }
+};
+
+class HeaderRecordButton : public juce::TextButton
+{
+public:
+    HeaderRecordButton() : juce::TextButton("") {}
+    void paintButton(juce::Graphics& g, bool hover, bool down) override
+    {
+        auto bounds = getLocalBounds().toFloat().reduced(1.f);
+        ui::drawForgedPlate(g, bounds, 4.f, down);
+        if (getToggleState())
+        {
+            g.setColour(juce::Colour(0xFFE32936));
+            g.fillRoundedRectangle(bounds, 4.f);
+            g.setColour(juce::Colours::white.withAlpha(.8f));
+            g.drawRoundedRectangle(bounds, 4.f, 1.5f);
+        }
+        auto centre = bounds.getCentre();
+        if (getToggleState())
+        {
+            const float pulse = .65f + .35f * std::sin(juce::Time::getMillisecondCounter() * .006f);
+            juce::ColourGradient glow(juce::Colour(0xFFFF3030).withAlpha(pulse), centre.x, centre.y,
+                juce::Colours::transparentBlack, centre.x + 13.f, centre.y, true);
+            g.setGradientFill(glow); g.fillEllipse(centre.x-13.f, centre.y-13.f, 26.f, 26.f);
+        }
+        g.setColour(getToggleState() ? juce::Colours::white : juce::Colour(hover ? 0xFFFF4040 : 0xFFAD2828));
+        g.fillEllipse(centre.x-6.f, centre.y-6.f, 12.f, 12.f);
+    }
+};
+
 Forge64Editor::Forge64Editor(Forge64Processor& p)
     : AudioProcessorEditor(p), processor(p)
 {
@@ -328,6 +372,23 @@ Forge64Editor::Forge64Editor(Forge64Processor& p)
         bankBtns[(size_t) i] = std::move(b);
     }
 
+    recordBtn = std::make_unique<HeaderRecordButton>();
+    setupSequencerRecordButton(*recordBtn, processor);
+    addAndMakeVisible(recordBtn.get());
+    recordStatus = ui::makeLabel("", 14.f, juce::Colours::white);
+    recordStatus->setFont(uiFont(14.f, true));
+    recordStatus->setJustificationType(juce::Justification::centred);
+    recordStatus->setColour(juce::Label::backgroundColourId, juce::Colour(0xFFB21D2D));
+    recordStatus->setInterceptsMouseClicks(false, false);
+    recordStatus->setComponentID("recordingStatus");
+    addChildComponent(recordStatus.get());
+    recordingFrame = std::make_unique<RecordingPadFrame>();
+    recordingFrame->setComponentID("recordingPadFrame");
+    addChildComponent(recordingFrame.get());
+    auto toggleRecording = recordBtn->onClick;
+    recordBtn->onClick = [this, toggleRecording] { toggleRecording(); refreshRecordingStatus(); };
+
+
     pageNavLnF = std::make_unique<PageNavLookAndFeel>();
 
     auto makeNav = [&](std::unique_ptr<juce::TextButton>& btn, const char* name, ActivePage pg)
@@ -347,7 +408,7 @@ Forge64Editor::Forge64Editor(Forge64Processor& p)
     makeNav(performNavBtn,"PERFORM",   Page_Performance);
 
     undoBtn = std::make_unique<ToolIconButton>(ToolIconButton::Undo, "UNDO");
-    undoBtn->setTooltip("Undo parameter gesture (Ctrl+Z)");
+    undoBtn->setTooltip("Undo last edit (Ctrl+Z)");
     undoBtn->onClick = [this]
     {
         processor.getUndoManager().undo();
@@ -470,6 +531,7 @@ Forge64Editor::Forge64Editor(Forge64Processor& p)
             juce::jlimit(640, 1600, processor.lastUIHeight));
     setBank(0);
     setPage(Page_Grid);
+    refreshRecordingStatus();
     startTimerHz(30);
     isInitialized = true;
 }
@@ -503,6 +565,12 @@ void Forge64Editor::paint(juce::Graphics& g)
     g.setGradientFill(juce::ColourGradient(juce::Colour(0xFF1E1715), 0.f, 0.f,
                                            juce::Colour(0xFF130E0D), 0.f, bannerH, false));
     g.fillRect(0.f, 0.f, (float) getWidth(), bannerH);
+
+    if (processor.getSequencer().isPadRecording())
+    {
+        g.setColour(juce::Colour(0xFFEB3044));
+        g.fillRect(0, 50, getWidth(), 4);
+    }
 
     // Warm ember line along the very top
     g.setColour(juce::Colour(0xFFFF6600).withAlpha(0.12f));
@@ -552,6 +620,8 @@ void Forge64Editor::resized()
         if (bankBtns[(size_t) i])
             bankBtns[(size_t) i]->setBounds(136 + i * 29, 11, 26, 32);
 
+    if (recordBtn) recordBtn->setBounds(252, 14, 26, 26);
+
     // Right-hand header controls (Master knob and Kit/Bank/Pad preset menus)
     if (masterKnob)  masterKnob->setBounds(w - 78, 4, 70, 46);
     if (padMenuBtn)  padMenuBtn->setBounds(w - 140, 11, 56, 32);
@@ -569,11 +639,11 @@ void Forge64Editor::resized()
     toolDividerLeftX = (float) (rx + 2);
 
     // Main Page navigation tabs: prominent, bold, fully readable
-    const int availableForNav = (int) toolDividerLeftX - 12 - 256;
+    const int availableForNav = (int) toolDividerLeftX - 12 - 286;
     int gW = 88, eW = 88, mW = 84, sW = 106, pW = 88;
     if (availableForNav < 470 && availableForNav > 200)
     {
-        const float scale = juce::jlimit(0.68f, 1.0f, (float) availableForNav / 470.f);
+        const float scale = juce::jlimit(0.4f, 1.0f, (float) availableForNav / 474.f);
         gW = (int) (88 * scale);
         eW = (int) (88 * scale);
         mW = (int) (84 * scale);
@@ -581,7 +651,7 @@ void Forge64Editor::resized()
         pW = (int) (88 * scale);
     }
 
-    int nx = 256;
+    int nx = 286;
     if (gridNavBtn)    { gridNavBtn->setBounds(nx, 11, gW, 32); nx += gW + 4; }
     if (editNavBtn)    { editNavBtn->setBounds(nx, 11, eW, 32); nx += eW + 4; }
     if (mixerNavBtn)   { mixerNavBtn->setBounds(nx, 11, mW, 32); nx += mW + 4; }
@@ -640,6 +710,9 @@ juce::Rectangle<int> Forge64Editor::centerBounds() const
 void Forge64Editor::layoutCenter()
 {
     auto r = centerBounds();
+    if (recordStatus && recordStatus->isVisible())
+        recordStatus->setBounds(r.removeFromTop(28));
+
     if (sequencerDrawer)
     {
         const int dH = sequencerDrawer->getDesiredHeight();
@@ -657,6 +730,14 @@ void Forge64Editor::layoutCenter()
         seqPage->setBounds(r);
     if (performPage && currentPage == Page_Performance)
         performPage->setBounds(r);
+    if (recordingFrame)
+    {
+        recordingFrame->setBounds(r);
+        recordingFrame->setVisible(processor.getSequencer().isPadRecording() && currentPage == Page_Grid);
+        if (recordingFrame->isVisible()) recordingFrame->toFront(false);
+        if (infoScreen && infoScreen->isVisible()) infoScreen->toFront(false);
+    }
+
 }
 
 void Forge64Editor::setPage(ActivePage p)
@@ -712,8 +793,22 @@ void Forge64Editor::setPage(ActivePage p)
     layoutCenter();
 }
 
+void Forge64Editor::refreshRecordingStatus()
+{
+    const bool recording = processor.getSequencer().isPadRecording();
+    const bool changed = recordStatus->isVisible() != recording;
+    recordBtn->setToggleState(recording, juce::dontSendNotification);
+    recordBtn->repaint();
+    if (recordingFrame->isVisible()) recordingFrame->repaint();
+    recordStatus->setText("RECORDING  |  TRACK " + juce::String(processor.getSequencer().selectedTrackIndex() + 1)
+                         + "  |  OVERDUB", juce::dontSendNotification);
+    recordStatus->setVisible(recording);
+    if (changed) { layoutCenter(); repaint(0, 0, getWidth(), 54); }
+}
+
 void Forge64Editor::timerCallback()
 {
+    refreshRecordingStatus();
     for (auto* knob : knobList)
     {
         float normalized = 0.f;

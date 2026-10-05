@@ -213,7 +213,7 @@ public:
         {
             const float posFactor = 1.0f - ((float) e.y / (float) juce::jmax(1, getHeight()));
             const float velVal = juce::jlimit(0.35f, 1.0f, 0.45f + posFactor * 0.55f);
-            owner.proc().triggerAudition(pad, velVal);
+            owner.proc().triggerAudition(pad, velVal, true);
             owner.setSelected(pad);
             owner.host.padSelected(pad);
         }

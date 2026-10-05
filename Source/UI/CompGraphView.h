@@ -19,6 +19,7 @@ public:
     void mouseUp(const juce::MouseEvent& e) override;
 
     std::function<void()> onParamsChanged;
+    std::function<float(const char*, float)> readEffectiveValue;
 
 private:
     void timerCallback() override;

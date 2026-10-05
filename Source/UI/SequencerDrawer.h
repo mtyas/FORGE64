@@ -64,6 +64,7 @@ private:
 
         void paint(juce::Graphics& g) override;
         void mouseDown(const juce::MouseEvent& e) override;
+        void mouseUp(const juce::MouseEvent&) override { owner.seq.endEditGesture(); }
         void mouseDrag(const juce::MouseEvent& e) override;
         void mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel) override;
 

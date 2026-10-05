@@ -25,6 +25,14 @@
 - Loaded bank pads show their own named Lua DSP preset and retain their personal scripts.
 - Right-click a sequencer lock button to reset that variable on the selected track or randomize it at 10–100% strength. Both actions support Undo and preserve the rhythm.
 - Click the top-left FORGE64 logo for credits, version information, GPL v3 licence, and website, GitHub, and Ko-fi links.
+- Sequencer edits support Undo/Redo, with each drag treated as one action. Right-click a track name to copy or paste the whole track, including locks and track settings.
+- The **RATCH** lane sets 1–8 evenly spaced triggers per step. Drag vertically or use the mouse wheel; right-click the lane button to reset or randomize ratchets.
+- Stereo delay retains its stereo ratio in BPM sync mode. Choose 3:4, 1:1, 1:2, 2:3 or 3:2, ping-pong or multi-tap beneath the delay controls.
+- Each master EQ band has frequency, Q and gain controls, with bell or shelf selection. Drag a graph node horizontally for frequency and vertically for gain. The EQ appears first in the master console, beside a larger compressor graph and output/colour controls. Choose EQ before or after compression. EQ, filter and compressor graphs follow live modulation. Master drive builds gradually, with Tape, Tube, Transistor and Transformer colours and level compensation.
+- The small red record button after the bank tabs overdubs mouse and MIDI pad hits onto the selected track. Existing steps remain; a new hit replaces only its step. The track stays audible while recording. A breathing red frame surrounds the pad grid, a red banner names the recording track, and the record button lights brightly. Toggle off to finish; a completed take supports Undo.
+- LFOs and random modulators can reset on mouse, MIDI or sequencer pad hits. Enable **Reset on pad trigger** and choose all pads or one pad in the source editor.
+- Melodic sequencer modulation automatically locks pitch depth to the octave range, keeping pad Tune and global Voice Pitch in semitones.
+- Each performance XY pad has **Record**, **Play/Stop**, **Clear** and **0.125x–8x** loop speed controls. Arm **Record**, then press and drag the puck: releasing it finishes the recording and starts its loop. Recordings last up to 120 seconds and save with kits/projects. Playback continues with the editor closed. The performance audition buttons have been removed.
 
 **FORGE64** is a 64-pad modular drum workstation, procedural percussion synthesizer, and sequencing powerhouse built with modern C++20 and the JUCE 8 framework. 
 

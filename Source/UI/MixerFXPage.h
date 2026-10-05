@@ -25,6 +25,7 @@ public:
     void mouseUp(const juce::MouseEvent& e) override;
 
     std::function<void(int band, float newGain)> onBandGainChanged;
+    std::function<void(int band, float frequency)> onBandFrequencyChanged;
 
 private:
     Forge64Processor& proc;
@@ -85,7 +86,7 @@ private:
 
         std::unique_ptr<juce::Label> titleLabel;
         std::unique_ptr<juce::ToggleButton> enableBtn;
-        std::unique_ptr<juce::ComboBox> fxCombo;
+        std::unique_ptr<juce::ComboBox> fxCombo, delayModeCombo;
 
         std::unique_ptr<ModRingKnob> p1Knob, p2Knob, p3Knob, p4Knob;
         std::unique_ptr<ModRingKnob> returnKnob, panKnob;
@@ -118,8 +119,12 @@ private:
     std::unique_ptr<MasterEQGraphView> eqGraph;
     std::unique_ptr<ModRingKnob> eqLowGainKnob, eqLowMidGainKnob, eqHiMidGainKnob, eqHighGainKnob;
 
+    std::array<std::unique_ptr<juce::ComboBox>, 4> eqShapeCombos;
+    std::array<std::unique_ptr<ModRingKnob>, 4> eqFreqKnobs, eqQKnobs;
     // Output & Saturation
     std::unique_ptr<ModRingKnob> masterDriveKnob, masterVolKnob;
+    std::unique_ptr<juce::ComboBox> driveColourCombo;
+    std::unique_ptr<juce::ComboBox> chainOrderCombo;
     std::unique_ptr<MasterPeakMeter> masterPeakMeter;
 };
 

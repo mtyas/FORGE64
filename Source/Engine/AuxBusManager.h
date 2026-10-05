@@ -258,6 +258,7 @@ inline juce::String formatAuxReturnPan(float val)
 
 struct AuxBusParams
 {
+    int delayMode = 0; // 0: 3:4, 1: ping-pong, 2: multitap, 3: 1:1, 4: 1:2, 5: 2:3, 6: 3:2
     int fxType = AUX_FX_REVERB;
     float p1 = 0.5f; // Size / Time / Drive / Rate / Thresh / Cutoff
     float p2 = 0.5f; // Damp / Feedback / Tone / Depth / Ratio / Reso
@@ -270,6 +271,7 @@ struct AuxBusParams
 
 struct MasterFXParams
 {
+    bool eqPreComp = false;
     // Master Bus Compressor (clean & punchy default: disabled until engaged)
     bool compOn = false;
     float compThresh = -10.f; // -40 .. 0 dB
@@ -279,6 +281,9 @@ struct MasterFXParams
     float compMakeup = 0.f;   // 0 .. 18 dB
 
     // Master 4-Band EQ
+    std::array<int, 4> eqShape { 0, 0, 0, 0 }; // Bell, low shelf, high shelf
+    std::array<float, 4> eqFrequency { 80.f, 450.f, 2500.f, 10000.f };
+    std::array<float, 4> eqQ { .707f, .9f, .9f, .707f };
     bool eqOn = true;
     float eqLowGain = 0.f;    // -12 .. +12 dB @ 80 Hz
     float eqLowMidGain = 0.f; // -12 .. +12 dB @ 450 Hz
@@ -288,6 +293,7 @@ struct MasterFXParams
     // Master Drive & Limiter (drive off by default for uncompressed clarity)
     bool driveOn = false;
     float drive = 0.0f;       // 0 .. 1 (tape warmth)
+    int driveColour = 0;      // Tape, Tube, Transistor, Transformer
     bool limiterOn = true;
     float ceiling = -0.3f;    // -3 .. 0 dB
 };
@@ -361,6 +367,8 @@ private:
     std::array<float, 4> auxTapeMakeup { 1.f, 1.f, 1.f, 1.f };
     std::atomic<float> masterCompGR { 0.f };
     juce::dsp::IIR::Filter<float> masterEqL[4], masterEqR[4];
+    std::array<int, 4> lastEqShape { -1, -1, -1, -1 };
+    std::array<float, 4> lastEqFrequency {}, lastEqQ {};
     float lastEqLowGain = -999.f, lastEqLowMidGain = -999.f, lastEqHiMidGain = -999.f, lastEqHighGain = -999.f;
     float lastFilterCutoff[4] = { -1.f, -1.f, -1.f, -1.f };
     float lastFilterQ[4] = { -1.f, -1.f, -1.f, -1.f };

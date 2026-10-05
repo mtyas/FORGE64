@@ -127,6 +127,10 @@ Forge64Processor::Forge64Processor()
     : AudioProcessor(makeBuses()),
       apvts(*this, &undoManager, "PARAMS", makeParams())
 {
+    sequencer.bindUndoManager(&undoManager);
+    xyLoopers[1].xDestination.store(3);
+    xyLoopers[1].yDestination.store(4);
+    for (auto& value : performanceValues) value.store(-1.f);
     ScriptPresetManager::initializePresetsOnDisk();
     SequencePresetManager::initializePresetsOnDisk();
     PresetManager::initializePresetsOnDisk();
@@ -148,6 +152,7 @@ Forge64Processor::Forge64Processor()
     presetPtr->onLoaded = [this] { onPresetLoaded(); };
     presetPtr->onKitLoaded = [this](const juce::ValueTree& incoming)
     {
+        deserializeXYLoops(incoming.getChildWithName("PERFORMANCE_XY"));
         if (auto seq = incoming.getChildWithName("SEQUENCER"); seq.isValid())
             sequencer.deserialize(seq);
         if (auto aux = incoming.getChildWithName("AUX_MASTER_FX"); aux.isValid())
@@ -163,6 +168,8 @@ Forge64Processor::Forge64Processor()
         kitRoot.appendChild(sequencer.serialize(), nullptr);
         kitRoot.removeChild(kitRoot.getChildWithName("AUX_MASTER_FX"), nullptr);
         kitRoot.appendChild(auxManager.serialize(), nullptr);
+        kitRoot.removeChild(kitRoot.getChildWithName("PERFORMANCE_XY"), nullptr);
+        kitRoot.appendChild(serializeXYLoops(), nullptr);
     };
 
     voices.setDeps(gridPtr.get(), modPtr.get());
@@ -217,13 +224,14 @@ Forge64Processor::Forge64Processor()
 
 Forge64Processor::~Forge64Processor() = default;
 
-void Forge64Processor::triggerAudition(int pad, float velocity)
+void Forge64Processor::triggerAudition(int pad, float velocity, bool recordable)
 {
     if (pad < 0 || pad >= kNumPads)
         return;
     lastTriggeredPad.store(pad);
     const juce::SpinLock::ScopedLockType sl(auditionLock);
-    auditionQueue.push_back({ pad, velocity, false });
+    AuditionTrigger trigger; trigger.pad = pad; trigger.vel = velocity; trigger.recordable = recordable;
+    auditionQueue.push_back(trigger);
 }
 
 void Forge64Processor::triggerStepAudition(int pad, float velocity, const StepData& stepData)
@@ -355,6 +363,43 @@ float Forge64Processor::globalEff(int idx) const
     return par->convertFrom0to1(clampRange(v, 0.f, 1.f));
 }
 
+float Forge64Processor::displayPadValue(int pad, const char* parameter, float fallback) const
+{
+    const auto id = padParamId(pad, parameter);
+    auto* control = dynamic_cast<juce::RangedAudioParameter*>(apvts.getParameter(id));
+    if (!control) return fallback;
+    const auto normalized = juce::jlimit(0.f, 1.f, control->getValue() + modPtr->displayOffsetFor(id.toStdString()));
+    return control->convertFrom0to1(normalized);
+}
+
+MasterFXParams Forge64Processor::modulatedMasterParams(bool display) const
+{
+    auto result = auxManager.masterParams;
+    auto apply = [&](const std::string& id, float base, float low, float high, bool frequency = false)
+    {
+        juce::NormalisableRange<float> range(low, high);
+        if (frequency) range.setSkewForCentre(1000.f);
+        const float offset = display ? modPtr->displayOffsetFor(id) : modPtr->offsetFor(id);
+        return range.convertFrom0to1(juce::jlimit(0.f, 1.f, range.convertTo0to1(base) + offset));
+    };
+    result.compThresh = apply("m_cthr", result.compThresh, -40.f, 0.f);
+    result.compRatio = apply("m_crat", result.compRatio, 1.f, 20.f);
+    result.compMakeup = apply("m_cgan", result.compMakeup, 0.f, 18.f);
+    result.compAtk = apply("m_catk", result.compAtk, .1f, 100.f);
+    result.compRel = apply("m_crel", result.compRel, 10.f, 1000.f);
+    result.eqLowGain = apply("m_eqlg", result.eqLowGain, -12.f, 12.f);
+    result.eqLowMidGain = apply("m_eqlmg", result.eqLowMidGain, -12.f, 12.f);
+    result.eqHiMidGain = apply("m_eqhmg", result.eqHiMidGain, -12.f, 12.f);
+    result.eqHighGain = apply("m_eqhg", result.eqHighGain, -12.f, 12.f);
+    for (int band = 0; band < 4; ++band)
+    {
+        result.eqFrequency[(size_t)band] = apply("m_eqf" + std::to_string(band), result.eqFrequency[(size_t)band], 20.f, 20000.f, true);
+        result.eqQ[(size_t)band] = apply("m_eqq" + std::to_string(band), result.eqQ[(size_t)band], .1f, 12.f);
+    }
+    result.drive = apply("m_drv", result.drive, 0.f, 1.f);
+    return result;
+}
+
 void Forge64Processor::fillPadParams(int pad, PadParams& out, float modScale)
 {
     auto& ptrs = padPtrs[(size_t) pad];
@@ -396,6 +441,21 @@ void Forge64Processor::fillPadParams(int pad, PadParams& out, float modScale)
 // ---------------------------------------------------------------------------
 void Forge64Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
 {
+    // Loop playback is an internal control signal, not a parameter edit.
+    // This keeps automatic movement out of APVTS's undo history.
+    for (auto& value : performanceValues) value.store(-1.f);
+    for (auto& loop : xyLoopers)
+        if (loop.process(buffer.getNumSamples(), getSampleRate()))
+        {
+            auto apply = [this](int choice, float value)
+            {
+                int index = choice >= 1 && choice <= 8 ? choice - 1 : choice >= 101 && choice <= 103 ? choice - 93 : -1;
+                if (index >= 0) performanceValues[(size_t)index].store(value);
+            };
+            apply(loop.xDestination.load(), loop.x.load());
+            apply(loop.yDestination.load(), loop.y.load());
+        }
+
     juce::ScopedNoDenormals noDenormals;
     const int n = buffer.getNumSamples();
     if (n <= 0)
@@ -512,6 +572,8 @@ void Forge64Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::Midi
     auto retriggerEnvsForPad = [&](int padIndex, int noteNum, int sampleOffset = 0)
     {
         lastTriggeredPad.store(padIndex);
+        padTriggerSerial.fetch_add(1);
+        modPtr->resetSourcesForPad(padIndex, sampleOffset);
         for (int i = 0; i < kNumEnv; ++i)
         {
             if (auto* env = dynamic_cast<EnvSource*>(modPtr->sourceAt(slotEnv(i))))
@@ -558,6 +620,7 @@ void Forge64Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::Midi
                 rt.lastNote.store(re.note);
                 rt.lastHitStamp.store(clockNow);
                 padEvents[(size_t) cp].push_back({ re.pos, { cp, re.vel, re.note, re.chan, false } });
+                sequencer.recordPadHit(cp, re.vel, re.pos, bpm, (float)(re.note - eff[(size_t)cp].mnote));
                 retriggerEnvsForPad(cp, re.note, re.pos);
             }
             else
@@ -573,6 +636,7 @@ void Forge64Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::Midi
                         rt.lastNote.store(re.note);
                         rt.lastHitStamp.store(clockNow);
                         padEvents[(size_t) p].push_back({ re.pos, { p, re.vel, re.note, re.chan, false } });
+                        sequencer.recordPadHit(p, re.vel, re.pos, bpm);
                         retriggerEnvsForPad(p, re.note, re.pos);
                     }
                 }
@@ -596,6 +660,7 @@ void Forge64Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::Midi
         {
             if (a.pad >= 0 && a.pad < kNumPads)
             {
+                if (a.recordable) sequencer.recordPadHit(a.pad, a.vel, 0, bpm);
                 const int nte = eff[(size_t) a.pad].mnote;
                 padEvents[(size_t) a.pad].push_back({ 0, { a.pad, a.vel, nte, 1, false } });
                 retriggerEnvsForPad(a.pad, nte);
@@ -722,14 +787,16 @@ void Forge64Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::Midi
 
     // Apply triggers before rendering envelopes. The previous order used a
     // stale sustain value for the first block of every retriggered note.
-    modPtr->renderSources(n);
+    std::array<float, kNumMacros> motionMacros;
+    for (int k = 0; k < kNumMacros; ++k) motionMacros[(size_t)k] = performanceValues[(size_t)k].load();
+    modPtr->renderSources(n, &motionMacros);
     modPtr->computeOffsets();
     for (int p = 0; p < kNumPads; ++p)
         fillPadParams(p, eff[(size_t) p]);
 
     // 5) Render pads: voices -> optional Lua -> pad chain -> bus/aux routing.
     const double sr = getSampleRate();
-    const float master = globalEff(GI_Master);
+    const float master = performanceValue(8) >= 0.f ? performanceValue(8) : globalEff(GI_Master);
 
     bool anyPadSolo = false;
     for (int p = 0; p < kNumPads; ++p)
@@ -1055,7 +1122,7 @@ void Forge64Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::Midi
             job.vel = rt.lastVel.load();
             job.note = rt.lastNote.load();
             // Chromatic mode: transpose by incoming MIDI note relative to base note
-            job.luaTuneOffset = (pp.mode == 1) ? (float) (job.note - pp.mnote) : 0.f;
+            job.luaTuneOffset = ((pp.mode == 1) ? (float) (job.note - pp.mnote) : 0.f) + modPtr->offsetFor("v_pitch");
         }
     }
 
@@ -1106,10 +1173,19 @@ void Forge64Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::Midi
 
     // 6) 4 Aux Send Buses processed through AuxBusManager
     auxManager.setBpm(bpm);
-    auxManager.processAux(0, auxA.getWritePointer(0), auxA.getWritePointer(1), n, auxManager.auxParams[0]);
-    auxManager.processAux(1, auxB.getWritePointer(0), auxB.getWritePointer(1), n, auxManager.auxParams[1]);
-    auxManager.processAux(2, auxC.getWritePointer(0), auxC.getWritePointer(1), n, auxManager.auxParams[2]);
-    auxManager.processAux(3, auxD.getWritePointer(0), auxD.getWritePointer(1), n, auxManager.auxParams[3]);
+    auto auxWithMotion = [this](int index)
+    {
+        auto parameters = auxManager.auxParams[index];
+        if (performanceValue(9) >= 0.f && (parameters.fxType == AUX_FX_REVERB || parameters.fxType == AUX_FX_PLATE || parameters.fxType == AUX_FX_SPRING || parameters.fxType == AUX_FX_GATED_VERB))
+            parameters.p1 = performanceValue(9);
+        if (performanceValue(10) >= 0.f && (parameters.fxType == AUX_FX_DELAY || parameters.fxType == AUX_FX_PINGPONG))
+            parameters.p1 = performanceValue(10);
+        return parameters;
+    };
+    auxManager.processAux(0, auxA.getWritePointer(0), auxA.getWritePointer(1), n, auxWithMotion(0));
+    auxManager.processAux(1, auxB.getWritePointer(0), auxB.getWritePointer(1), n, auxWithMotion(1));
+    auxManager.processAux(2, auxC.getWritePointer(0), auxC.getWritePointer(1), n, auxWithMotion(2));
+    auxManager.processAux(3, auxD.getWritePointer(0), auxD.getWritePointer(1), n, auxWithMotion(3));
 
     // Sum Aux returns into main bus (bus 0)
     {
@@ -1131,7 +1207,7 @@ void Forge64Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::Midi
     }
 
     // Process Master Bus Chain (VCA Glue Compressor, 4-Band Mastering EQ, Tape Drive & Limiter)
-    auxManager.processMasterChain(busScratch.getWritePointer(0), busScratch.getWritePointer(1), n, auxManager.masterParams);
+    auxManager.processMasterChain(busScratch.getWritePointer(0), busScratch.getWritePointer(1), n, modulatedMasterParams(false));
 
     // Calculate master output peak levels for UI metering
     {
@@ -1244,12 +1320,19 @@ bool Forge64Processor::applyLearnedControl(const juce::String& id, float value)
         return true;
     }
     auto& p = auxManager.masterParams;
-    if (id == "m_drv") p.drive = value;
+    if (id == "m_drv") { p.drive = value; p.driveOn = value > .001f; }
     else if (id == "m_cthr") p.compThresh = -40.f + value * 40.f;
     else if (id == "m_crat") p.compRatio = 1.f + value * 19.f;
     else if (id == "m_cgan") p.compMakeup = value * 18.f;
     else if (id == "m_catk") p.compAtk = 0.1f + value * 99.9f;
     else if (id == "m_crel") p.compRel = 10.f + value * 990.f;
+    else if (id.startsWith("m_eqf") && id.getTrailingIntValue() < 4)
+    {
+        juce::NormalisableRange<double> range(20., 20000.);
+        range.setSkewForCentre(1000.);
+        p.eqFrequency[(size_t)id.getTrailingIntValue()] = (float)range.convertFrom0to1(value);
+    }
+    else if (id.startsWith("m_eqq") && id.getTrailingIntValue() < 4) p.eqQ[(size_t)id.getTrailingIntValue()] = .1f + value * 11.9f;
     else if (id == "m_eqlg") p.eqLowGain = -12.f + value * 24.f;
     else if (id == "m_eqlmg") p.eqLowMidGain = -12.f + value * 24.f;
     else if (id == "m_eqhmg") p.eqHiMidGain = -12.f + value * 24.f;
@@ -1348,8 +1431,10 @@ void Forge64Processor::loadFactoryKit(int kitIndex)
 
     // Reset Master FX
     auxManager.masterParams.compOn = false;
+    auxManager.masterParams.eqPreComp = false;
     auxManager.masterParams.driveOn = false;
     auxManager.masterParams.drive = 0.0f;
+    auxManager.masterParams.driveColour = 0;
     auxManager.masterParams.compThresh = -10.f;
     auxManager.masterParams.compRatio = 2.5f;
     auxManager.masterParams.compAtk = 25.f;
@@ -1711,6 +1796,8 @@ void Forge64Processor::getStateInformation(juce::MemoryBlock& destData)
     kitRoot.appendChild(sequencer.serialize(), nullptr);
     kitRoot.removeChild(kitRoot.getChildWithName("AUX_MASTER_FX"), nullptr);
     kitRoot.appendChild(auxManager.serialize(), nullptr);
+    kitRoot.removeChild(kitRoot.getChildWithName("PERFORMANCE_XY"), nullptr);
+    kitRoot.appendChild(serializeXYLoops(), nullptr);
 
     if (auto xml = kitRoot.createXml())
     {
@@ -1752,6 +1839,7 @@ void Forge64Processor::setStateInformation(const void* data, int sizeInBytes)
             PresetManager::copyTreeInPlace(dst, src);
     }
 
+    deserializeXYLoops(incoming.getChildWithName("PERFORMANCE_XY"));
     auto ml = incoming.getChildWithName("MIDI_LEARN");
     if (ml.isValid())
         midiLearn.deserialize(ml);
@@ -1778,6 +1866,18 @@ void Forge64Processor::setStateInformation(const void* data, int sizeInBytes)
 juce::AudioProcessorEditor* Forge64Processor::createEditor()
 {
     return new Forge64Editor(*this);
+}
+
+
+juce::ValueTree Forge64Processor::serializeXYLoops() const
+{
+    juce::ValueTree tree("PERFORMANCE_XY");
+    for (const auto& loop : xyLoopers) tree.appendChild(loop.serialize(), nullptr);
+    return tree;
+}
+void Forge64Processor::deserializeXYLoops(const juce::ValueTree& tree)
+{
+    for (int k = 0; k < 2; ++k) xyLoopers[(size_t)k].deserialize(tree.getChild(k));
 }
 
 } // namespace f64

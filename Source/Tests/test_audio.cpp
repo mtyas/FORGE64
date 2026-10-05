@@ -454,11 +454,13 @@ static int testBankPresetsAndLocks()
     return failures == 0 ? 0 : 1;
 }
 
+#include "feature_regressions.h"
+
 int main(int argc, char* argv[])
 {
     juce::ScopedJuceInitialiser_GUI guiInit;
     if (argc > 1 && juce::String(argv[1]) == "--dsp-midi-regression")
-        return testDspAndMidiFixes();
+        return testDspAndMidiFixes() + testSequencerAndPerformanceFeatures();
     if (argc > 1 && juce::String(argv[1]) == "--bank-lock-regression")
         return testBankPresetsAndLocks();
 
@@ -622,6 +624,7 @@ int main(int argc, char* argv[])
         proc->getSequencer().clearCurrentPattern();
         // Select track 3
         proc->getSequencer().setSelectedTrack(3);
+        auto beforeRandomize = proc->getSequencer().getPatternCopy(proc->getSequencer().selectedPatternIndex());
         proc->getSequencer().randomizeCurrentTrack();
 
         int t0Active = 0, t3Active = 0;
@@ -629,12 +632,13 @@ int main(int argc, char* argv[])
         for (const auto& s : pat.tracks[0].steps) if (s.active) t0Active++;
         for (const auto& s : pat.tracks[3].steps) if (s.active) t3Active++;
 
-        bool randSelectedPassed = (t0Active == 0 && t3Active > 0);
+        bool randSelectedPassed = pat.tracks[0] == beforeRandomize->tracks[0] && pat.tracks[3] != beforeRandomize->tracks[3];
         std::cout << "[5] Selected Track Randomizer (Track 3): "
                   << (randSelectedPassed ? "PASSED" : "FAILED")
                   << " (T0 active=" << t0Active << ", T3 active=" << t3Active << ")" << std::endl;
         if (! randSelectedPassed) failedPads++;
 
+        auto beforeRandomizeAll = proc->getSequencer().getPatternCopy(proc->getSequencer().selectedPatternIndex());
         proc->getSequencer().randomizeAllTracks();
         int totalActive = 0;
         const auto& patAll = proc->getSequencer().currentPattern();
@@ -642,7 +646,8 @@ int main(int argc, char* argv[])
             for (const auto& s : patAll.tracks[(size_t) t].steps)
                 if (s.active) totalActive++;
 
-        bool randAllPassed = (totalActive >= 8);
+        bool randAllPassed = true;
+        for (int k = 0; k < 8; ++k) randAllPassed &= patAll.tracks[(size_t)k] != beforeRandomizeAll->tracks[(size_t)k];
         std::cout << "[6] All Tracks Randomizer: " << (randAllPassed ? "PASSED" : "FAILED")
                   << " (Total active steps=" << totalActive << ")" << std::endl;
         if (! randAllPassed) failedPads++;
