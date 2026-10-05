@@ -212,6 +212,7 @@ void VoicePool::applyEvent(const VoiceEvent& e, double sr, const PadParams& pp, 
 
     t->sample = smp;
     t->srcType = pp.srcType;
+    t->sourceAtTrigger = pp.srcType;
     if (pp.srcType == SRC_SAMPLE && ! smp)
     {
         // Fallback drum synth based on pad index
@@ -286,6 +287,12 @@ void VoicePool::renderSegment(Voice& v, float* L, float* R, int from, int to,
     if (n <= 0)
         return;
 
+    if (v.sourceAtTrigger != pp.srcType)
+    {
+        deactivate(v);
+        return;
+    }
+
     v.ageSec += (float) n / (float) sr;
 
     ModMatrix::VoiceMods vm;
@@ -312,7 +319,7 @@ void VoicePool::renderSegment(Voice& v, float* L, float* R, int from, int to,
     const float rawDecCoef = std::exp(-1.f / (juce::jmax(0.005f, pp.decay) * (float) sr));
     const float drumAtkCoef = 1.f - std::exp(-1.f / (0.0015f * (float) sr));
     float ampMod = juce::jmax(0.f, 1.f + vm.amp);
-    const bool isLuaSynth = (v.srcType == SRC_LUA || (grid != nullptr && grid->runtime(v.pad).scriptOn.load()));
+    const bool isLuaSynth = padSourceUsesLua(pp.srcType, grid != nullptr && grid->runtime(v.pad).scriptOn.load());
     const float drumRelSec = isLuaSynth ? juce::jmax(0.12f, pp.decay * 1.8f)
                                         : juce::jmax(0.005f, pp.decay);
     const float drumRelCoef = std::exp(-1.f / (drumRelSec * (float) sr));
@@ -451,7 +458,7 @@ void VoicePool::renderSegment(Voice& v, float* L, float* R, int from, int to,
         {
             // Procedural drum synthesis (only when not synthesized by Lua DSP)
             float sig = 0.f;
-            if (v.srcType == SRC_LUA || (grid != nullptr && grid->runtime(v.pad).scriptOn.load()))
+            if (isLuaSynth)
             {
                 // When Lua DSP generates the audio, avoid executing DrumSynth math
                 a = 0.f;
@@ -510,6 +517,11 @@ void VoicePool::renderSegment(Voice& v, float* L, float* R, int from, int to,
         const float amp = v.env * v.fade * ampMod;
         L[i] += a * amp * gainL;
         R[i] += b * amp * gainR;
+        if (v.srcType == SRC_SAMPLE && ended)
+        {
+            deactivate(v);
+            return;
+        }
     }
 
     if (v.fade <= 0.f)

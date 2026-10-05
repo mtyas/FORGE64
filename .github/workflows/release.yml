@@ -236,6 +236,7 @@ jobs:
             - 🐧 **Linux (x64)**: [`FORGE64-Linux.tar.gz`](https://github.com/mtyas/FORGE64/releases/download/${{ steps.tag_info.outputs.tag }}/FORGE64-Linux.tar.gz)
 
             ### Changes in v0.95
+            - Sample Playback uses the loaded sample even when a pad has an enabled Lua script. Switching back to Lua preserves the script; sample playback stops correctly at its endpoint and the editor shows the loaded filename. Regression tests cover engine switching and saved-project restoration.
             - LFO and random modulators can reset on mouse, MIDI or sequencer pad triggers, with an all-pads or specific-pad selector and pad learn. Reset timing and settings are covered by regression tests.
             - The small header record button overdubs mouse/MIDI pad hits onto the selected track without clearing it. Existing steps stay audible; a new hit replaces only its step. A breathing red pad-grid frame and recording-track banner make recording visible, and each take supports Undo.
             - Sequencer Undo/Redo restores the last edit without changing patterns. Drags form one undo action; right-click a track name to copy/paste a complete track.

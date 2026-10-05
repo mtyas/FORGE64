@@ -1114,7 +1114,7 @@ void Forge64Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::Midi
         job.pp = pp;
         job.lastTail = isLastTailBlock;
         job.newTrig = isNewTrig;
-        job.runLua = padIsSounding && (rt.scriptOn.load() || pp.srcType == SRC_LUA);
+        job.runLua = padIsSounding && padSourceUsesLua(pp.srcType, rt.scriptOn.load());
         if (job.runLua)
         {
             const int64_t hit = rt.lastHitStamp.load();

@@ -1503,7 +1503,7 @@ void PadEditor::updateModuleControls(int srcType)
 void PadEditor::updateSampleLabel()
 {
     if (sampleLabel == nullptr) return;
-    const auto p = proc.grid().padState(pad).getProperty("samplePath", "").toString();
+    const auto p = proc.grid().padState(pad).getProperty("sample", "").toString();
     if (p.isEmpty())
         sampleLabel->setText("No sample loaded", juce::dontSendNotification);
     else

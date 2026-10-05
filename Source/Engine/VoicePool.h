@@ -39,6 +39,7 @@ private:
         bool active = false;
         int voiceId = 0, pad = -1, choke = 0, note = 60, chan = 1;
         int srcType = 0;
+        int sourceAtTrigger = SRC_SAMPLE;
         DrumSynth::VoiceState synth;
         SampleManager::Ptr sample;
         double pos = 0.0, baseRate = 1.0;

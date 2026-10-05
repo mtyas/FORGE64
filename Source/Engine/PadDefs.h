@@ -110,6 +110,11 @@ enum PadSourceType
     SRC_COUNT
 };
 
+inline bool padSourceUsesLua(int source, bool scriptEnabled)
+{
+    return source != SRC_SAMPLE && (source == SRC_LUA || scriptEnabled);
+}
+
 inline const char* padSourceTypeName(int srcType)
 {
     switch (srcType)

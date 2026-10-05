@@ -455,12 +455,13 @@ static int testBankPresetsAndLocks()
 }
 
 #include "feature_regressions.h"
+#include "sampler_regressions.h"
 
 int main(int argc, char* argv[])
 {
     juce::ScopedJuceInitialiser_GUI guiInit;
     if (argc > 1 && juce::String(argv[1]) == "--dsp-midi-regression")
-        return testDspAndMidiFixes() + testSequencerAndPerformanceFeatures();
+        return testDspAndMidiFixes() + testSequencerAndPerformanceFeatures() + testSamplerSourceSelection();
     if (argc > 1 && juce::String(argv[1]) == "--bank-lock-regression")
         return testBankPresetsAndLocks();
 
