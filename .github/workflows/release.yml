@@ -236,6 +236,7 @@ jobs:
             - 🐧 **Linux (x64)**: [`FORGE64-Linux.tar.gz`](https://github.com/mtyas/FORGE64/releases/download/${{ steps.tag_info.outputs.tag }}/FORGE64-Linux.tar.gz)
 
             ### Changes in v0.95
+            - Every modulation source editor includes a saved Offset control (-1 to +1), including MIDI and macros, to shift the modulation centre relative to the destination knob's base value. Double-click resets it to zero; older sessions default to zero.
             - The bottom sequencer selects steps on left-click, duplicates them by dragging, and erases them only on right-click.
             - Pad right-click menus include load/save and cut/copy/paste, with confirmation before paste overwrites a pad.
             - Selecting a sequencer step in pad edit mode displays its assigned pad, named module, knobs, and step locks, including across banks.

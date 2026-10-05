@@ -67,6 +67,14 @@ void ModMatrix::fillDefaultTrees(juce::ValueTree& srcOut, juce::ValueTree& matOu
     for (int i = 0; i < kNumRnd; ++i) srcOut.appendChild(RandomSource::makeDefault(), nullptr);
     for (int i = 0; i < kNumEnv; ++i) srcOut.appendChild(EnvSource::makeDefault(), nullptr);
     for (int i = 0; i < kNumSeq; ++i) srcOut.appendChild(SeqSource::makeDefault(), nullptr);
+    for (int i = 0; i < kNumMidiSrc + kNumMacros; ++i)
+    {
+        juce::ValueTree state(i < kNumMidiSrc ? "MIDI" : "MACRO");
+        state.setProperty("enabled", true, nullptr);
+        srcOut.appendChild(state, nullptr);
+    }
+    for (auto state : srcOut)
+        state.setProperty("offset", 0.f, nullptr);
     matOut = juce::ValueTree("MODMAT");
 }
 
@@ -125,9 +133,17 @@ void ModMatrix::renderSources(int n)
 
         sources[(size_t) s]->render(buf.data(), n);
 
+        const auto& source = *sources[(size_t) s];
+        const bool active = source.enabled.load();
+        if (! active) std::fill_n(buf.data(), n, 0.f);
+        const float shift = active ? source.outputOffset.load() : 0.f;
+
         float sum = 0.f;
         for (int i = 0; i < n; ++i)
+        {
+            buf[(size_t) i] += shift;
             sum += buf[(size_t) i];
+        }
         srcAvg[(size_t) s] = n > 0 ? sum / (float) n : 0.f;
     }
 }
@@ -205,7 +221,7 @@ void ModMatrix::renderVoice(int voiceId, VoiceMods& out, int n)
     {
         auto* env = static_cast<EnvSource*>(sources[(size_t) ref.srcIdx].get());
         env->renderInstance(ref.inst, n);
-        const float v = env->instanceValue(ref.inst);
+        const float v = env->instanceValue(ref.inst) + (env->enabled.load() ? env->outputOffset.load() : 0.f);
         const int envIdx = ref.srcIdx - slotEnv(0);
 
         for (const auto& conn : cacheLive->envVoice[(size_t) envIdx])
@@ -354,6 +370,18 @@ void ModMatrix::retriggerSource(int slot)
 
 void ModMatrix::syncAllFromTrees()
 {
+    // Older kits contain only the generated sources. Add state for MIDI and
+    // macros too, so every source can store its offset and open an editor.
+    while (srcTree.getNumChildren() < kNumSlots)
+    {
+        const int slot = srcTree.getNumChildren();
+        juce::ValueTree state(slotClassOf(slot) == SC_MIDI ? "MIDI" : "MACRO");
+        state.setProperty("enabled", true, nullptr);
+        state.setProperty("offset", 0.f, nullptr);
+        srcTree.appendChild(state, nullptr);
+    }
+    for (int slot = 0; slot < kNumSlots; ++slot)
+        sources[(size_t) slot]->state = srcTree.getChild(slot);
     for (auto& s : sources)
         s->syncFromState();
     rebuildCache();

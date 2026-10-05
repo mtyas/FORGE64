@@ -5,6 +5,7 @@
 #include "../Engine/StepLockOperations.h"
 #include "../UI/PadEditor.h"
 #include "../UI/SequencerDrawer.h"
+#include "../UI/ModPanel.h"
 #include "../Engine/Saturation.h"
 #include <iostream>
 
@@ -145,6 +146,80 @@ static int testDspAndMidiFixes()
     proc->getSequencer().clearCurrentPattern();
     proc->getSequencer().deserializePattern(0, sequence);
     check(proc->getSequencer().currentPattern().tracks[0].steps[0].pLockVcfDrive == 0.6f, "filter drive step locks persist");
+    {
+        auto offsetProc = std::make_unique<f64::Forge64Processor>();
+        auto& matrix = offsetProc->mods();
+        matrix.prepare(48000., 256);
+        std::array<float, f64::kNumSlots> original;
+        for (int slot = 0; slot < f64::kNumSlots; ++slot)
+        {
+            check(matrix.sourceState(slot).isValid(), "every source has editable saved state");
+            matrix.setSourceParam(slot, "enabled", true);
+            matrix.addConnection(slot, "offset-test-" + juce::String(slot), 0.4f);
+        }
+        matrix.renderSources(1);
+        for (int slot = 0; slot < f64::kNumSlots; ++slot)
+        {
+            original[(size_t) slot] = matrix.sourceAverage(slot);
+            matrix.setSourceParam(slot, "offset", 0.25f);
+        }
+        matrix.renderSources(1); matrix.computeOffsets();
+        for (int slot = 0; slot < f64::kNumSlots; ++slot)
+        {
+            check(std::abs(matrix.sourceAverage(slot) - original[(size_t) slot] - 0.25f) < 0.005f,
+                  "offset shifts all source classes without clipping the waveform");
+            check(std::abs(matrix.offsetFor(("offset-test-" + juce::String(slot)).toStdString())
+                    - 0.4f * matrix.sourceAverage(slot)) < 0.001f,
+                  "source offset follows connection amount");
+        }
+        matrix.setSourceParam(f64::slotEnv(0), "offset", -0.4f);
+        matrix.addConnection(f64::slotEnv(0), "v_pitch", 12.f);
+        matrix.renderSources(1); matrix.computeOffsets(); matrix.triggerVoice(0);
+        f64::ModMatrix::VoiceMods voice;
+        matrix.renderVoice(0, voice, 1);
+        check(std::abs(voice.pitch + 4.8f) < 0.001f, "voice envelope offset is applied once from the first sample");
+        for (int slot : { f64::slotLFO(0), f64::slotMidi(0), f64::slotMacro(0) })
+        {
+            matrix.setSourceParam(slot, "enabled", false);
+            matrix.renderSources(1);
+            check(matrix.sourceAverage(slot) == 0.f, "disabled source emits no modulation or offset");
+        }
+        juce::MemoryBlock state;
+        offsetProc->getStateInformation(state);
+        matrix.setSourceParam(f64::slotMacro(0), "offset", -0.7f);
+        offsetProc->setStateInformation(state.getData(), (int) state.getSize());
+        check(std::abs(matrix.sourceAt(f64::slotMacro(0))->outputOffset.load() - 0.25f) < 0.001f,
+              "macro offset survives session restore");
+        auto legacyXml = juce::XmlDocument::parse(juce::String::fromUTF8((const char*) state.getData(), (int) state.getSize()));
+        auto legacy = juce::ValueTree::fromXml(*legacyXml);
+        auto sources = legacy.getChildWithName("MODSRC");
+        while (sources.getNumChildren() > f64::slotMidi(0)) sources.removeChild(sources.getNumChildren() - 1, nullptr);
+        for (auto source : sources) source.removeProperty("offset", nullptr);
+        const auto text = legacy.createXml()->toString();
+        offsetProc->setStateInformation(text.toRawUTF8(), (int) text.getNumBytesAsUTF8());
+        for (int slot = 0; slot < f64::kNumSlots; ++slot)
+            check(matrix.sourceState(slot).isValid() && matrix.sourceAt(slot)->outputOffset.load() == 0.f,
+                  "legacy sessions default every source offset to zero");
+        f64::ModPanel panel(matrix, offsetProc->getKit().getChildWithName("MODSRC"),
+                            offsetProc->getKit().getChildWithName("MODMAT"), offsetProc.get());
+        panel.setSize(340, 700);
+        std::function<juce::Slider*(juce::Component&)> findOffset = [&](juce::Component& component) -> juce::Slider*
+        {
+            if (component.getComponentID() == "source-offset") return dynamic_cast<juce::Slider*>(&component);
+            for (auto* child : component.getChildren()) if (auto* slider = findOffset(*child)) return slider;
+            return nullptr;
+        };
+        for (int slot : { f64::slotLFO(0), f64::slotRnd(0), f64::slotEnv(0), f64::slotSeq(0), f64::slotMidi(0), f64::slotMacro(0) })
+        {
+            panel.openSourceEditor(slot, nullptr);
+            auto* slider = findOffset(panel);
+            check(slider != nullptr && slider->getValue() == 0., "every source editor exposes a zero-default offset control");
+            if (slider != nullptr) slider->setValue(-0.35, juce::sendNotificationSync);
+            check(std::abs(matrix.sourceAt(slot)->outputOffset.load() + 0.35f) < 0.001f,
+                  "editor offset control updates the source");
+            panel.closeInspector();
+        }
+    }
     std::cout << "DSP / MIDI regression tests: " << failures << " failures." << std::endl;
     return failures == 0 ? 0 : 1;
 }

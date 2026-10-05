@@ -21,12 +21,17 @@ public:
     virtual ~ModSource() = default;
 
     virtual void prepare(double sr, int /*maxBlock*/) { sampleRate = sr; }
-    virtual void syncFromState() {}
+    virtual void syncFromState()
+    {
+        enabled = bool(state.getProperty("enabled", false));
+        outputOffset = juce::jlimit(-1.f, 1.f, (float) state.getProperty("offset", 0.f));
+    }
     virtual void render(float* out, int n) = 0;
     virtual void retrigger() {}
     virtual void setTempo(double bpm) { tempoBpm = bpm; }
 
     std::atomic<bool> enabled { false };
+    std::atomic<float> outputOffset { 0.f };
     juce::ValueTree   state;
     double            sampleRate = 48000.0;
     double            tempoBpm   = 120.0;

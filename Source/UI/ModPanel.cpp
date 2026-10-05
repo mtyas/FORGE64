@@ -597,11 +597,20 @@ public:
         const int shape = (int) st.getProperty("shape", 0);
         const bool uni = bool(st.getProperty("uni", false));
         const float phaseOffset = (float) (double) st.getProperty("phase", 0.0);
+        const float shift = (float) st.getProperty("offset", 0.f);
         const auto col = slotColour(slot);
 
         const float w = bounds.getWidth();
         const float h = bounds.getHeight();
         const float midY = bounds.getY() + h * 0.5f;
+        const float scale = h * 0.42f / (1.f + std::abs(shift));
+        const float uniMin = juce::jmin(0.f, shift);
+        const float uniMax = juce::jmax(1.f, 1.f + shift);
+        auto outputY = [&](float value)
+        {
+            return uni ? bounds.getBottom() - 6.f - (value - uniMin) / (uniMax - uniMin) * (h - 12.f)
+                       : midY - value * scale;
+        };
 
         if (! uni)
         {
@@ -642,8 +651,7 @@ public:
                 default: v = std::sin(t * juce::MathConstants<float>::twoPi); break;
             }
 
-            float py = uni ? (bounds.getBottom() - 6.f - juce::jlimit(0.f, 1.f, 0.5f + 0.5f * v) * (h - 12.f))
-                           : (midY - v * (h * 0.42f));
+            float py = outputY((uni ? 0.5f + 0.5f * v : v) + shift);
             float px = bounds.getX() + (float) i;
             if (i == 0) p.startNewSubPath(px, py);
             else        p.lineTo(px, py);
@@ -660,8 +668,7 @@ public:
         g.strokePath(p, juce::PathStrokeType(2.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
 
         float liveVal = matrix.sourceAverage(slot);
-        float beadY = uni ? (bounds.getBottom() - 6.f - liveVal * (h - 12.f))
-                          : (midY - liveVal * (h * 0.42f));
+        float beadY = outputY(liveVal);
         float beadX = bounds.getX() + bounds.getWidth() * 0.5f;
         g.setColour(juce::Colours::white);
         g.fillEllipse(beadX - 4.f, beadY - 4.f, 8.f, 8.f);
@@ -706,6 +713,7 @@ public:
         const float dec  = (float) (double) st.getProperty("dec", 0.3);
         const float sus  = (float) (double) st.getProperty("sus", 0.5);
         const float rel  = (float) (double) st.getProperty("rel", 0.1);
+        const float shift = (float) st.getProperty("offset", 0.f);
         const auto col   = slotColour(slot);
 
         const float totalTime = juce::jmax(0.01f, dly + atk + hold + dec + 0.2f + rel);
@@ -713,8 +721,10 @@ public:
         const float h = bounds.getHeight();
         const float bX = bounds.getX();
         const float bY = bounds.getY();
-        const float baseline = bY + h - 8.f;
-        const float peakY = bY + 12.f;
+        const float unitHeight = (h - 20.f) / (1.f + std::abs(shift));
+        const float zeroY = bY + h - 8.f + juce::jmin(0.f, shift) * unitHeight;
+        const float baseline = zeroY - shift * unitHeight;
+        const float peakY = baseline - unitHeight;
         const float susY = baseline - sus * (baseline - peakY);
 
         const float xDly = bX + (dly / totalTime) * w;
@@ -761,9 +771,9 @@ public:
         drawStage(xRel, "R");
 
         float liveVal = matrix.sourceAverage(slot);
-        if (liveVal > 0.001f)
+        if (std::abs(liveVal) > 0.001f)
         {
-            float curY = baseline - liveVal * (baseline - peakY);
+            float curY = zeroY - liveVal * unitHeight;
             g.setColour(juce::Colours::white);
             g.fillEllipse(bX + w * 0.5f - 4.f, curY - 4.f, 8.f, 8.f);
             g.setColour(col.withAlpha(0.7f));
@@ -1030,6 +1040,8 @@ public:
     {
         const int cls = slotClassOf(slot);
 
+        addSlider("offset", "Offset", -1.0, 1.0, 0.001, 1.0);
+
         if (cls == SC_LFO)
         {
             addRow(nullptr, new LFOResponseView(matrix, slot, st), 76);
@@ -1145,7 +1157,13 @@ private:
         s->setSliderStyle(juce::Slider::LinearHorizontal);
         s->setTextBoxStyle(juce::Slider::TextBoxRight, false, 52, 18);
         s->setNormalisableRange(juce::NormalisableRange<double>(min, max, interval, skew));
-        s->setValue((double) st.getProperty(key, min), juce::dontSendNotification);
+        s->setValue((double) st.getProperty(key, key == "offset" ? 0.0 : min), juce::dontSendNotification);
+        if (key == "offset")
+        {
+            s->setDoubleClickReturnValue(true, 0.0);
+            s->setTooltip("Shift this source's modulation centre. Added to the destination knob's base value through the connection amount. Double-click to reset.");
+            s->setComponentID("source-offset");
+        }
         s->setColour(juce::Slider::backgroundColourId, ui::panelHi());
         s->setColour(juce::Slider::trackColourId, ui::line());
         s->setColour(juce::Slider::thumbColourId, slotColour(slot));

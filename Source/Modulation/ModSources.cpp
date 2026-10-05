@@ -41,6 +41,7 @@ juce::ValueTree LFOSource::makeDefault()
 
 void LFOSource::syncFromState()
 {
+    ModSource::syncFromState();
     if (! state.isValid()) return;
     enabled  = bool(state.getProperty("enabled", false));
     shape    = (int) state.getProperty("shape", 0);
@@ -130,6 +131,7 @@ juce::ValueTree RandomSource::makeDefault()
 
 void RandomSource::syncFromState()
 {
+    ModSource::syncFromState();
     if (! state.isValid()) return;
     enabled = bool(state.getProperty("enabled", false));
     kind    = (int) state.getProperty("kind", 0);
@@ -225,6 +227,7 @@ juce::ValueTree EnvSource::makeDefault()
 
 void EnvSource::syncFromState()
 {
+    ModSource::syncFromState();
     if (! state.isValid()) return;
     enabled = bool(state.getProperty("enabled", false));
     dly   = (float) (double) state.getProperty("dly", 0.0);
@@ -367,6 +370,7 @@ juce::ValueTree SeqSource::makeDefault()
 
 void SeqSource::syncFromState()
 {
+    ModSource::syncFromState();
     if (! state.isValid()) return;
     enabled  = bool(state.getProperty("enabled", false));
     numSteps = clampRange((int) state.getProperty("numSteps", 16), 1, 32);
