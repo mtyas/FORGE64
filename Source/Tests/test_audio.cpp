@@ -213,7 +213,10 @@ static int testDspAndMidiFixes()
         {
             panel.openSourceEditor(slot, nullptr);
             auto* slider = findOffset(panel);
-            check(slider != nullptr && slider->getValue() == 0., "every source editor exposes a zero-default offset control");
+            // Slider step rounding can leave a tiny floating-point residual
+            // around zero on Apple Silicon.
+            check(slider != nullptr && std::abs(slider->getValue()) < 0.000001,
+                  "every source editor exposes a zero-default offset control");
             if (slider != nullptr) slider->setValue(-0.35, juce::sendNotificationSync);
             check(std::abs(matrix.sourceAt(slot)->outputOffset.load() + 0.35f) < 0.001f,
                   "editor offset control updates the source");
